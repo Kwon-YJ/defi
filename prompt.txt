@@ -3,6 +3,7 @@
 TODO.txt를 읽고 가장 먼저 해야할 체크박스에 해당되는 업무를 수행 (코드 작성 및 수정, 웹페이지 조사 등 할 수 있는 모든것을 한다)
 이제 임무가 완수되었으므로 체크박스를 체크로 바꾸고
 Make a commit and push your changes.
+if you fail to push. show me the commit msg, and I will push manually.
 
 [주의사항]
 TODO.txt를 수정할 수 있는 경우는 오직 3개 뿐.
