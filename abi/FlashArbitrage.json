@@ -1,0 +1,50 @@
+{
+  "abi": [
+    {
+      "inputs": [],
+      "stateMutability": "nonpayable",
+      "type": "constructor"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {"indexed": true, "name": "token", "type": "address"},
+        {"indexed": false, "name": "flashLoanAmount", "type": "uint256"},
+        {"indexed": false, "name": "profit", "type": "uint256"},
+        {"indexed": true, "name": "executor", "type": "address"}
+      ],
+      "name": "ArbitrageExecuted",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {"indexed": true, "name": "token", "type": "address"},
+        {"indexed": false, "name": "flashLoanAmount", "type": "uint256"},
+        {"indexed": false, "name": "reason", "type": "string"}
+      ],
+      "name": "ArbitrageFailed",
+      "type": "event"
+    },
+    {
+      "inputs": [
+        {
+          "components": [
+            {"name": "tokens", "type": "address[]"},
+            {"name": "exchanges", "type": "address[]"},
+            {"name": "amounts", "type": "uint256[]"},
+            {"name": "flashLoanAmount", "type": "uint256"},
+            {"name": "minProfit", "type": "uint256"}
+          ],
+          "name": "params",
+          "type": "tuple"
+        }
+      ],
+      "name": "executeArbitrage",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    }
+  ],
+  "bytecode": "0x608060405234801561001057600080fd5b50..."
+}
