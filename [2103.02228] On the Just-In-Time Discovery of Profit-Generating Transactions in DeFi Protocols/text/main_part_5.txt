@@ -1,0 +1,174 @@
+APPENDICES (CONTINUED)
+
+[TABLE: Continuation of ERC-20 assets summary]
+UBT   | 10,410  | 191,153 | 14
+GNO   | 10,695  | 170,507 | 21
+RDN   | 13,842  | 143,308 | 16
+TKN   | 5,485   | 84,912  | 7
+TRST  | 7,738   | 71,223  | 7
+AMN   | 2,593   | 53,010  | 3
+FXC   | 2,024   | 47,906  | 14
+SAN   | 2,247   | 36,054  | 7
+AMPL  | 1,931   | 31,124  | 10
+HEDG  | 1,709   | 30,770  | 17
+POA20 | 560     | 26,390  | 10
+
+B. Supported DeFi actions
+
+We summarize the 96 DeFi actions DeFiPoser supports in the following table. All considered cryptocurrency assets trade on both the Uniswap and Bancor exchanges. SAI and DAI, in addition, can be converted to each on MakerDAO.
+
+[TABLE: List of the supported DeFi actions of DeFiPoser showing Uniswap, Bancor, and MakerDAO trading pairs]
+
+UNISWAP:
+From: ETH → To: AMN, AMPL, ANT, BAT, BNT, DAI, DATA, ENJ, FXC, GNO, HEDG, KNC, MANA, MKR, POA20, RCN, RDN, RLC, SAI, SAN, SNT, TKN, TRST, UBT
+And reverse pairs for all assets
+
+BANCOR:
+From: BNT → To: AMN, AMPL, ANT, BAT, DATA, ENJ, ETH, FXC, GNO, HEDG, KNC, MANA, MKR, POA20, RCN, RDN, RLC, SAI, SAN, SNT, TKN, TRST, UBT
+And reverse pairs for all assets
+
+MAKERDAO:
+From: DAI → To: SAI
+From: SAI → To: DAI
+
+C. SMT encoding example
+
+To ease the understanding of the encoding process between the State Transition Model and the SMT problem, we consider in the following a simple strategy with only two actions, and a trader holding two cryptocurrency assets: a base cryptocurrency asset c_1, and another cryptocurrency asset c_2.
+
+Action a_1: Converts x_1 amount of c_1 to c_2, using a constant product market (cf. Section 2.1), with liquidity L1^{c_1} for c_1 and L1^{c_2} for c_2 (cf. Equation 15).
+
+output amount of c_2 = L1^{c_2} - \frac{L1^{c_1} L1^{c_2}}{(L1^{c_1} + x_1)}    (15)
+
+Action a_2: Converts x_2 amount of c_2 back to c_1, using another constant product market, with liquidity L2^{c_1} and L2^{c_2}. Based on Heuristic 5 (cf. Section 5.2), action a_2 must use another market, because otherwise the conversion becomes a reversing action of a_1, which would result in a zero-sum game with a loss on transaction fees.
+
+Initial state encoding: Equation 16 encodes the state variables with concrete values, which are fetched from the considered blockchain state (e.g., the most recent block). This predicate can also be viewed as the assignment of an initial state.
+
+predicate t_1(·) := 
+B^T_0(c_1) = Trader's initial c_1 balance ∧
+B^T_0(c_2) = Trader's initial c_2 balance ∧
+L1_0^{c_1} = Market 1 initial c_1 balance ∧
+L1_0^{c_2} = Market 1 initial c_2 balance ∧
+L2_0^{c_1} = Market 2 initial c_1 balance ∧
+L2_0^{c_2} = Market 2 initial c_2 balance    (16)
+
+Action encoding: The following two predicates encode the two state transition actions. Equation 17 encodes F(s_0, a_1, x_1) and Equation 18 encodes F(F(s_0, a_1, x_1), a_2, x_2). Simply speaking, predicate t_2 transacts cryptocurrency asset c_1 to c_2, and predicate t_3 converts c_2 back to c_1.
+
+predicate t_2(·) := 
+0 ≤ x_1 ≤ B_0^T(c_1) ∧
+B^T_1(c_1) = B^T_0(c_1) - x_1 ∧
+B^T_1(c_2) = B^T_0(c_2) + L1_0^{c_2} - \frac{L1_0^{c_1} L1_0^{c_2}}{(L1_0^{c_1} + x_1)} ∧
+L1_1^{c_1} = L1_0^{c_1} + x_1 ∧
+L1_1^{c_2} = \frac{L1_0^{c_1} L1_0^{c_2}}{(L1_0^{c_1} + x_1)} ∧
+L2_1^{c_1} = L2_0^{c_1} ∧
+L2_1^{c_2} = L2_0^{c_2}    (17)
+
+predicate t_3(·) := 
+0 ≤ x_2 ≤ B_1^T(c_2) ∧
+B^T_2(c_1) = B^T_1(c_1) + L2_1^{c_1} - \frac{L2_1^{c_1} L2_1^{c_2}}{(L2_1^{c_2} + x_2)} ∧
+B^T_2(c_2) = B^T_1(c_2) - x_2 ∧
+L1_2^{c_1} = L1_1^{c_1} ∧
+L1_2^{c_2} = L1_1^{c_2} ∧
+L2_2^{c_1} = \frac{L2_1^{c_1} L2_1^{c_2}}{(L2_1^{c_2} + x_2)} ∧
+L2_2^{c_2} = L2_1^{c_2} + x_2    (18)
+
+Objective encoding: We use Z to denote the targeted adversarial revenue. Equation 19 encodes the objective constraints, ensuring that the adversarial cryptocurrency asset portfolio increases in value. Note that we rely on search algorithms to find the highest possible Z. The optimization process requires solving the same SMT problem with different concrete initialization of revenue targets Z (predicate t_4).
+
+predicate t_4(·) := 
+B^T_0(c_1) ≥ B^T_2(c_1) + Z ∧
+B^T_0(c_2) = B^T_2(c_2)    (19)
+
+Free variables and range: Our model only consists of two free variables (x_1, x_2) for the simple two action paths. For a path of arbitrary length n, the corresponding SMT system consists of n free variables, which are the parameters of each action. As shown in predicate t_2 (cf. Equation 17) and t_3 (cf. Equation 18), the range of free variables are constraint by the amount of T's cryptocurrency assets.
+
+SMT problem: By following the above procedures, the state transition model we presented in Section 3 is now encoded as an SMT problem, where we verify if any initialization of the free variables (x_1, x_2) satisfies the requirement of t_1(·) ∧ t_2(·) ∧ t_3(·) ∧ t_4(·).
+
+D. Z3 path pruning
+
+[TABLE: Number of paths SMT must solve after dependency-based blockchain state reduction]
+Number of paths SMT must solve | Number of blocks | Percentage of blocks
+0-23                           | 0                | 0%
+24                            | 204,901          | 21.57%
+46                            | 609              | 0.06%
+47                            | 12,201           | 1.28%
+48                            | 57,265           | 6.03%
+50-100                        | 35,771           | 3.77%
+>100                          | 3,897            | 0.41%
+total                         | 314,644          | 33.12%
+
+32.71% of the blockchain blocks between 9,100,000 and 10,050,000 have less than 100 "state changing" paths, allowing to reduce the SMT computation.
+
+[TABLE: State pruning statistics showing DeFi market state change frequencies]
+Contract           | Count  | State change frequency
+Uniswap DAI       | 28,464 | 27.01%
+Bancor ETH        | 16,466 | 15.63%
+Uniswap UBT       | 13,623 | 12.93%
+Uniswap MKR       | 5,984  | 5.68%
+Uniswap SAI       | 5,195  | 4.93%
+Uniswap BAT       | 5,090  | 4.83%
+Uniswap KNC       | 4,141  | 3.93%
+Uniswap DATA      | 3,546  | 3.36%
+Bancor DATA       | 2,309  | 2.19%
+Uniswap SNT       | 2,300  | 2.18%
+Uniswap ANT       | 1,759  | 1.67%
+Bancor UBT        | 1,714  | 1.63%
+Bancor ENJ        | 1,602  | 1.52%
+Uniswap ENJ       | 1,337  | 1.27%
+Uniswap MANA      | 1,129  | 1.07%
+Uniswap RLC       | 1,073  | 1.02%
+Other             | 9,650  | 9.16%
+
+The Uniswap DAI contract experiences the highest state change frequency (27.01% of blocks).
+
+E. Concrete encoding example for Z3
+
+In this section, we provide a running example to demonstrate the encoding process of DeFiPoser-SMT. The example performs an arbitrage at block 9,680,000, which first converts ETH to BNT on Bancor and then converts BNT back to ETH on Uniswap.
+
+Initial state encoding: The initial state encoding consists of the predicates for both the trader T's initial balances, as well as the initial states of the underlying platforms.
+
+# Trader's initial state.
+# We assume the trader holds 1000 ETH at the start.
+S0_Attacker[BNT] == 0,
+S0_Attacker[ETH] == 1000000000000000000000,
+
+# Initial states of the underlying platforms.
+S0_Uniswap[BNT]_eth == 135368255883939133529,
+S0_Uniswap[BNT]_erc20 == 108143877658121296155075,
+S0_Bancor[ETH]_erc20 == 10936591981278719837125,
+S0_Bancor[ETH]_erc20_ratio == 500000,
+S0_Bancor[ETH]_bnt == 8792249012668956788248921,
+S0_Bancor[ETH]_bnt_ratio == 500000,
+S0_Bancor[ETH]_fee == 1000,
+
+Action encoding: We encode the two transition actions as predicates. P1 is the input parameter for action 1 (converts ETH to BNT on Bancor), and P2 is the input parameter for action 2 (converts BNT to ETH on Uniswap).
+
+# converts ETH to BNT on Bancor
+P1 > 0,
+S1_Bancor[ETH]_bnt > 0,
+S1_Attacker[BNT] == S0_Attacker[BNT] + (S0_Bancor[ETH]_bnt*(1 - (S0_Bancor[ETH]_erc20/(S0_Bancor[ETH]_erc20 + P1))**(S0_Bancor[ETH]_erc20_ratio/S0_Bancor[ETH]_bnt_ratio))*(1000000 - S0_Bancor[ETH]_fee)**2)/1000000000000,
+...
+
+# converts BNT to ETH on Uniswap
+S1_Attacker[BNT] >= P2,
+P2 > 0,
+S2_Attacker[BNT] == S1_Attacker[BNT] - P2,
+S2_Attacker[ETH] == S1_Attacker[ETH] + (997*P2*S1_Uniswap[BNT]_eth)/(S1_Uniswap[BNT]_erc20*1000 + 997*P2),
+...
+
+Objective encoding: In this example, we check if it is possible for the trader T to realize 1 ETH of revenue following this path.
+
+# Objective encoding
+S2_Attacker[BNT] == 0,
+S2_Attacker[ETH] >= 1001000000000000000000
+
+F. Optimizer for the SMT solver
+
+[ALGORITHM: Maximize a path's revenue using SMT solver and binary search, showing functions isSAT and binarySearch]
+
+G. State Dependency
+
+We visualize the state changes in Figure showing timeline analysis. This figure provides an intuition to a trader on how active a particular market is. An asset changes state if a market listing that asset changes state (i.e., a trader trades the asset). ETH experiences the most state changes with over 950,000 blocks (36.76%). After ETH, we observe that DAI (14.62%) experiences the most frequent state changes over the 950,000 blocks we crawled. POA20 has the lowest number of state changes (0.08%). For a trader who is not able to position its transactions first in a block, the market activity is relevant because a strategy executed on the POA20 asset has a higher likelihood to succeed than on an active DAI market.
+
+H. bZx
+
+Figure shows our attack window analysis of the bZx attack using DeFiPoser-SMT. Attack window analysis of the bZx attack. DeFiPoser-SMT finds the first attack opportunity at block 9,069,000 (December 8th 2019). The opportunity lasted for 69 days, until the opportunity was exploited in block 9,484,687 (February 15th 2020). We visualize the difference between the profits from Z3 and concrete validation, along with the success rate (using block bin sizes of 100) of a Z3 strategy passing concrete validation. Note that the bZx loan interest rate formula is conservatively simplified in the encoding process, which explains why the Z3 anticipated revenue is lower than the concrete execution yield.
+
+[END OF DOCUMENT]

@@ -1,0 +1,138 @@
+6. EXPERIMENTAL EVALUATION
+
+To query the Ethereum blockchain, we set up a full archive Geth node (i.e., a node which stores all intermediate blockchain state transitions) on an AMD Ryzen Threadripper 3990X Processor (4.3 GHz, 64 cores), 4x2 TB NVMe SSD RAID 0 and 256 GB RAM. We perform the concrete execution with a custom py-evm, which can fork the Ethereum blockchain at any given block height. To simplify our experimental complexity, we do not consider trades which yield below 0.1 ETH and are aware that this potentially reduces the resulting financial gain.
+
+We select 96 actions from the Uniswap, Bancor, and MakerDAO, with a total of 25 assets (cf. Tables in Appendix). To enable action chaining, all considered assets trade on Uniswap and Bancor, while SAI and DAI are convertible on MakerDAO. The total value of assets on the three platforms sums up to $3.3 billion USD, which corresponds to 82% of the total USD value locked in DeFi as of May 2020.
+
+Both DeFiPoser-ARB and DeFiPoser-SMT apply dependency-based state reduction. Stationary blockchain states are identified and skipped to avoid redundant computation and double counting of revenue.
+
+6.1 DeFiPoser-ARB
+
+We translate the 25 assets and 96 actions into a graph with 25 nodes and 94 edges. Each node in the graph represents a cryptocurrency asset. For each edge e_{i,j} pointing from asset c_i to c_j, we find all markets with asset c_i as input, and output asset c_j. Each edge's weight is derived using the highest price found among all supporting markets, or 0 if there is no market. We then follow Algorithm 1 to greedily extract arbitrage revenue as soon as one negative cycle is found. We use the BFCF (Bellman-Ford-Moore, Walk to the root) algorithm to find negative cycles, which operates in O(|N^2|·|E|). For each arbitrage opportunity, DeFiPoser-ARB gradually increases the input parameter (amount of base cryptocurrency asset) until the revenue ceases to increase.
+
+6.2 DeFiPoser-SMT
+
+We translate DeFi states into Z3 as constraints on state symbolic variables (cf. Section 3). We symbolically encode all variables using floats instead of integers because the EVM only supports integers. Most DeFi smart contracts express floats as integers by multiplying floats with a large factor. Division and power are, therefore, estimated using integer math. This practice may introduce a bias in our state and transition functions. Due to such model inaccuracies, we proceed to concrete execution (i.e., real-world smart contract execution on the EVM) to avoid false positives and validate our result.
+
+An exhaustive search over the total action space is infeasible. Therefore, we apply path pruning (cf. Section 5.2) to discard irrelevant paths.
+
+Path Discovery and Pruning: The 96 DeFi actions result in 9.92 × 10^{149} possible paths without repeating actions, which is an impractical space to evaluate. Table 2 hence illustrates the impact of our heuristics on paths of various lengths. We observe a significant reduction of at least 99.98% per path length of the total number of considered paths, resulting in only 600 remaining paths. The majority of paths (77.67%) consist of 4 actions, while the shortest paths count 2 actions, and the longest 5 actions. Although we do not enforce a constraint on the maximum number of actions, all paths with more than 5 actions failed to pass our heuristics.
+
+[TABLE 2: Results of path pruning after applying the heuristics from Section 5.2]
+Path length | Before         | After
+2          | 9,120          | 2
+3          | 857,280        | 90
+4          | 79,727,040     | 466
+5          | 7,334,887,680  | 42
+Total      | 7,415,481,120  | 600
+
+For each path length, the heuristics remove at least 99.98% of the strategies.
+
+Action Dependency: In the following, we present a concrete example of determining the dependency between two actions. The first action a_{Uniswap} transacts ETH to SAI using the Uniswap SAI market. The second action a_{Bancor} transacts BNT to SAI using the Bancor SAI contract. The following equations show the relevant storage variables, respectively. These two actions are not independent, as they both modify the trader's balance in the SAI contract.
+
+K^T(a_{Uniswap}) = {<UniswapSAI>.ETH, <SAI>.balance of UniswapSAI, <Trader>.ETH, <SAI>.balance of trader}    (11)
+
+K^T(a_{Bancor}) = {<BNT>.balance of BancorSAI, <SAI>.balance of BancorSAI, <BNT>.balance of trader, <SAI>.balance of trader}    (12)
+
+[FIGURE 6: We consider each blockchain block as an independent state representation of the DeFi platform markets. Only if a DeFi market changes in state, we need to re-engage the SMT solver for the affected paths only.]
+
+Dependency-based Blockchain State Reduction: If a DeFi state does not change across a number of blockchain blocks, the same SMT solver computation is not re-engaged (cf. Figure 6). Algorithm 2 specifies the algorithm we apply to automate the dependency-based blockchain state reduction. Figure 7 in the Appendix shows a timeline analysis of the state dependencies for all considered assets. We observe that ETH experiences the most state changes with over 950,000 blocks (36.76%), followed by DAI (14.62%).
+
+[ALGORITHM 2: Block state dependency analysis with function fetch]
+
+6.3 DeFiPoser-ARB and DeFiPoser-SMT: Revenue
+
+We validate both DeFiPoser designs on past blockchain data from block 9,100,000 to block 10,050,000, over a total of 150 days. We visualize the distribution of traders' revenue for DeFiPoser-SMT in Figure 7. DeFiPoser-SMT found 13,317 strategies consisted of 2 to 5 actions. In total DeFiPoser-SMT yields a total of 1552.32 ETH, and we observe that the most profitable strategies consist of 3 actions, where the highest revenue yielded amounts to 22.40 ETH. Similarly, Figure 8 visualizes the distribution of traders' revenue for DeFiPoser-ARB. Recall that DeFiPoser-ARB greedily combine multiple paths into a single strategy. We observe that the revenue increases as the number of paths increases, with the highest revenue amounting to 81.31 ETH. In total, DeFiPoser-ARB finds 2,709 strategies and yields 4103.22 ETH.
+
+[FIGURES 7-10: Various revenue analysis charts showing distribution and capital requirements]
+
+We visualize in Figure 9 the revenue generated by DeFiPoser-SMT and DeFiPoser-ARB as a function of the initial capital. If a trader owns the base asset (e.g., ETH), most strategies require less than 150 ETH. Only 10 strategies require more than 100 ETH for DeFiPoser-SMT, and only 7 strategies require more than 150 ETH for DeFiPoser-ARB. This capital requirement is reduced to less than 1 ETH when using flash loans (cf. Figure 9).
+
+Figure 10 shows how our concrete execution validation over 150 days yields consistent revenue for both tools. The concrete execution estimates a weekly revenue of 191.48 ETH for DeFiPoser-ARB and 72.44 ETH for DeFiPoser-SMT. For DeFiPoser-SMT, our validation estimates a total revenue of 1552.32 ETH out of 3577.14 ETH (i.e., 40% of the Z3 indicated revenue is validated in practice).
+
+Cost Analysis: The trader's principal costs are the blockchain transaction fees (e.g., gas in Ethereum), which remain below the revenue yielded by the strategies we validated (cf. Figure 11). Note that a trading strategy may fail if the underlying market state changes before its execution. Therefore, we assume that the trader adopts the gas price of 32 GWei, which is highly volatile, but the recommended fast transaction gas price at the time of writing. Summarizing, the execution of all strategies costs less than 0.05 ETH, which warrants all strategies to be profitable.
+
+[FIGURE 11: Distribution of revenue and transaction cost based on concrete execution on the EVM for DeFiPoser-SMT and DeFiPoser-ARB]
+
+Performance Analysis: Our tools must find trades within the average Ethereum block time of 13.5 ± 0.12 seconds to be applicable in real-time. Assuming a network propagation latency of roughly three seconds towards miners in the blockchain P2P network, our tools must generate transactions within at most 10.5 seconds. Figure 12 shows the detailed execution speed of DeFiPoser-ARB and DeFiPoser-SMT on an AMD Ryzen Threadripper 3990X Processor (4.3 GHz, 64 cores) CPU. For new block states, we measure a total average computing time of 6.43 seconds and 5.39 seconds per block, respectively.
+
+We further group the strategies detected by DeFiPoser-ARB based on the number of negative cycles and compare the respective analysis time (cf. Figure 13). We find that DeFiPoser-ARB exceeds our estimated time limit (13.5 - 3 = 10.5 seconds) when exploiting more than 6 cycles. The higher the total number of negative cycles, the more likely DeFiPoser-ARB misses the most profitable opportunity.
+
+[FIGURES 12-13: Analysis time distribution and timeout analysis]
+
+7. PROFITABLE TRANSACTIONS AND BLOCKCHAIN SECURITY
+
+In this section, we show that DeFiPoser-SMT is capable of identifying the economic bZx attack from February 2020 and provide forensic insights into the event. Given optimal adversarial strategies provided by an MDP, we then quantify whether an MEV opportunity will cause a rational miner to create a blockchain fork.
+
+7.1 Economic bZx Attack
+
+On the 15th of February, 2020, a trader performed a pump and arbitrage attack on the margin trading platform bZx. The core of this trade was a pump and arbitrage involving four DeFi platforms atomically executed in one single transaction. As a previous study shows, this trade resulted in 4337.62 ETH loss from bZx loan providers, where the trader gained 1193.69 ETH in total.
+
+Attack Window: To gain deeper insights into this DeFi composability event, we extend DeFiPoser-SMT with two additional actions: (i) borrow WBTC with ETH on compound finance; (ii) short ETH for WBTC on bZx. We replayed DeFiPoser-SMT on historical blockchain data by starting at the creation of the bZx's margin short smart contract (cf. Figure 14). Surprisingly, the bZx attack window lasted for 69 days until it was openly exploited. DeFiPoser-SMT finds that the attack yielded the highest revenue of 2291.02 ETH at block 9,482,670, which is about one day before the attack occurred.
+
+7.2 MEV, an MDP and Optimal Adversarial Strategies
+
+The economic bZx attack revenue exceeds the average Ethereum block reward by a factor of 874×. After bZx, the other most profitable validated strategies found by DeFiPoser-ARB and DeFiPoser-SMT exceed the block reward by a factor of 31× and 8.5× respectively. In this section, we quantify the value at which an MEV-aware miner would exploit an MEV opportunity by forking the blockchain.
+
+Markov Decision Process: A Markov Decision Process is a single-player decision process that allows identifying the optimal strategies for an encoded decision problem. In this work, we adopt the state transition and reward matrix of the PoW double-spending MDP of Gervais et al. Note that the MDP we use does not consider uncle rewards.
+
+We observe that conceptually, an MEV opportunity is equivalent to a double-spending opportunity: if an MEV opportunity is mined by an honest miner, and an adversarial miner aims to claim the MEV opportunity, the MEV miner will need to outrun the honest chain with a fork. The MEV miner will hence want to follow the optimal adversarial strategies given by the MDP, which advises whether to fork or not to fork the blockchain depending on the MEV value.
+
+Threat Model: We assume a rational and computationally bounded adversary. Because MDP's are single-player decision problems, we assume the existence of only one adversarial miner willing to exploit MEV. We parametrize the miner with a hash rate α ∈ ]0,0.5[, while the remaining non-MEV miners have a hash rate of 1-α. We ignore the existence of eclipse attacks (ω = 0) and assume the weakest possible network propagation parameter of the adversary (γ = 0). We parametrize the MDP with the stale block rate of the Ethereum blockchain at the time of writing. By crawling the number of uncle blocks (from the block 9.1M to 10.5M), we approximate the stale block rate to r_s=5.72%. We set the mining costs to match the hash rate of the MEV miner (c_m = α).
+
+Exploit or not exploit MEV? Each time an MEV opportunity arises on the network layer, we assume that the honest miner succeeds in mining the MEV opportunity, and the MEV miner fails to receive the reward initially. The MEV miner, therefore, needs to decide whether to start to mine on a private chain, where he claims the MEV opportunity. Note that the MDP's exit state can only be reached when the MEV miner mined a private chain that is longer than the honest chain (l_a > l_h) given k=1 (l_a > k). Depending on the MEV value, the optimal strategy π might advise against forking the chain to attempt to claim the MEV reward. We quantify the minimal MEV value MEV_v, such that MEV_v is strictly larger than the reward from honest mining (cf. Equations 13-14). We denote h is the process of mining honestly.
+
+P = (α, γ, r_s, k, ω, c_m)                                    (13)
+MEV_v = min{MEV_v | ∃π ∈ A: R(π,P,MEV_v) > R(h, P)}         (14)
+
+To solve the MEV MDP for the optimal strategies, we use existing code and reparametrize given the current Ethereum stale block rate (r_s=5.72%). We further set k=1, γ=0, ω=0 and the cut-off value (the maximum length of l_a and l_h) to 20 blocks. Similar to related work, we apply a binary search to find the lowest value for MEV_v in units of block rewards, given a margin of error of 0.1.
+
+Results: We visualize our findings in Figure 15, which shows that for an MEV miner with 10% hash rate, on Ethereum (stale block rate of 5.72%), MEV_v equals to 4. We conclude that in this case, if an MEV opportunity yields at least a reward that is 3 times higher than the block reward, then an MEV miner which follows the optimal strategies will fork the blockchain. A fork of the blockchain deteriorates the blockchain's security as it increases the risks of double-spending and selfish mining.
+
+[FIGURE 15: Minimum MEV value in terms of block rewards to fork a PoW blockchain, given by optimal adversarial strategies of the MDP]
+
+Multiple MEV Miner: Our MDP model does not allow us to draw conclusions on the dynamics under multiple independent MEV miners. We hence can only speculate about the outcome and leave a simulation to future work. We can imagine that multiple miners either collaborate to share an MEV profit (which falls back to our MDP game of one adversary), or the miners would compete among each other, which is likely to exacerbate the fork rate and hence further deteriorates the blockchain consensus security.
+
+8. RELATED WORK
+
+While the research literature of blockchain span over 10 years, DeFi is a relatively recent area with fewer works.
+
+DeFi: There is a growing body of literature focusing on the security of the DeFi ecosystem. Blockchain front-running in exchanges, games, gambling, mixer, the network layer, and name services is soundly studied. Related work demonstrates a thorough analysis of profiting from opportunities provided by transaction ordering. Other work presents a detailed study of a specific market manipulation scheme, pump-and-dump, and build a prediction model that estimates the pump likelihood of each coin. Some researchers explore the possibility of a DeFi crisis due to the design weakness of DeFi protocols and present a stress testing framework. Others investigate DeFi attacks through flash loans and how to optimize their profit. We remark that the optimization solution presented in that work only applies to previously fixed attack vectors, while this work considers the composability of DeFi protocols.
+
+Smart Contract Analysis: Besides the above-mentioned works on DeFi, many studies on the vulnerability discovery of smart contracts are related to our work. Traditional smart contract vulnerabilities examined in related work include, for instance, re-entrancy attack, unhandled exceptions, locked ether, overflow. To the best of our knowledge, no analysis tool has yet considered the problem of a composability analysis as we've performed.
+
+Model Checking: Model-checking is another viable method to verify the security of smart contracts. Model-checking examines all possible states in a brute-force manner and performs systematic exhaustive exploration for checking whether a finite transition machine model of a system meets appropriate specifications. One of the main limitations of model-checking is the exponential growth of the number of possible states, resulting in unsolvability for complex contracts.
+
+9. CONCLUSIONS
+
+This paper presents two practical approaches that automatically extract revenue from the intertwined mesh of decentralized finance protocols. The first technique, DeFiPoser-ARB, is well-suited for arbitrage, and the second, DeFiPoser-SMT, can also find acyclic opportunities. When evaluated over a span of 150 days with 96 DeFi actions and 25 cryptocurrency assets, DeFiPoser-ARB and DeFiPoser-SMT are estimated to generate an average weekly revenue of 191.48 ETH and 72.44 ETH, with the highest transaction being 81.31 ETH and 22.40 ETH, respectively.
+
+Our techniques apply to a real-time operation on blockchains with reasonably fast inter-block times (such as Ethereum), with an average search of 6.43 seconds and 5.39 seconds per block for DeFiPoser-ARB and DeFiPoser-SMT, respectively, using a relatively unoptimized implementation. We find that the capital requirements to extract the found revenues are minimal: the majority of strategies produced require less than 150 ETH (60,000 USD), without, and less than 1 ETH with flash loans.
+
+We quantitatively demonstrate some troubling security implications of profitable transactions on the blockchain consensus. Given optimal adversarial strategies provided by a Markov Decision Process, we quantify the threshold value at which an MEV-aware rational miner will fork the blockchain if the miner does not succeed in claiming an unconfirmed MEV opportunity first. For example, on the current Ethereum network, a 10% hash rate miner will fork the chain if an MEV opportunity exceeds 4 block rewards. As a comparison, the bZx opportunity exceeded the Ethereum block reward by a factor of 874×! Our work hence quantifies the inherent tension between revenue extraction from profitable transactions and blockchain security. We can generally expect trading opportunities highlighted in this paper to expand as the DeFi ecosystem grows and becomes more popular.
+
+ACKNOWLEDGMENTS
+
+We very much thank the anonymous reviewers and Nicolas Christin for the thorough reviews and helpful suggestions that significantly strengthened this paper. We are moreover grateful to the Lucerne University of Applied Sciences and Arts for generously supporting Kaihua Qin's Ph.D.
+
+APPENDICES
+
+A. Summary of the ERC-20 cryptocurrency assets
+
+We summarize the 24 ERC-20 cryptocurrency assets in the following table. We observe that for most of the assets, the number of holders and the number of markets increases with the number of transfer transactions.
+
+[TABLE: Summary of the 24 ERC-20 cryptocurrency assets used in experiments, ordered by total number of transfer transactions]
+Token | Unique holders | Transfer transactions | Markets trading
+SAI   | 181,223       | 3,139,071            | 4
+BNT   | 23,966        | 2,620,652            | 144
+DAI   | 68,357        | 2,155,535            | 130
+BAT   | 288,970       | 1,970,176            | 218
+ENJ   | 52,341        | 902,471              | 66
+SNT   | 82,663        | 868,007              | 101
+KNC   | 65,018        | 820,501              | 73
+MKR   | 20,891        | 733,845              | 67
+DATA  | 444,833       | 588,097              | 26
+MANA  | 38,276        | 565,151              | 77
+ANT   | 22,321        | 217,657              | 24
+RLC   | 12,880        | 209,255              | 24
+RCN   | 19,831        | 203,893              | 24

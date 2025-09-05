@@ -1,0 +1,89 @@
+2. BACKGROUND
+
+In this section, we outline the required background for DeFi. For extensive background on blockchains and smart contracts, we refer the interested reader to related works.
+
+2.1 Decentralized Finance (DeFi)
+
+Decentralized Finance (DeFi) refers to a financial ecosystem that is built on top of (permissionless) blockchains. DeFi supports a multitude of different financial applications. The current DeFi landscape is mostly built upon smart contract enabled blockchains (e.g., Ethereum). We briefly summarize relevant DeFi platforms.
+
+Automated Market Maker (AMM): In traditional finance, asset exchanges are usually operated in the form of order matching. Asks and bids are matched in a centralized limit order book, typically following the FIFO principle. In DeFi, such an order matching mechanism would be inefficient because the number of transactions per second supported by the underlying blockchain is usually limited. Therefore, AMM minimizes the number of transactions required to balance an on-chain asset exchange. AMM allows liquidity providers, the traders who are willing to provide liquidity to the market, to deposit assets into a liquidity pool. Liquidity takers then directly trade against the AMM liquidity pool according to a predefined pricing mechanism. The constant product AMM is currently the most common model (adopted by over 66% of the AMM DEX), where the core idea is to keep the product of the asset amounts in the liquidity pool constant. Consider a constant product AMM that trades the asset pair X/Y. x and y are the amount of X and Y respectively in the liquidity pool. A liquidity taker attempts to sell Δx of X and get Δy of Y in exchange. The constant product rule stipulates that x×y = (x+Δx)×(y-Δy). Uniswap is the most dominating constant product AMM with a market capitalization of $1.4B USD. Variant AMMs utilize different pricing formulas, e.g., Bancor, while other platforms (e.g., Kyber) aggregate AMMs. When receiving an order from a user, these platforms redirect the order to the AMM, which provides the best asset price.
+
+Stablecoin: Stablecoins are a class of cryptocurrencies designed to alleviate the blockchain price volatility. The most salient solution for stabilization is to peg the price of stablecoins to a less-volatile currency (e.g., USD). There exist over 200 stablecoin projects announced since 2014. Among them, SAI and DAI developed by MakerDAO have received extensive attention. Both SAI and DAI are collateral-backed stablecoins. SAI is collateralized solely by ETH, whereas DAI is an SAI upgrade to support multiple assets as collateral. At the time of writing, the collateral locked in MakerDAO amounts to $2.73B USD.
+
+Flash Loans: The Ethereum blockchain operates similarly to a replicated state machine. Transactions trigger state transitions and provide the input data necessary for the Ethereum Virtual Machine (EVM) state to change according to rules set by smart contracts. Interestingly, the EVM state is only affected by a transaction if the transaction executes without failure. In the case of a failed transaction, the EVM state is reverted to the previous state, but the transaction fees are still paid to miners (as in to avoid Denial of Service attacks). A transaction can fail due to the following three reasons: Either the transaction sender did not specify a sufficient amount of transaction fees, or the transaction does not meet a condition set forth by the interacting smart contract, or the transaction is conflicting (e.g., double-spending) with another transaction.
+
+This concept of a state reversion enables the introduction of flash loans, short-lived loans that execute atomically within only one blockchain transaction. Within a single transaction, (i) the loan is taken from a liquidity pool, (ii) the loan is put to use, and (iii) the loan (plus interest payment) is paid back to the flash loan pool. If the third condition is not met, i.e., the loan plus interests are not paid back, then the entire flash loan transaction fails. This is equivalent to the case that the loan was never issued because the EVM state is not modified out of the result of a failed transaction.
+
+Flash loans, therefore, entail two interesting properties. First, the lender is guaranteed that the borrower will repay the loan. If the repayment is not performed, the loan would not be given. Second, the borrower can technically request any amount of capital, up to the amount of funds available in a flash loan pool, given a constant payment which corresponds to the blockchain transaction fees (about 10 USD for the most common flash loan providers). The borrower hence can have access to millions of USD with just a few initial USD and hence is not exposed to the currency risk of the lent asset.
+
+3. DEFI MODELING
+
+We proceed to introduce our system, trader, and state transition model for the interaction between DeFi platforms. On a high level, our model state consists of the DeFi market states, as well as the cryptocurrency asset balances of a trader T. The transitions represent DeFi actions performed by the trader T on the respective DeFi platforms. The goal of the trader is to maximize the amount of cryptocurrency assets held.
+
+3.1 System Model
+
+Our system consists of a blockchain with financial cryptocurrency assets (i.e., coins or tokens). Cryptocurrency assets can be used within DeFi platforms (i.e., markets), such as exchanges, lending, and borrowing platforms. Each DeFi platform offers a set of actions, which can be triggered by a transaction. Actions take an asset as input and yield, for instance, another asset as output. Multiple actions can be encapsulated in one transaction and executed atomically in sequence. A path, is a sequence of actions across DeFi platforms. We denote as strategy (cf. Figure 2), or transaction, a path with parameters for each action (such as coin amounts, etc.). We consider a state of a DeFi market to change whenever an action manipulates the amount of assets within this DeFi market. Note that we only consider the blockchain state at block-height i after the execution of all transactions within a block i (i.e., we do not consider intermittent block states).
+
+[FIGURE 2: Example strategy across three DeFi markets, identified at Ethereum block 10,001,087, which would yield a revenue of 7.81 ETH.]
+
+3.2 Trader Model
+
+We consider a computationally bounded trader (denoted by T) which is capable of executing transactions (i.e., perform actions) across a set of DeFi platforms. T's cryptocurrency assets are limited by the supply of liquidity available in public flash loan pools. The trader is capable of reading the blockchain contents but is not expected to observe unconfirmed blockchain transactions on the network layer. We assume that the trader is capable of placing a transaction ahead of other DeFi transactions within a future blockchain block. Practically, this requires the trader to pay a higher transaction fee, as most miners appear to order transactions based on gas price. We assume that the trader is not colluding with a miner, while this may present an interesting avenue for future work.
+
+We assume that the trader is operating on the blockchain head, i.e., the most recently mined, valid block, of the respective blockchain. In the case of a Proof-of-Work (PoW) blockchain, the most recent block shall also be the one with the most PoW (i.e., the greatest difficulty). For simplicity, we ignore complications resulting from blockchain forks.
+
+3.3 Notation
+
+To ease the understanding of the following paragraphs, we proceed by introducing the utilized notation.
+
+Assets: The set C denotes the collection of cryptocurrency assets, which the trader uses to generate trading strategies.
+
+Actions: The set A denotes the collection of actions the trader selects from the DeFi protocols.
+
+Parameters: The trader T must supply parameters to execute actions a ∈ A, e.g., the amounts of cryptocurrency assets T sends to the corresponding DeFi platforms.
+
+Path: A path p ∈ P is a sequence of n non-repeated actions drawn from A. We denote the power set of all actions with ℘(A), which consists of all subsets of the action set A, including the empty set. Given a subset K ∈ ℘(A), we denote the permutations set of K with S(K). The collection of all paths P can then be defined using Equation (1). Note P consists of paths of different lengths.
+
+P = ∪^{℘(A)}_{K} S(K),    s.t.    ∀p = (a_1, a_2, ..., a_n) ∈ P
+                                    a_i ∈ A, ∀i ∈ [1, n]
+                                    a_i ≠ a_j, ∀a_i, a_j ∈ A, i ≠ j    (1)
+
+Strategy: A strategy consists a path p ∈ P with n actions, a list of parameters [x_1, ..., x_n] for each action in p, and an initial state (cf. Equation 3) of the model.
+
+Balance function: Given a strategy with n actions, the balance function B^T_i(c) denotes T's balance for cryptocurrency asset c after performing the i-th action, where 0 ≤ i ≤ n and c ∈ C.
+
+Storage function: K(a) denotes the set of smart contract storage variable addresses an action a reads from and writes to. These addresses are identified from the underlying blockchain runtime environment. We use K^T(a) to denote a subset of K(a), which is only relevant to the trader T.
+
+3.4 States
+
+We classify the state variables into two categories, the trader and DeFi states. S^T represents the trader's asset portfolio (cf. Equation 2). S^{DeFi} is the set of all storage variables T reads from and writes to, for all the DeFi actions in our model (cf. Equation 3). The union S of these two categories is the overall state of our system (cf. Equation 4). Given a strategy with n actions, the state after performing the i-th action, where 0 ≤ i ≤ n is denoted as s_i, with the initial state s_0.
+
+S^T = {B^T(c) : ∀c ∈ C}                           (2)
+S^{DeFi} = ∪_{∀a∈A} K^T(a)                        (3)
+S = S^T ∪ S^{DeFi}                                 (4)
+
+3.5 Transitions
+
+Our state transition function is F^T(s ∈ S, a ∈ A, x) → S, outputs the next state if action a with parameter x is performed on state s by trader T. Given a strategy with n actions, where a_i and x_i represents the i-th action and parameter respectively, and s_i represents the state after the i-th action. Equation (5) shows the state transition process of this strategy, while Equation (6) computes the final state s_n when each action is sequentially applied to s_0.
+
+s_{i+1} = F^T(s_i, a_{i+1}, x_{i+1})              (5)
+s_n = F^T(...F^T(F^T(s_0, a_1, x_1), a_2, x_2)...)   (6)
+
+3.6 Objective
+
+We choose an asset b ∈ C as our base cryptocurrency asset. The objective of the trader T is to find a strategy, such that the balance of b (cf. Equation 7) is maximized, whereas the portfolio balances of the trader, except for b, remain the same.
+
+maximise_{p∈P} obj(s_0, p) = B^T_n(b) - B^T_0(b)
+with constraints: B^T_n(c) = B^T_i(c), ∀c∈C\b    (7)
+
+3.7 Base cryptocurrency asset
+
+To identify revenue yielding paths, we make the assumption that the trader T operates in this work on a single base cryptocurrency asset. Naturally, this can be extended to multiple base currencies to increase potential financial results.
+
+3.8 DeFiPoser Design Choices
+
+[FIGURE 3: Technical design choices of DeFiPoser. DeFiPoser consists of three components: (1) a path pruning component; (2) a parameter search component, and (3) a strategy combination/execution component.]
+
+Figure 3 shows the high-level design choices of the DeFiPoser tools we present in this paper. DeFiPoser consists of three components: (1), a pruning algorithm to filter potentially profitable paths; (2), a search algorithm which searches parameters to maximize the revenue of a given path, and (3) a strategy combination/execution algorithm, which decides how the found strategies are executed.
+
+Generally speaking, each instantiation of the different components bears its own advantages and disadvantages. For instance, negative cycle detection only searches cyclic paths, whereas pruning with heuristics can search for any path structure. Given a simple path such as a cyclic arbitrage, we find that local search is faster than the SMT solver, but does not provide satisfiability proofs. In the following we present two variants of DeFiPoser, namely DeFiPoser-ARB (cf. Section 4) and DeFiPoser-SMT (cf. Section 5).

@@ -1,0 +1,101 @@
+4. APPLYING NEGATIVE CYCLE DETECTION TO DEFI ARBITRAGE
+
+Previous works propose negative cycle detection algorithms, such as the Bellman-Ford-Moore algorithm, to find arbitrage opportunities. In these algorithms, the exchange markets are modeled as a directed weighted graph (g). Every negative cycle in the graph then corresponds to an arbitrage opportunity.
+
+4.1 Negative Cycle Detection to Detect Arbitrage
+
+We adopt the following notations to translate arbitrage detection into a negative cycle detection problem.
+
+Nodes: The set N denotes the collection of nodes. Each node (vertex) represents a different asset (c ∈ C).
+
+Directed edges: The set E denotes the collection of all edges. An edge e_{i,j} that points from asset c_i to c_j represents that there exist a market where the trader T can sell cryptocurrency asset c_i to purchase cryptocurrency asset c_j.
+
+Spot price: The spot price p^{spot}_{i,j} for edge e_{i,j} is the approximated best current price a trader T finds on all DeFi AMM markets, when selling an arbitrarily small amount (close to 0) of a cryptocurrency asset c_i to purchase c_j.
+
+Arbitrage: A path [c_1 → c_2 ... c_{k-1} → c_k] consists an arbitrage opportunity, if p^{spot}_{1,2} × ... × p^{spot}_{k-1,k} > 1.
+
+Edge weight: To apply negative cycle detection algorithms, we use the negative log of price w_{i,j} = -log(p^{spot}_{i,j}) as the weights for edge e_{i,j}. An arbitrage opportunity exists if w_{1,2} + ... + w_{i-1,i} < 0.
+
+Path finding: Our objective is to maximize T's base cryptocurrency asset. An arbitrage cycle, however, may not consist of the base asset. Therefore, we convert the arbitrage revenue to the base cryptocurrency asset by the end of the execution. More concretely, we find all 'connecting' markets that support the conversion between one of the arbitrage assets and the base cryptocurrency asset. We perform the conversion using the 'connecting' markets with the best price.
+
+4.2 Negative Cycle Detection Algorithms
+
+[ALGORITHM 1: Negative cycle arbitrage detection showing functions buildGraph, hasNegativeCycle, getPath, and search]
+
+Negative cycle detection algorithms combine the shortest path algorithm with a cycle detection strategy. Cherkassky et al. studied various combinations of shortest path algorithms (Bellman-Ford-Moore, Goldfarb-Hao-Kai, Goldberg-Radzik, etc.) and cycle detection strategies (Walk to the root, Admissible graph search, Subtree traversal, etc.) and compared their relative performances. A natural question is whether these cycle detection algorithms can be directly applied to find profitable transactions in DeFi.
+
+In bid-ask markets, the price does not change if the trade volume is within the bid/ask size. DeFi AMM exchanges, however, follow a dynamic price based on the trade volume. Intuitively, the bigger the transaction size, the worse the trading price becomes. Hence, our algorithm needs to consider dynamic price changes and update the graph g after every action. On a high level, a Bellman-Ford-Moore inspired algorithm repeatedly performs the following steps: (i) Build the graph g based on the spot prices from the current state s ∈ S; (ii) Detect arbitrage cycles in the graph g (Bellman-Ford-Moore); (iii) Build a path based on the negative cycle, and find the strategy (parameters for the path), finally (iv) Execute the strategy and update the state s. Algorithm 1 presents the details of DeFiPoser-ARB. To find the parameters for a path, Algorithm 1 gradually increases the amount of base assets into the path until there is no increase in revenue.
+
+We present DeFiPoser-ARB's evaluation in Section 6.
+
+5. DESIGN OF DEFIPOSER-SMT
+
+In this section, we discuss an alternative technique, DeFiPoser-SMT, to find profitable transactions in DeFi, which is more general when compared to DeFiPoser-ARB. More specifically, DeFiPoser-SMT can operate on non-cyclic strategies, while DeFiPoser-ARB cannot. We observe that profitable DeFi strategies do not necessarily form a complete cycle. For example, Figure 4 shows the graph for the economic bZx attack (cf. Section 7). The strategy requires the trader to send Ether to edge 1 without receiving any assets in return and to then perform an arbitrage cycle with edge 2 and 3.
+
+[FIGURE 4: Directed weighted graph for the economic bZx attack on the Ethereum block 9,462,687. Shows three subfigures (a), (b), and (c) depicting the graph state changes as shorting ETH for WBTC affects the cycle weights]
+
+5.1 Choosing an SMT Solver for DeFiPoser-SMT
+
+To overcome the aforementioned challenges of non-existent cycles, we chose to adopt a theorem prover for DeFiPoser-SMT's design. The theorem prover logically formulates what a profitable strategy entails to locate concrete profitable instantiations. We perform systematic path exploration to determine if the model (cf. Section 3) satisfies the provided requirements, similar to other model checking systems.
+
+Our model requires the SMT solver (such as MathSat, Z3, or Coral) to support floating-point arithmetic because we adopt the theory of real numbers (cf. Section 3). We encode the state transition model in three major steps: (i) Encode the initial state as a predicate; (ii) iteratively apply state transition actions, and encode the resulting states after each action as predicates. Then, (iii) convert the objective function into a set of constraints to ensure that the value of the trader portfolio increases by Z, and translate the constraints into predicates. Note that we rely on an optimization algorithm (cf. Algorithm 2 in Appendix) to find the highest possible Z. The optimization process requires solving the same SMT problem with different initializations of Z.
+
+5.2 Path Pruning
+
+One bottleneck of model checking is the combinatorial path explosion problem. We, therefore, prune the paths by applying the following heuristics. Note that heuristics may prune profitable strategies, and DeFiPoser-SMT is therefore only a best-effort tool.
+
+Heuristic 1: A profitable strategy must consist of more than one action. That is because, given an initial state S_0, a strategy with only one action will not increase the balance of the base cryptocurrency asset while keeping the balance of all other cryptocurrency assets unchanged.
+
+Heuristic 2: A strategy must start with a sequence of entering actions. An entering action is defined as any action which takes the base cryptocurrency asset as input.
+
+Heuristic 3: A strategy must end with a sequence of exiting actions. An exiting action is defined as any action that outputs the base cryptocurrency asset. Recall that the objective of the trader is to maximize the amount of base assets held.
+
+Heuristic 4: Apart from the entering actions, an action must depend on at least one previous action. Conceptually, this is to avoid a strategy to contain actions that do not interact with any other actions. Given two actions a_i, a_j ∈ A, we define that a_i and a_j are independent actions, iff. there is no intersection between K^T(a_i) and K^T(a_j) (cf. Equation 8). In other words, the execution of a_i does not affect the execution results of a_j, no matter what concrete state is given.
+
+a_i ⊥ a_j iff K^T(a_i) ∩ K^T(a_j) = ∅                    (8)
+
+Recall that K(a) denotes the set of smart contract storage variables an action a reads from and writes to, and K^T(a) denotes a subset of K(a), which is relevant to the trader T. As an example of independence, we assume a_1 transacts c_1 to c_2 using a constant product market M1 with liquidity L1^{c_1} and L1^{c_2}, and a_2 transacts c_1 to c_3 using another constant product market M2 with liquidity L2^{c_1} and L2^{c_3}. The following equations show the storage variables a_1 and a_2 reads from and writes to:
+
+K^T(a_1) = {M1.L1^{c_1}, M1.L1^{c_2}, T.c_1, T.c_2}     (9)
+K^T(a_2) = {M2.L2^{c_1}, M2.L2^{c_3}, T.c_1, T.c_3}     (10)
+
+a_1 and a_2 are not independent, as they both read/write variable T.c_1. Therefore, Heuristic 4 does not prune the path containing a_1 and a_2.
+
+Heuristic 5: An action cannot be immediately followed by another reversing action (i.e., a mirroring action) on the same DeFi market. For instance, if a_1 transacts c_1 to c_2, and a_2 converts c_2 to c_1 on the same market, then heuristic 5 will prune all paths that contain a_1, a_2.
+
+[FIGURE 5: Example of branching and looping paths showing Heuristic 6 - Branching example and Heuristic 7 - Looping example]
+
+Heuristic 6: A path cannot include any branching. For example, a path of 5 actions [c_1 → c_2 → c_4, c_1 → c_3 → c_4, c_4 → c_1] is composed of two paths, [c_1 → c_2 → c_4 → c_1] and [c_1 → c_3 → c_4 → c_1] (cf. Figure 5a). In our work, we choose the more profitable path, and discard the other, because both paths affect the asset c_4. In a future work, it might be interesting to attempt to extract profit from both paths in an effort to maximize the revenue.
+
+Heuristic 7: A path must not include any loops. For example, a path [c_1 → c_2 → c_3 → c_2 → c_3 → c_1] consists of a loop between c_2 and c_3. This path is composed of two sub-paths, namely [c_1 → c_2 → c_3 → c_1] and [c_1 → c_2 → c_3 → c_1] (cf. Figure 5b). We again chose the more profitable path, and discard the other for simplicity. We leave it to future work to optimize the potential gain.
+
+The efficiency of path pruning can be evaluated across two dimensions: (i) the number of paths that are pruned, and, (ii) the reduction in revenue resulting from the heuristic pruning. To address the former, we show the reduction of the number of paths due to the heuristics in Table 1 and discuss these results further in Section 6. Regarding the latter, because we cannot quantify the optimal revenue due to the combinatorial explosion of the search space, we, unfortunately, see no avenue to quantify the reduction in revenue caused by the heuristics.
+
+5.3 DeFiPoser-SMT Revenue Optimizer
+
+SMT solvers validate if any initialization of the free variables would satisfy the requirements defined. One requirement we specify is to increase the base cryptocurrency asset balance by a fixed amount. To find the maximum satisfiable revenue, we chose to use an optimization algorithm. At a high level, to identify a coarse upper and lower revenue bound, this algorithm first attempts to solve, given multiples of 10 for the trader revenue. Given these bounds, we perform a binary search to find the optimal value.
+
+5.4 Comparing DeFiPoser-SMT to DeFiPoser-ARB
+
+[TABLE 1: High-level comparison between DeFiPoser-ARB and DeFiPoser-SMT showing path generation, selection, modeling requirements, and performance metrics]
+
+Table 1 summarizes our comparison between DeFiPoser-SMT and DeFiPoser-ARB. While arbitrage opportunities appear plentiful, DeFiPoser-ARB cannot capture non-cyclic transactions such as the bZx case. Because DeFiPoser-SMT can encode any arbitrary strategy as an SMT problem, we argue that it is a more generic tool, as long as the underlying SMT solver can find a solution fast enough. We would like to stress again that both tools DeFiPoser-ARB and DeFiPoser-SMT do not provide optimal solutions. DeFiPoser-ARB greedily searches for arbitrage and extracts revenue as each opportunity arises. To show that DeFiPoser-ARB does not find optimal solutions, we provide the following example at block 9,819,643. Here, DeFiPoser-SMT finds two opportunities:
+
+Strategy 1: [ETH → BNT → MKR → ETH] with 0.20 ETH of revenue.
+Strategy 2: [ETH → BAT → BNT → MKR → ETH] with 0.11 ETH of revenue.
+
+DeFiPoser-SMT will only execute strategy 1. DeFiPoser-ARB, however, finds and executes strategy 2 first to extract 0.11 ETH. After executing strategy 2 and updating the graph, strategy 1 is no longer profitable. Therefore, DeFiPoser-ARB only extracts a revenue of 0.11 ETH in this block. Note that DeFiPoser-SMT provides proof of satisfiable/unsatisfiable revenue targets for each considered path. However, DeFiPoser-SMT remains a best-effort tool because the heuristics prune paths that may be profitable. Contrary to DeFiPoser-ARB, DeFiPoser-SMT does not merge paths.
+
+5.5 Limitations
+
+We elaborate on a few limitations of our work.
+
+State dependency: In this study, we focus on block-level state dependencies, i.e., we consider a state to only change when a new block is mined. In practice, a DeFi state can change several times within the same blockchain block (as several transactions can trade on a DeFi platform within a block). Our assumption hence may cause us to not consider potentially profitable trades. An alternative approach to study state dependency, which we leave to future work, is to perform a transaction-level analysis. Such an analysis would assume that the trader observes the peer-to-peer network layer of the Ethereum network. Based on the information of transactions in the memory pool (the pool of unconfirmed transactions), the transaction order and state changes in the next block could be estimated ahead of the block being mined.
+
+Scalability: One problem of DeFiPoser is the combinatorial path explosion. To mitigate this problem, heuristics reduce the path space, which only needs to be executed once. For every new block, DeFiPoser can parallelize the parameter search process to find the most profitable paths. A limitation of negative cycle detection is that it has to search for negative cycles before starting to search parameters. The graph needs to be updated after executing every strategy. This is difficult to parallelize and limits the system's real-time capability, especially when there are multiple negative cycles, or the cycle length is long.
+
+Manual Modeling and Code Complexity: DeFiPoser-ARB only needs to be aware of the spot price of each market and treats the underlying smart contracts and exchange protocols as a black box while greedily exploring opportunities. DeFiPoser-SMT, however, requires the manual translation of the objective function into an SMT problem. This requires to encode the state transitions into a group of predicates. The modeling process not only increases the code complexity (cf. Table 1) but also causes inaccuracies in the found solutions and therefore requires a validation process through, e.g., concrete execution.
+
+Approximated Revenue: To avoid double-counting revenue when a profitable path exists over multiple blocks, we apply a state dependency analysis and only exploit paths with a state change. However, DeFiPoser's reported revenue is not accurate because: (i) We work on historical blockchain states. In practice, the profitability of DeFiPoser will be affected by the underlying blockchain's network layer; (ii) For simplicity within this work, we assume that DeFiPoser does not change other market participants' behavior. In practice, other traders are likely to monitor our activity and adjust their trading strategy accordingly.
+
+Multiple Traders: Within this work, we only consider a single trader using DeFiPoser. Related work simulated the outcome of competing transactions from several traders under a reactive counter-bidding strategy. We believe that those results translate over to MEV when multiple traders (specifically non-miners) compete over DeFiPoser transactions. Those results suggest that the total revenue will be divided among the competing traders.
