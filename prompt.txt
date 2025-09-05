@@ -1,5 +1,9 @@
-1. defi 폴더의 .py 파일과 .sol 파일을 모두 읽는다.
-2. abi 폴더의 파일도 다 읽어본다.
-3. 이 프로젝트의 목적이 무엇인지 말하고, 완성도가 몇 %인지 의견을 제시
-4. 그 외의 사항은 이후 추가 질문에서 계속하겠다. 코드 수정 또한 이후 질문에 언급되었을 때에만 수행한다. 
+이 프로젝트는 원래 
 
+[2103.02228] On the Just-In-Time Discovery of Profit-Generating Transactions in DeFi Protocols.html
+
+이 논문의 DEFIPOSER-ARB를 재현하는게 목적인데 아직 많이 부족한거 같아
+
+고작 4개만 base token으로 두는 것도 그렇고
+
+너가 TODO.txt 파일을 작성해 줄래? 논문의 DEFIPOSER-ARB를 재현하는데 있어 어떤 점이 추가되어야할지 순서대로 모든 항목을 나열해주는거야.

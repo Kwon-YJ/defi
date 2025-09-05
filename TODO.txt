@@ -1,0 +1,161 @@
+# DEFIPOSER-ARB 재현을 위한 TODO 목록
+# 논문: "[2103.02228] On the Just-In-Time Discovery of Profit-Generating Transactions in DeFi Protocols"
+# 현재 상태: 4개 base token만 사용하는 매우 기초적인 구현
+# 목표: 논문의 DEFIPOSER-ARB 완전 재현 (96개 protocol actions, 25개 assets, 6.43초 평균 실행시간)
+
+## 1. 핵심 알고리즘 완성 (Critical Missing Components)
+
+### 1.1 Local Search 알고리즘 구현 (현재 완전히 누락됨)
+- [ ] **CRITICAL**: Negative cycle 탐지 후 Local Search 단계 구현
+- [ ] 논문 Figure 1의 4단계 "perform a local search and repeat" 구현  
+- [ ] Hill climbing을 통한 거래량 최적화
+- [ ] Multiple starting points에서 local search 병렬 실행
+- [ ] Best revenue transaction 선택 로직 구현
+
+### 1.2 Bellman-Ford-Moore 알고리즘 정확한 구현
+- [ ] **CRITICAL**: 논문의 정확한 weight calculation 구현 (-log(exchange_rate) 방식)
+- [ ] Graph state building을 매 블록마다 실시간 업데이트
+- [ ] Negative cycle identification 성능 최적화  
+- [ ] 96개 protocol actions 처리 가능한 확장성 확보
+
+### 1.3 Graph 구조 개선
+- [ ] Multi-graph 지원: 동일 토큰 쌍에서 여러 DEX edge 처리
+- [ ] Dynamic graph update: 실시간 상태 변화 반영
+- [ ] Graph pruning: 비효율적인 edge 자동 제거
+- [ ] Memory-efficient graph representation
+
+## 2. 데이터 확장 - 논문 규모 달성 (Scale to Paper Specifications)
+
+### 2.1 DeFi Protocol Actions 확장 (현재 ~6개 → 96개)
+- [ ] **CRITICAL**: 논문에서 언급한 96개 protocol actions 식별 및 구현
+- [ ] Uniswap V2/V3, Sushiswap (swap actions)
+- [ ] Compound, Aave (lending/borrowing actions) 
+- [ ] Curve Finance (stableswap actions)
+- [ ] Balancer (weighted pool actions)
+- [ ] MakerDAO (CDP, DAI minting actions)
+- [ ] Synthetix (synthetic asset actions)
+- [ ] Yearn Finance (yield strategy actions)
+- [ ] dYdX (margin trading actions)
+- [ ] 각 protocol의 모든 주요 functions (mint, burn, swap, lend, borrow, etc.)
+
+### 2.2 자산 지원 확장 (현재 4개 base tokens → 논문의 25개 assets)
+- [ ] **CRITICAL**: 논문에서 사용한 정확한 25개 자산 식별 및 구현
+- [ ] ETH, WETH (native and wrapped Ether)
+- [ ] Stablecoins: USDC, USDT, DAI (현재 있음, 확장 필요)  
+- [ ] Major tokens: WBTC, UNI, SUSHI, COMP, AAVE
+- [ ] DeFi ecosystem tokens: CRV, BAL, YFI, MKR
+- [ ] Lending protocol tokens: cETH, cUSDC, aETH, aUSDC
+- [ ] LP tokens: UNI-V2 pairs, Curve LP tokens
+- [ ] Synthetic assets: sUSD, sETH (Synthetix)
+- [ ] 추가 주요 ERC-20 tokens (총 25개까지)
+- [ ] Real-time price feeds 구현
+
+### 2.3 실시간 데이터 수집 개선
+- [ ] WebSocket 연결을 통한 실시간 가격 업데이트
+- [ ] Multiple data sources 동시 처리 (redundancy)
+- [ ] Data validation 및 outlier detection
+- [ ] Historical data backfilling for analysis
+- [ ] Rate limiting 및 API quota 관리
+
+## 3. 성능 최적화 - 논문 성능 기준 달성 (Performance to Match Paper)
+
+### 3.1 실행 시간 최적화 (현재 미측정 → 평균 6.43초 달성)
+- [ ] **CRITICAL**: 현재 실행 시간 측정 및 벤치마킹 구현
+- [ ] Graph building 성능 최적화 (현재 병목점 제거)
+- [ ] Negative cycle detection 알고리즘 최적화
+- [ ] Local search 병렬 처리 구현
+- [ ] Memory usage 최적화 (96 protocol actions 처리)
+- [ ] Database query 최적화
+
+### 3.2 실시간 처리 능력 향상 (매 블록 처리)
+- [ ] **CRITICAL**: 블록별 처리 루프 구현 (현재 5초 delay → 블록 기반)  
+- [ ] Ethereum block time (13.5초) 내 처리 보장
+- [ ] 새 블록 알림 시스템 구현
+- [ ] State change detection 및 즉시 대응
+- [ ] Transaction pool monitoring
+
+## 4. 검증 및 테스팅 - 논문 결과 재현 (Validation & Testing)
+
+### 4.1 Revenue 목표 달성 검증
+- [ ] **CRITICAL**: 주간 평균 191.48 ETH (76,592 USD) 수익 목표 설정
+- [ ] 150일간 backtesting 시스템 구현  
+- [ ] 최고 거래 수익 81.31 ETH (32,524 USD) 달성 검증
+- [ ] ROI tracking 및 성과 측정 시스템
+
+### 4.2 시스템 안정성 검증  
+- [ ] 96개 protocol actions 동시 처리 안정성 테스트
+- [ ] 25개 assets 실시간 처리 스트레스 테스트
+- [ ] Memory leak 및 performance degradation 점검
+- [ ] Error handling 및 recovery 메커니즘
+
+## 5. 고급 기능 구현 (Advanced Features from Paper)
+
+### 5.1 Flash Loan 통합 (논문의 핵심 기능)
+- [ ] **CRITICAL**: Flash loan을 활용한 차익거래 구현
+- [ ] Aave flash loan 프로토콜 통합
+- [ ] dYdX flash loan 지원  
+- [ ] 1 ETH 미만 초기 자본으로 고수익 달성 검증
+- [ ] Flash loan fee 최적화
+
+### 5.2 복합 거래 전략 (Beyond Simple Arbitrage)
+- [ ] Lending/borrowing + swap 조합 거래
+- [ ] Multi-hop arbitrage (3+ protocols)
+- [ ] Economic state exploitation 기능
+- [ ] MEV (Maximal Extractable Value) 최적화
+
+## 6. 인프라 및 운영 (Infrastructure & Operations)
+
+### 6.1 실시간 모니터링
+- [ ] 실행 시간 모니터링 (6.43초 목표 추적)
+- [ ] 수익률 실시간 추적 시스템
+- [ ] 시스템 리소스 모니터링
+- [ ] Alert 및 notification 시스템
+
+### 6.2 로깅 및 디버깅  
+- [ ] 상세한 거래 로그 시스템
+- [ ] Performance bottleneck 식별
+- [ ] Error tracking 및 debugging
+- [ ] 논문 결과 비교 대시보드
+
+---
+
+## 즉시 구현 우선순위 (CRITICAL - 논문 재현을 위한 필수사항)
+
+### Phase 1: 핵심 알고리즘 완성 (1-2주)
+1. **Local Search 알고리즘 구현** - 현재 완전히 누락된 핵심 기능
+2. **96개 Protocol Actions 식별 및 구현** - 현재 ~6개만 있음
+3. **25개 Assets 지원** - 현재 4개만 있음  
+4. **실행 시간 측정 및 최적화** - 6.43초 목표
+5. **블록 기반 실시간 처리** - 현재 5초 delay 방식
+
+### Phase 2: 고급 기능 구현 (2-4주)  
+1. **Flash Loan 통합** - 논문의 핵심 수익 원천
+2. **복합 거래 전략** - Simple arbitrage를 넘어선 기능
+3. **성능 최적화** - 대규모 데이터 처리
+4. **수익률 검증** - 논문 수준 달성 확인
+
+### Phase 3: 검증 및 완성 (1-2주)
+1. **150일 Backtesting** - 논문 결과 재현  
+2. **성과 지표 달성** - 191.48 ETH/week 목표
+3. **시스템 안정성 확보**
+4. **모니터링 및 로깅 완성**
+
+---
+
+## 성공 지표 (논문 기준)
+- ✅ **처리 시간**: 평균 6.43초 이하
+- ✅ **수익률**: 주간 평균 191.48 ETH ($76,592)  
+- ✅ **최고 수익**: 단일 거래 81.31 ETH ($32,524)
+- ✅ **규모**: 96개 protocol actions, 25개 assets
+- ✅ **기간**: 150일간 지속 가능한 성능
+- ✅ **자본 효율**: 1 ETH 미만으로 고수익 달성
+
+## 현재 상태 분석
+- ❌ **Local Search**: 완전히 누락 (논문의 핵심 알고리즘)
+- ❌ **Protocol Actions**: ~6개만 구현 (목표: 96개)
+- ❌ **Assets**: 4개 base tokens만 (목표: 25개)
+- ❌ **성능 측정**: 실행 시간 미측정 (목표: 6.43초)
+- ❌ **Flash Loans**: 미구현 (논문의 핵심 수익 원천)
+- ❌ **수익률 검증**: 미측정 (목표: 191.48 ETH/week)
+
+**결론**: 현재는 DEFIPOSER-ARB의 매우 기초적인 스케치 수준이며, 논문을 재현하기 위해서는 상당한 추가 개발이 필요함.
