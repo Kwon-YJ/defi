@@ -11,6 +11,7 @@ from src.testnet_validator import TestnetValidator
 from src.arbitrage_detector import ArbitrageDetector
 from src.performance_analyzer import PerformanceAnalyzer
 from src.logger import setup_logger
+from config.config import config  # .env 로드를 위해 추가
 
 logger = setup_logger(__name__)
 
@@ -21,6 +22,10 @@ async def run_testnet_validation():
     results = await validator.run_validation_suite()
     
     for test_name, result in results.items():
+        # overall_score는 건너뛰기 (float 값)
+        if test_name == 'overall_score':
+            continue
+            
         status = "✅ 성공" if result.get('success', False) else "❌ 실패"
         logger.info(f"{test_name}: {status}")
         

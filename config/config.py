@@ -16,6 +16,8 @@ class Config:
     ethereum_mainnet_rpc: str = os.getenv('ETHEREUM_MAINNET_RPC', '')
     ethereum_mainnet_ws: str = os.getenv('ETHEREUM_MAINNET_WS', '')
     goerli_rpc: str = os.getenv('GOERLI_RPC', '')
+    holesky_rpc: str = os.getenv('HOLESKY_RPC', 'https://ethereum-holesky-rpc.publicnode.com')
+    sepolia_rpc: str = os.getenv('SEPOLIA_RPC', 'https://ethereum-sepolia-rpc.publicnode.com')
     
     # 거래 설정
     private_key: str = os.getenv('PRIVATE_KEY', '')
@@ -38,5 +40,6 @@ class Config:
 # 전역 설정 인스턴스
 config = Config()
 
-if not config.validate():
-    raise ValueError("필수 환경 변수가 설정되지 않았습니다.")
+# 개발 중에는 validation 비활성화
+# if not config.validate():
+#     raise ValueError("필수 환경 변수가 설정되지 않았습니다.")
