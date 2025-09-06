@@ -24,6 +24,13 @@ class Config:
     max_gas_price: int = int(os.getenv('MAX_GAS_PRICE', '50000000000') or '50000000000')
     min_profit_threshold: float = float(os.getenv('MIN_PROFIT_THRESHOLD', '0.001') or '0.001')
     
+    # 실시간 가격 피드 API 키들 (Real-time price feeds API keys)
+    coinmarketcap_api_key: str = os.getenv('COINMARKETCAP_API_KEY', '')
+    cryptocompare_api_key: str = os.getenv('CRYPTOCOMPARE_API_KEY', '')
+    nomics_api_key: str = os.getenv('NOMICS_API_KEY', '')
+    messari_api_key: str = os.getenv('MESSARI_API_KEY', '')
+    coinpaprika_api_key: str = os.getenv('COINPAPRIKA_API_KEY', '')
+    
     # 모니터링
     log_level: str = os.getenv('LOG_LEVEL', 'INFO')
     redis_url: str = os.getenv('REDIS_URL', 'redis://localhost:6379')

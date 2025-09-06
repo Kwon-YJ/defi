@@ -18,7 +18,8 @@ dependencies = [
     "eth-account>=0.13.7",
     "websockets>=15.0.1",
     "requests>=2.32.5",
-    "python-telegram-bot>=22.3",
+    "python-telegram-bot==13.4.1",
+    "urllib3==1.26.18",
 ]
 readme = "README.md"
 requires-python = ">= 3.8"
