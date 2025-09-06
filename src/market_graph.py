@@ -1,6 +1,7 @@
 import networkx as nx
 import math
-from typing import Dict, List, Tuple, Optional
+import asyncio
+from typing import Dict, List, Tuple, Optional, Callable
 from dataclasses import dataclass
 from src.logger import setup_logger
 from src.protocol_actions import ProtocolRegistry, ProtocolAction, ProtocolType
@@ -51,12 +52,32 @@ class DeFiMarketGraph:
         self._protocol_edge_cache = {}  # 프로토콜별 엣지 캐시
         self._supported_protocols = set()  # 지원되는 프로토콜 목록
         
+        # **DYNAMIC GRAPH UPDATE**: 실시간 상태 변화 반영 시스템
+        self._state_change_listeners = []  # 상태 변화 리스너들
+        self._update_queue = []  # 대기 중인 업데이트 큐
+        self._last_state_hash = None  # 마지막 상태 해시 (변화 감지용)
+        self._update_stats = {
+            'total_updates': 0,
+            'avg_update_time': 0.0,
+            'last_update_time': 0,
+            'updates_per_second': 0.0,
+            'queue_size': 0
+        }
+        import time
+        self._stats_start_time = time.time()
+        
     def add_token(self, token_address: str, symbol: str = None):
         """토큰 노드 추가"""
         if token_address not in self.token_nodes:
             self.graph.add_node(token_address, symbol=symbol)
             self.token_nodes.add(token_address)
             logger.debug(f"토큰 노드 추가: {symbol or token_address}")
+            
+            # 실시간 상태 변화 알림
+            self._notify_state_change('token_added', {
+                'token_address': token_address,
+                'symbol': symbol
+            })
     
     def add_trading_pair(self, token0: str, token1: str, dex: str, 
                         pool_address: str, reserve0: float, reserve1: float,
@@ -117,6 +138,17 @@ class DeFiMarketGraph:
         self._register_edge(token1, token0, dex, edge_key_10, effective_rate_10)
         
         logger.debug(f"거래 쌍 추가 (Multi-graph): {dex} {token0}-{token1}")
+        
+        # 실시간 상태 변화 알림
+        self._notify_state_change('trading_pair_added', {
+            'from_token': token0,
+            'to_token': token1,
+            'dex': dex,
+            'pool_address': pool_address,
+            'reserve0': reserve0,
+            'reserve1': reserve1,
+            'edge_keys': [edge_key_01, edge_key_10]
+        })
     
     def _calculate_edge_weight(self, spot_price: float) -> float:
         """
@@ -296,6 +328,8 @@ class DeFiMarketGraph:
     
     def update_pool_data(self, pool_address: str, reserve0: float, reserve1: float):
         """풀 데이터 업데이트 - Multi-graph 지원, 논문의 정확한 weight calculation 적용"""
+        import time
+        start_time = time.time()
         updated_pairs = []
         
         # 해당 풀과 연관된 엣지들 찾아서 업데이트 (Multi-graph 처리)
@@ -313,6 +347,7 @@ class DeFiMarketGraph:
                 data['exchange_rate'] = effective_rate  # 실제 거래 환율
                 data['weight'] = self._calculate_edge_weight(spot_price)  # 논문 공식 사용
                 data['liquidity'] = min(reserve0, reserve1)
+                data['last_updated'] = time.time()  # 마지막 업데이트 시간 기록
                 
                 # Best edge 재평가를 위해 쌍 기록
                 pair_key = (u, v)
@@ -322,7 +357,24 @@ class DeFiMarketGraph:
         # 업데이트된 토큰 쌍들의 최적 edge 재계산
         for pair_key in updated_pairs:
             self._update_best_edge(pair_key)
-            logger.debug(f"Pool 업데이트: {pool_address} - {pair_key[0]}-{pair_key[1]}")
+            
+        update_time = time.time() - start_time
+        if updated_pairs:
+            logger.debug(f"Pool 업데이트: {pool_address} - {len(updated_pairs)}쌍 업데이트됨 ({update_time:.3f}s)")
+        
+        # 상태 변화가 있었다면 현재 해시 계산 및 저장
+        if updated_pairs:
+            # 변화가 있었으므로 이전 해시를 유지하고 새로운 해시가 생성되도록 함
+            pass  # detect_state_changes가 호출될 때 새로운 해시와 비교됨
+        
+        # 실시간 상태 변화 알림
+        self._notify_state_change('pool_update', {
+            'pool_address': pool_address,
+            'reserve0': reserve0,
+            'reserve1': reserve1,
+            'updated_pairs': len(updated_pairs),
+            'update_time': update_time
+        })
     
     def get_graph_stats(self) -> Dict:
         """그래프 통계 정보 - Multi-graph 지원"""
@@ -645,6 +697,368 @@ class DeFiMarketGraph:
         except Exception as e:
             logger.error(f"Protocol lending edge creation failed for {action.action_id}: {e}")
             return False
+    
+    # =============================================================================
+    # **DYNAMIC GRAPH UPDATE**: 실시간 상태 변화 반영 시스템
+    # =============================================================================
+    
+    def register_state_change_listener(self, listener: Callable):
+        """상태 변화 리스너 등록"""
+        if listener not in self._state_change_listeners:
+            self._state_change_listeners.append(listener)
+            logger.debug(f"상태 변화 리스너 등록: {len(self._state_change_listeners)}개 활성")
+    
+    def remove_state_change_listener(self, listener: Callable):
+        """상태 변화 리스너 제거"""
+        if listener in self._state_change_listeners:
+            self._state_change_listeners.remove(listener)
+            logger.debug(f"상태 변화 리스너 제거: {len(self._state_change_listeners)}개 활성")
+    
+    def _notify_state_change(self, change_type: str, change_data: Dict):
+        """상태 변화 알림"""
+        import time
+        
+        notification = {
+            'type': change_type,
+            'timestamp': time.time(),
+            'data': change_data,
+            'graph_hash': self._calculate_state_hash()
+        }
+        
+        # 리스너들에게 알림
+        for listener in self._state_change_listeners:
+            try:
+                if asyncio.iscoroutinefunction(listener):
+                    # 비동기 리스너 - 현재 이벤트 루프가 있는지 확인
+                    try:
+                        loop = asyncio.get_event_loop()
+                        if loop.is_running():
+                            asyncio.create_task(listener(notification))
+                        else:
+                            # 루프가 실행 중이 아니면 동기적으로 실행
+                            asyncio.run(listener(notification))
+                    except RuntimeError:
+                        # 이벤트 루프가 없으면 새로 생성
+                        asyncio.run(listener(notification))
+                else:
+                    # 동기 리스너
+                    listener(notification)
+            except Exception as e:
+                logger.error(f"상태 변화 리스너 오류: {e}")
+        
+        logger.debug(f"상태 변화 알림: {change_type} -> {len(self._state_change_listeners)}개 리스너")
+    
+    def _calculate_state_hash(self) -> str:
+        """그래프 상태 해시 계산 (변화 감지용)"""
+        import hashlib
+        import json
+        
+        # 그래프의 핵심 정보만 해시로 계산
+        state_data = {
+            'nodes': sorted(list(self.token_nodes)),
+            'edges': [],
+            'best_edges': {}  # 튜플 키를 문자열로 변환
+        }
+        
+        # best_edges의 튜플 키를 문자열로 변환
+        for (from_token, to_token), (dex, edge_key) in self._best_edges.items():
+            key_str = f"{from_token}->{to_token}"
+            state_data['best_edges'][key_str] = f"{dex}:{edge_key}"
+        
+        # 엣지 정보 추가 (환율과 유동성만)
+        for u, v, edge_key, data in self.graph.edges(data=True, keys=True):
+            edge_info = {
+                'from': u,
+                'to': v,
+                'rate': round(data.get('exchange_rate', 0), 6),
+                'liquidity': round(data.get('liquidity', 0), 2)
+            }
+            state_data['edges'].append(edge_info)
+        
+        # 정렬 및 직렬화
+        state_data['edges'].sort(key=lambda x: (x['from'], x['to'], x['rate']))
+        
+        try:
+            state_str = json.dumps(state_data, sort_keys=True)
+            # SHA256 해시 계산
+            return hashlib.sha256(state_str.encode()).hexdigest()[:16]  # 16자리로 단축
+        except Exception as e:
+            logger.error(f"상태 해시 계산 오류: {e}")
+            # 오류 발생시 간단한 대안 해시
+            return hashlib.sha256(f"{len(self.token_nodes)}-{len(self.graph.edges)}".encode()).hexdigest()[:16]
+    
+    def detect_state_changes(self) -> Optional[Dict]:
+        """상태 변화 감지"""
+        import time
+        
+        current_hash = self._calculate_state_hash()
+        
+        if self._last_state_hash is None:
+            # 최초 실행
+            self._last_state_hash = current_hash
+            return None
+        
+        if current_hash != self._last_state_hash:
+            # 상태 변화 감지
+            change_info = {
+                'previous_hash': self._last_state_hash,
+                'current_hash': current_hash,
+                'changed': True,
+                'timestamp': time.time()
+            }
+            
+            self._last_state_hash = current_hash
+            logger.info(f"그래프 상태 변화 감지: {change_info['previous_hash']} -> {current_hash}")
+            
+            return change_info
+        
+        return {'changed': False, 'hash': current_hash}
+    
+    def queue_update(self, update_type: str, update_data: Dict, priority: int = 5):
+        """
+        업데이트 요청 큐에 추가
+        
+        Args:
+            update_type: 업데이트 유형 ('pool_update', 'edge_add', 'edge_remove' 등)
+            update_data: 업데이트 데이터
+            priority: 우선순위 (1=최고, 10=최저)
+        """
+        import time
+        
+        update_item = {
+            'type': update_type,
+            'data': update_data,
+            'priority': priority,
+            'timestamp': time.time(),
+            'processed': False
+        }
+        
+        self._update_queue.append(update_item)
+        
+        # 우선순위별 정렬 (높은 priority 먼저)
+        self._update_queue.sort(key=lambda x: (x['priority'], x['timestamp']))
+        
+        # 큐 사이즈 제한 (1000개 초과시 오래된 것부터 제거)
+        if len(self._update_queue) > 1000:
+            removed = self._update_queue.pop()
+            logger.warning(f"업데이트 큐 크기 초과, 오래된 업데이트 제거: {removed['type']}")
+        
+        logger.debug(f"업데이트 큐에 추가: {update_type} (priority: {priority})")
+    
+    def process_update_queue(self, max_items: int = 50) -> int:
+        """
+        업데이트 큐 처리
+        
+        Args:
+            max_items: 한 번에 처리할 최대 아이템 수
+        
+        Returns:
+            처리된 아이템 수
+        """
+        import time
+        
+        if not self._update_queue:
+            return 0
+        
+        start_time = time.time()
+        processed_count = 0
+        
+        # 우선순위 높은 순서로 처리
+        items_to_process = self._update_queue[:max_items]
+        
+        for item in items_to_process:
+            try:
+                if self._process_single_update(item):
+                    item['processed'] = True
+                    item['processed_at'] = time.time()
+                    processed_count += 1
+                else:
+                    logger.warning(f"업데이트 처리 실패: {item['type']}")
+            except Exception as e:
+                logger.error(f"업데이트 처리 오류: {item['type']} - {e}")
+        
+        # 처리된 아이템들 큐에서 제거
+        self._update_queue = [item for item in self._update_queue 
+                             if not item.get('processed', False)]
+        
+        processing_time = time.time() - start_time
+        
+        if processed_count > 0:
+            # 통계 업데이트
+            self._update_stats['total_updates'] += processed_count
+            
+            # 평균 처리 시간 업데이트
+            total_time = self._update_stats['total_updates'] * self._update_stats['avg_update_time']
+            total_time += processing_time
+            self._update_stats['avg_update_time'] = total_time / self._update_stats['total_updates']
+            
+            self._update_stats['last_update_time'] = processing_time
+            self._update_stats['queue_size'] = len(self._update_queue)
+            
+            # 초당 업데이트 수 계산
+            elapsed_time = time.time() - self._stats_start_time
+            if elapsed_time > 0:
+                self._update_stats['updates_per_second'] = self._update_stats['total_updates'] / elapsed_time
+            
+            logger.debug(
+                f"업데이트 큐 처리 완료: {processed_count}개 처리 ({processing_time:.3f}s), "
+                f"남은 큐: {len(self._update_queue)}개"
+            )
+        
+        return processed_count
+    
+    def _process_single_update(self, update_item: Dict) -> bool:
+        """단일 업데이트 처리"""
+        update_type = update_item['type']
+        update_data = update_item['data']
+        
+        try:
+            if update_type == 'pool_update':
+                return self._handle_pool_update(update_data)
+            elif update_type == 'edge_add':
+                return self._handle_edge_add(update_data)
+            elif update_type == 'edge_remove':
+                return self._handle_edge_remove(update_data)
+            elif update_type == 'token_add':
+                return self._handle_token_add(update_data)
+            elif update_type == 'bulk_update':
+                return self._handle_bulk_update(update_data)
+            else:
+                logger.warning(f"알 수 없는 업데이트 유형: {update_type}")
+                return False
+        except Exception as e:
+            logger.error(f"업데이트 처리 오류 ({update_type}): {e}")
+            return False
+    
+    def _handle_pool_update(self, data: Dict) -> bool:
+        """풀 업데이트 처리"""
+        pool_address = data.get('pool_address')
+        reserve0 = data.get('reserve0')
+        reserve1 = data.get('reserve1')
+        
+        if pool_address and reserve0 is not None and reserve1 is not None:
+            self.update_pool_data(pool_address, reserve0, reserve1)
+            return True
+        return False
+    
+    def _handle_edge_add(self, data: Dict) -> bool:
+        """엣지 추가 처리"""
+        required_fields = ['from_token', 'to_token', 'dex', 'pool_address', 'reserve0', 'reserve1']
+        if all(field in data for field in required_fields):
+            self.add_trading_pair(
+                data['from_token'], data['to_token'], data['dex'],
+                data['pool_address'], data['reserve0'], data['reserve1'],
+                data.get('fee', 0.003)
+            )
+            return True
+        return False
+    
+    def _handle_edge_remove(self, data: Dict) -> bool:
+        """엣지 제거 처리"""
+        from_token = data.get('from_token')
+        to_token = data.get('to_token')
+        dex = data.get('dex')
+        
+        if from_token and to_token and dex:
+            return self.remove_edge_by_dex(from_token, to_token, dex)
+        return False
+    
+    def _handle_token_add(self, data: Dict) -> bool:
+        """토큰 추가 처리"""
+        token_address = data.get('token_address')
+        symbol = data.get('symbol')
+        
+        if token_address:
+            self.add_token(token_address, symbol)
+            return True
+        return False
+    
+    def _handle_bulk_update(self, data: Dict) -> bool:
+        """대량 업데이트 처리"""
+        updates = data.get('updates', [])
+        success_count = 0
+        
+        for update in updates:
+            if self._process_single_update({'type': update['type'], 'data': update['data']}):
+                success_count += 1
+        
+        return success_count == len(updates)
+    
+    def get_update_stats(self) -> Dict:
+        """업데이트 통계 정보 반환"""
+        stats = self._update_stats.copy()
+        stats['queue_size'] = len(self._update_queue)
+        stats['listeners_count'] = len(self._state_change_listeners)
+        stats['current_hash'] = self._last_state_hash
+        return stats
+    
+    def clear_update_queue(self) -> int:
+        """업데이트 큐 비우기"""
+        cleared_count = len(self._update_queue)
+        self._update_queue.clear()
+        logger.info(f"업데이트 큐 비움: {cleared_count}개 아이템 제거")
+        return cleared_count
+    
+    def enable_auto_state_detection(self, interval: float = 1.0):
+        """
+        자동 상태 변화 감지 활성화
+        
+        Args:
+            interval: 감지 간격 (초)
+        """
+        import asyncio
+        
+        async def auto_detect():
+            while True:
+                try:
+                    change_info = self.detect_state_changes()
+                    if change_info and change_info.get('changed'):
+                        self._notify_state_change('auto_detection', change_info)
+                    
+                    # 업데이트 큐 처리
+                    processed = self.process_update_queue()
+                    if processed > 0:
+                        self._notify_state_change('queue_processed', {'processed_count': processed})
+                        
+                except Exception as e:
+                    logger.error(f"자동 상태 감지 오류: {e}")
+                
+                await asyncio.sleep(interval)
+        
+        # 비동기 작업으로 시작
+        asyncio.create_task(auto_detect())
+        logger.info(f"자동 상태 감지 활성화: {interval}초 간격")
+    
+    def get_real_time_summary(self) -> Dict:
+        """실시간 그래프 상태 요약"""
+        import time
+        
+        graph_stats = self.get_graph_stats()
+        update_stats = self.get_update_stats()
+        
+        return {
+            'timestamp': time.time(),
+            'graph': {
+                'nodes': graph_stats['nodes'],
+                'edges': graph_stats['edges'],
+                'multi_graph': graph_stats['multi_graph']
+            },
+            'updates': {
+                'total_updates': update_stats['total_updates'],
+                'queue_size': update_stats['queue_size'],
+                'avg_update_time': update_stats['avg_update_time'],
+                'updates_per_second': update_stats['updates_per_second']
+            },
+            'state': {
+                'current_hash': update_stats['current_hash'],
+                'listeners_active': update_stats['listeners_count']
+            },
+            'paper_compliance': {
+                'real_time_updates': True,
+                'multi_graph_support': True,
+                'state_change_detection': self._last_state_hash is not None
+            }
+        }
 
     def get_protocol_summary(self) -> Dict:
         """96개 protocol actions 지원 현황 요약"""
