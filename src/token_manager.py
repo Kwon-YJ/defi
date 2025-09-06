@@ -427,15 +427,200 @@ class TokenManager:
                 name="Aave interest bearing USDC",
                 decimals=6,
                 coingecko_id="aave-usdc"
+            ),
+            
+            # LP tokens (Liquidity Provider tokens) - TODO requirement completion: UNI-V2 pairs, Curve LP tokens
+            # Uniswap V2 LP tokens (UNI-V2 pairs)
+            
+            # WETH-USDC UNI-V2 LP (most liquid pair)
+            "0xB4e16d0168e52d35CaCD2c6185b44281Ec28C9Dc": TokenInfo(
+                address="0xB4e16d0168e52d35CaCD2c6185b44281Ec28C9Dc",
+                symbol="WETH-USDC",
+                name="Uniswap V2 WETH-USDC",
+                decimals=18,
+                coingecko_id=""
+            ),
+            
+            # WETH-USDT UNI-V2 LP  
+            "0x0d4a11d5EEaaC28EC3F61d100daF4d40471f1852": TokenInfo(
+                address="0x0d4a11d5EEaaC28EC3F61d100daF4d40471f1852",
+                symbol="WETH-USDT",
+                name="Uniswap V2 WETH-USDT", 
+                decimals=18,
+                coingecko_id=""
+            ),
+            
+            # WETH-DAI UNI-V2 LP
+            "0xA478c2975Ab1Ea89e8196811F51A7B7Ade33eB11": TokenInfo(
+                address="0xA478c2975Ab1Ea89e8196811F51A7B7Ade33eB11",
+                symbol="WETH-DAI",
+                name="Uniswap V2 WETH-DAI",
+                decimals=18,
+                coingecko_id=""
+            ),
+            
+            # WBTC-WETH UNI-V2 LP (major BTC-ETH liquidity)
+            "0xBb2b8038a1640196FbE3e38816F3e67Cba72D940": TokenInfo(
+                address="0xBb2b8038a1640196FbE3e38816F3e67Cba72D940",
+                symbol="WBTC-WETH",
+                name="Uniswap V2 WBTC-WETH",
+                decimals=18,
+                coingecko_id=""
+            ),
+            
+            # UNI-WETH UNI-V2 LP (UNI governance token liquidity)
+            "0xd3d2E2692501A5c9Ca623199D38826e513033a17": TokenInfo(
+                address="0xd3d2E2692501A5c9Ca623199D38826e513033a17",
+                symbol="UNI-WETH",
+                name="Uniswap V2 UNI-WETH",
+                decimals=18,
+                coingecko_id=""
+            ),
+            
+            # COMP-WETH UNI-V2 LP (Compound governance token liquidity)
+            "0xCFfDdeD873554F362Ac02f8Fb1f02E5ada10516f": TokenInfo(
+                address="0xCFfDdeD873554F362Ac02f8Fb1f02E5ada10516f",
+                symbol="COMP-WETH",
+                name="Uniswap V2 COMP-WETH",
+                decimals=18,
+                coingecko_id=""
+            ),
+            
+            # AAVE-WETH UNI-V2 LP (Aave governance token liquidity)
+            "0xDFC14d2Af169B0D36C4EFF567Ada9b2E0CAE044f": TokenInfo(
+                address="0xDFC14d2Af169B0D36C4EFF567Ada9b2E0CAE044f",
+                symbol="AAVE-WETH",
+                name="Uniswap V2 AAVE-WETH",
+                decimals=18,
+                coingecko_id=""
+            ),
+            
+            # SUSHI-WETH UNI-V2 LP (SushiSwap governance token liquidity)  
+            "0xCE84867c3c02B05dc570d0135103d3fB9CC19433": TokenInfo(
+                address="0xCE84867c3c02B05dc570d0135103d3fB9CC19433",
+                symbol="SUSHI-WETH",
+                name="Uniswap V2 SUSHI-WETH",
+                decimals=18,
+                coingecko_id=""
+            ),
+            
+            # MKR-WETH UNI-V2 LP (Maker governance token liquidity)
+            "0xC2aDdA861F89bBB333c90c492cB837741916A225": TokenInfo(
+                address="0xC2aDdA861F89bBB333c90c492cB837741916A225",
+                symbol="MKR-WETH",
+                name="Uniswap V2 MKR-WETH",
+                decimals=18,
+                coingecko_id=""
+            ),
+            
+            # USDC-USDT UNI-V2 LP (stablecoin arbitrage pair)
+            "0x3041CbD36888bECc7bbCBc0045E3B1f144466f5f": TokenInfo(
+                address="0x3041CbD36888bECc7bbCBc0045E3B1f144466f5f",
+                symbol="USDC-USDT",
+                name="Uniswap V2 USDC-USDT",
+                decimals=18,
+                coingecko_id=""
+            ),
+            
+            # Curve LP tokens (Curve liquidity provider tokens for stablecoin pools)
+            
+            # 3CRV - Curve 3pool LP token (DAI+USDC+USDT) - Most important Curve LP token
+            "0x6c3F90f043a72FA612cbac8115EE7e52BDe6E490": TokenInfo(
+                address="0x6c3F90f043a72FA612cbac8115EE7e52BDe6E490",
+                symbol="3CRV",
+                name="Curve.fi DAI/USDC/USDT",
+                decimals=18,
+                coingecko_id="lp-3pool-curve"
+            ),
+            
+            # crvUSDC - Curve Compound USDC LP token (cUSDC+cDAI)
+            "0x845838DF265Dcd2c412A1Dc9e959c7d08537f8a2": TokenInfo(
+                address="0x845838DF265Dcd2c412A1Dc9e959c7d08537f8a2",
+                symbol="crvUSDC",
+                name="Curve.fi cDAI/cUSDC",
+                decimals=18,
+                coingecko_id="curve-fi-cdai-cusdc"
+            ),
+            
+            # YCRV - Curve yEarn LP token (yDAI+yUSDC+yUSDT+yTUSD) 
+            "0xdF5e0e81Dff6FAF3A7e52BA697820c5e32D806A8": TokenInfo(
+                address="0xdF5e0e81Dff6FAF3A7e52BA697820c5e32D806A8",
+                symbol="yDAI+yUSDC+yUSDT+yTUSD",
+                name="Curve.fi yDAI/yUSDC/yUSDT/yTUSD",
+                decimals=18,
+                coingecko_id="curve-fi-ydai-yusdc-yusdt-ytusd"
+            ),
+            
+            # GUSD3CRV - Curve GUSD metapool LP token (GUSD+3CRV)
+            "0xD2967f45c4f384DEEa880F807Be904762a3DeA07": TokenInfo(
+                address="0xD2967f45c4f384DEEa880F807Be904762a3DeA07",
+                symbol="GUSD3CRV",
+                name="Curve.fi GUSD/3Crv",
+                decimals=18,
+                coingecko_id="curve-fi-gusd-3crv"
+            ),
+            
+            # HUSD3CRV - Curve HUSD metapool LP token (HUSD+3CRV)
+            "0x5B5CFE992AdAC0C9D48E05854B2d91C73a003858": TokenInfo(
+                address="0x5B5CFE992AdAC0C9D48E05854B2d91C73a003858",
+                symbol="HUSD3CRV",
+                name="Curve.fi HUSD/3Crv",
+                decimals=18,
+                coingecko_id="curve-fi-husd-3crv"
+            ),
+            
+            # USDK3CRV - Curve USDK metapool LP token (USDK+3CRV)
+            "0x97E2768e8E73511cA874545DC5Ff8067eB19B787": TokenInfo(
+                address="0x97E2768e8E73511cA874545DC5Ff8067eB19B787",
+                symbol="USDK3CRV",
+                name="Curve.fi USDK/3Crv",
+                decimals=18,
+                coingecko_id="curve-fi-usdk-3crv"
+            ),
+            
+            # USDN3CRV - Curve USDN metapool LP token (USDN+3CRV)
+            "0x4f3E8F405CF5aFC05D68142F3783bDfE13811522": TokenInfo(
+                address="0x4f3E8F405CF5aFC05D68142F3783bDfE13811522",
+                symbol="USDN3CRV",
+                name="Curve.fi USDN/3Crv",
+                decimals=18,
+                coingecko_id="curve-fi-usdn-3crv"
+            ),
+            
+            # USDP3CRV - Curve USDP metapool LP token (USDP+3CRV)
+            "0x7Eb40E450b9655f4B3cC4259BCC731c63ff55ae6": TokenInfo(
+                address="0x7Eb40E450b9655f4B3cC4259BCC731c63ff55ae6",
+                symbol="USDP3CRV",
+                name="Curve.fi USDP/3Crv",
+                decimals=18,
+                coingecko_id="curve-fi-usdp-3crv"
+            ),
+            
+            # sBTC - Curve sBTC LP token (renBTC+wBTC+sBTC)
+            "0x075b1bb99792c9E1041bA13afEf80C91a1e70fB3": TokenInfo(
+                address="0x075b1bb99792c9E1041bA13afEf80C91a1e70fB3",
+                symbol="crvRenWSBTC",
+                name="Curve.fi renBTC/wBTC/sBTC",
+                decimals=18,
+                coingecko_id="curve-fi-renbtc-wbtc-sbtc"
+            ),
+            
+            # HBTC - Curve HBTC LP token (hBTC+wBTC)
+            "0xb19059ebb43466C323583928285a49f558E572Fd": TokenInfo(
+                address="0xb19059ebb43466C323583928285a49f558E572Fd",
+                symbol="crvHBTC",
+                name="Curve.fi hBTC/wBTC",
+                decimals=18,
+                coingecko_id="curve-fi-hbtc-wbtc"
             )
         }
         
-        # **논문 기준 검증**: 25개 assets + WETH + 2 additional stablecoins (USDC, USDT) + 5 major tokens (WBTC, UNI, SUSHI, COMP, AAVE) + 3 DeFi ecosystem tokens (CRV, BAL, YFI) + 4 lending protocol tokens (cETH, cUSDC, aETH, aUSDC)
-        expected_count = 40  # 25 + 1 + 2 + 5 + 3 + 4
+        # **논문 기준 검증**: 25개 assets + WETH + 2 additional stablecoins (USDC, USDT) + 5 major tokens (WBTC, UNI, SUSHI, COMP, AAVE) + 3 DeFi ecosystem tokens (CRV, BAL, YFI) + 4 lending protocol tokens (cETH, cUSDC, aETH, aUSDC) + 20 LP tokens (10 UNI-V2 pairs + 10 Curve LP tokens)
+        expected_count = 60  # 25 + 1 + 2 + 5 + 3 + 4 + 20
         if len(common_tokens) != expected_count:
-            logger.warning(f"Asset count mismatch! Expected: {expected_count} (25 paper + WETH + 2 stablecoins + 5 major tokens + 3 DeFi ecosystem + 4 lending protocol), Got: {len(common_tokens)}")
+            logger.warning(f"Asset count mismatch! Expected: {expected_count} (25 paper + WETH + 2 stablecoins + 5 major tokens + 3 DeFi ecosystem + 4 lending protocol + 20 LP tokens), Got: {len(common_tokens)}")
         else:
-            logger.info("✅ Paper specification enhanced: 25 assets + WETH + 2 stablecoins + 5 major tokens + 3 DeFi ecosystem tokens + 4 lending protocol tokens (40 total) registered")
+            logger.info("✅ Paper specification enhanced: 25 assets + WETH + 2 stablecoins + 5 major tokens + 3 DeFi ecosystem tokens + 4 lending protocol tokens + 20 LP tokens (60 total) registered")
         
         self.tokens.update(common_tokens)
         
@@ -898,7 +1083,180 @@ class TokenManager:
             ("aUSDC", "COMP"),
             ("COMP", "aUSDC"),
             ("aUSDC", "AAVE"),
-            ("AAVE", "aUSDC")
+            ("AAVE", "aUSDC"),
+            
+            # LP token pairs (TODO requirement completion: UNI-V2 pairs, Curve LP tokens)
+            # Uniswap V2 LP tokens with underlying assets
+            
+            # WETH-USDC LP token pairs (most liquid LP token)
+            ("WETH-USDC", "WETH"),
+            ("WETH", "WETH-USDC"),
+            ("WETH-USDC", "USDC"),
+            ("USDC", "WETH-USDC"),
+            ("WETH-USDC", "ETH"),
+            ("ETH", "WETH-USDC"),
+            
+            # WETH-USDT LP token pairs
+            ("WETH-USDT", "WETH"),
+            ("WETH", "WETH-USDT"),
+            ("WETH-USDT", "USDT"),
+            ("USDT", "WETH-USDT"),
+            ("WETH-USDT", "ETH"),
+            ("ETH", "WETH-USDT"),
+            
+            # WETH-DAI LP token pairs
+            ("WETH-DAI", "WETH"),
+            ("WETH", "WETH-DAI"),
+            ("WETH-DAI", "DAI"),
+            ("DAI", "WETH-DAI"),
+            ("WETH-DAI", "ETH"),
+            ("ETH", "WETH-DAI"),
+            
+            # WBTC-WETH LP token pairs (major BTC-ETH liquidity)
+            ("WBTC-WETH", "WBTC"),
+            ("WBTC", "WBTC-WETH"),
+            ("WBTC-WETH", "WETH"),
+            ("WETH", "WBTC-WETH"),
+            ("WBTC-WETH", "ETH"),
+            ("ETH", "WBTC-WETH"),
+            
+            # UNI-WETH LP token pairs
+            ("UNI-WETH", "UNI"),
+            ("UNI", "UNI-WETH"),
+            ("UNI-WETH", "WETH"),
+            ("WETH", "UNI-WETH"),
+            ("UNI-WETH", "ETH"),
+            ("ETH", "UNI-WETH"),
+            
+            # COMP-WETH LP token pairs
+            ("COMP-WETH", "COMP"),
+            ("COMP", "COMP-WETH"),
+            ("COMP-WETH", "WETH"),
+            ("WETH", "COMP-WETH"),
+            ("COMP-WETH", "ETH"),
+            ("ETH", "COMP-WETH"),
+            
+            # AAVE-WETH LP token pairs
+            ("AAVE-WETH", "AAVE"),
+            ("AAVE", "AAVE-WETH"),
+            ("AAVE-WETH", "WETH"),
+            ("WETH", "AAVE-WETH"),
+            ("AAVE-WETH", "ETH"),
+            ("ETH", "AAVE-WETH"),
+            
+            # SUSHI-WETH LP token pairs
+            ("SUSHI-WETH", "SUSHI"),
+            ("SUSHI", "SUSHI-WETH"),
+            ("SUSHI-WETH", "WETH"),
+            ("WETH", "SUSHI-WETH"),
+            ("SUSHI-WETH", "ETH"),
+            ("ETH", "SUSHI-WETH"),
+            
+            # MKR-WETH LP token pairs
+            ("MKR-WETH", "MKR"),
+            ("MKR", "MKR-WETH"),
+            ("MKR-WETH", "WETH"),
+            ("WETH", "MKR-WETH"),
+            ("MKR-WETH", "ETH"),
+            ("ETH", "MKR-WETH"),
+            
+            # USDC-USDT LP token pairs (stablecoin arbitrage)
+            ("USDC-USDT", "USDC"),
+            ("USDC", "USDC-USDT"),
+            ("USDC-USDT", "USDT"),
+            ("USDT", "USDC-USDT"),
+            
+            # Cross LP token pairs (LP arbitrage opportunities)
+            ("WETH-USDC", "WETH-USDT"),
+            ("WETH-USDT", "WETH-USDC"),
+            ("WETH-USDC", "WETH-DAI"),
+            ("WETH-DAI", "WETH-USDC"),
+            ("WETH-USDT", "WETH-DAI"),
+            ("WETH-DAI", "WETH-USDT"),
+            
+            # Curve LP token pairs with underlying assets
+            
+            # 3CRV (DAI+USDC+USDT) LP token pairs - Most important Curve LP
+            ("3CRV", "DAI"),
+            ("DAI", "3CRV"),
+            ("3CRV", "USDC"),
+            ("USDC", "3CRV"),
+            ("3CRV", "USDT"),
+            ("USDT", "3CRV"),
+            ("3CRV", "WETH"),
+            ("WETH", "3CRV"),
+            ("3CRV", "ETH"),
+            ("ETH", "3CRV"),
+            
+            # crvUSDC (Curve Compound USDC) LP token pairs
+            ("crvUSDC", "USDC"),
+            ("USDC", "crvUSDC"),
+            ("crvUSDC", "DAI"),
+            ("DAI", "crvUSDC"),
+            ("crvUSDC", "cUSDC"),
+            ("cUSDC", "crvUSDC"),
+            
+            # YCRV (Curve yEarn) LP token pairs
+            ("yDAI+yUSDC+yUSDT+yTUSD", "DAI"),
+            ("DAI", "yDAI+yUSDC+yUSDT+yTUSD"),
+            ("yDAI+yUSDC+yUSDT+yTUSD", "USDC"),
+            ("USDC", "yDAI+yUSDC+yUSDT+yTUSD"),
+            ("yDAI+yUSDC+yUSDT+yTUSD", "USDT"),
+            ("USDT", "yDAI+yUSDC+yUSDT+yTUSD"),
+            
+            # Curve metapool LP tokens with 3CRV (meta arbitrage)
+            ("GUSD3CRV", "3CRV"),
+            ("3CRV", "GUSD3CRV"),
+            ("HUSD3CRV", "3CRV"),
+            ("3CRV", "HUSD3CRV"),
+            ("USDK3CRV", "3CRV"),
+            ("3CRV", "USDK3CRV"),
+            ("USDN3CRV", "3CRV"),
+            ("3CRV", "USDN3CRV"),
+            ("USDP3CRV", "3CRV"),
+            ("3CRV", "USDP3CRV"),
+            
+            # Curve BTC LP tokens with BTC assets
+            ("crvRenWSBTC", "WBTC"),
+            ("WBTC", "crvRenWSBTC"),
+            ("crvHBTC", "WBTC"),
+            ("WBTC", "crvHBTC"),
+            
+            # Cross Curve LP token arbitrage
+            ("3CRV", "crvUSDC"),
+            ("crvUSDC", "3CRV"),
+            ("3CRV", "yDAI+yUSDC+yUSDT+yTUSD"),
+            ("yDAI+yUSDC+yUSDT+yTUSD", "3CRV"),
+            ("crvRenWSBTC", "crvHBTC"),
+            ("crvHBTC", "crvRenWSBTC"),
+            
+            # Mixed LP token arbitrage (Uniswap vs Curve)
+            ("WETH-USDC", "3CRV"),
+            ("3CRV", "WETH-USDC"),
+            ("WETH-USDT", "3CRV"),
+            ("3CRV", "WETH-USDT"),
+            ("WETH-DAI", "3CRV"),
+            ("3CRV", "WETH-DAI"),
+            ("USDC-USDT", "3CRV"),
+            ("3CRV", "USDC-USDT"),
+            
+            # LP tokens with stablecoins (for yield arbitrage and unwinding)
+            ("WETH-USDC", "USDC"),
+            ("USDC", "WETH-USDC"),
+            ("WETH-USDT", "USDT"),
+            ("USDT", "WETH-USDT"),
+            ("WETH-DAI", "DAI"),
+            ("DAI", "WETH-DAI"),
+            
+            # LP tokens with major DeFi tokens (for governance token arbitrage)
+            ("UNI-WETH", "COMP"),
+            ("COMP", "UNI-WETH"),
+            ("COMP-WETH", "AAVE"),
+            ("AAVE", "COMP-WETH"),
+            ("AAVE-WETH", "SUSHI"),
+            ("SUSHI", "AAVE-WETH"),
+            ("SUSHI-WETH", "UNI"),
+            ("UNI", "SUSHI-WETH")
         ]
         
         # 주소로 변환
