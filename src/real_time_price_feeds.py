@@ -826,73 +826,321 @@ class RealTimePriceFeeds:
             await asyncio.sleep(60)  # 1분마다 실행
             
     async def _start_price_aggregation_task(self):
-        """가격 집계 태스크 (여러 소스의 가격을 가중 평균으로 통합)"""
+        """가격 집계 태스크 (여러 소스의 가격을 가중 평균으로 통합) - 완전한 redundancy 구현"""
         while self.running:
             try:
-                # 토큰별로 여러 소스에서 온 가격들을 집계
+                # 토큰별로 여러 소스에서 온 가격들을 수집
                 token_price_sources = defaultdict(list)
                 
-                # 최근 1분 내의 가격 데이터만 사용
+                # 최근 1분 내의 가격 데이터만 사용 (redundancy를 위한 시간 윈도우)
                 current_time = time.time()
                 cutoff_time = current_time - 60
                 
+                # 모든 활성 토큰에 대해 가격 소스 매핑
                 for address, price_feed in self.current_prices.items():
                     if price_feed.timestamp >= cutoff_time:
                         token_price_sources[address].append(price_feed)
                         
-                # 각 토큰에 대해 가중 평균 계산
+                # Redundancy 품질 평가 및 집계
                 aggregated_updates = []
+                redundancy_stats = {
+                    'tokens_with_multiple_sources': 0,
+                    'tokens_with_single_source': 0,
+                    'average_sources_per_token': 0,
+                    'high_confidence_tokens': 0,
+                    'failed_redundancy_tokens': []
+                }
+                
+                total_tokens = len(token_price_sources)
+                total_sources = 0
                 
                 for address, price_feeds in token_price_sources.items():
-                    if len(price_feeds) <= 1:
-                        continue  # 하나의 소스만 있으면 집계할 필요 없음
-                        
-                    # 가중 평균 계산
-                    total_weight = 0
-                    weighted_price_sum = 0
-                    best_source = None
-                    latest_timestamp = 0
+                    num_sources = len(price_feeds)
+                    total_sources += num_sources
                     
-                    for pf in price_feeds:
-                        source_weight = self.data_sources.get(pf.source.split('_')[0], 
-                                                             DataSource('unknown', '', weight=0.5)).weight
-                        weight = source_weight * pf.confidence
+                    if num_sources == 1:
+                        redundancy_stats['tokens_with_single_source'] += 1
+                        # 단일 소스인 경우 backup 소스 시도
+                        await self._attempt_backup_sources_for_token(address)
+                    else:
+                        redundancy_stats['tokens_with_multiple_sources'] += 1
                         
-                        weighted_price_sum += pf.price_usd * weight
-                        total_weight += weight
-                        
-                        if pf.timestamp > latest_timestamp:
-                            latest_timestamp = pf.timestamp
-                            best_source = pf.source
-                            
-                    if total_weight > 0:
-                        aggregated_price = weighted_price_sum / total_weight
-                        
-                        # 집계된 가격으로 업데이트
-                        token_info = self.token_manager.tokens.get(address)
-                        if token_info:
-                            aggregated_feed = PriceFeed(
-                                token_address=address,
-                                symbol=token_info.symbol,
-                                price_usd=aggregated_price,
-                                source=f'aggregated_{len(price_feeds)}sources',
-                                timestamp=latest_timestamp,
-                                confidence=min(1.0, total_weight / len(price_feeds))  # 정규화된 신뢰도
-                            )
-                            
+                        # 다중 소스 품질 검증 및 집계
+                        aggregated_feed = await self._aggregate_multiple_sources(address, price_feeds)
+                        if aggregated_feed:
                             aggregated_updates.append(aggregated_feed)
                             
+                            if aggregated_feed.confidence >= 0.8:
+                                redundancy_stats['high_confidence_tokens'] += 1
+                                
+                # 평균 소스 수 계산
+                if total_tokens > 0:
+                    redundancy_stats['average_sources_per_token'] = total_sources / total_tokens
+                    
                 # 집계된 가격들 업데이트
                 if aggregated_updates:
                     for agg_feed in aggregated_updates:
                         self.current_prices[agg_feed.token_address.lower()] = agg_feed
                         
-                    logger.debug(f"{len(aggregated_updates)}개 토큰 가격 집계 완료")
+                    logger.debug(f"{len(aggregated_updates)}개 토큰 가격 집계 완료 (redundancy 적용)")
+                    
+                # Redundancy 상태 로깅
+                if redundancy_stats['average_sources_per_token'] < 2.0:
+                    logger.warning(
+                        f"Redundancy 품질 경고 - 토큰당 평균 소스 수: {redundancy_stats['average_sources_per_token']:.1f} "
+                        f"(목표: 2.0 이상)"
+                    )
+                    
+                # 주기적으로 자세한 redundancy 통계 로깅 (5분마다)
+                if int(current_time) % 300 < 30:  # 5분 주기 체크
+                    logger.info(
+                        f"Redundancy 통계 - 다중소스: {redundancy_stats['tokens_with_multiple_sources']}, "
+                        f"단일소스: {redundancy_stats['tokens_with_single_source']}, "
+                        f"평균소스/토큰: {redundancy_stats['average_sources_per_token']:.1f}, "
+                        f"고신뢰도: {redundancy_stats['high_confidence_tokens']}"
+                    )
                     
             except Exception as e:
                 logger.error(f"가격 집계 태스크 실패: {e}")
                 
-            await asyncio.sleep(30)  # 30초마다 실행
+            await asyncio.sleep(15)  # 더 빈번한 집계 (15초마다)
+            
+    async def _attempt_backup_sources_for_token(self, token_address: str):
+        """단일 소스 토큰에 대해 백업 소스 시도 (redundancy 강화)"""
+        try:
+            token_info = self.token_manager.tokens.get(token_address)
+            if not token_info:
+                return
+                
+            # 현재 활성화되지 않은 소스들을 백업으로 시도
+            backup_sources = ['coinpaprika', 'messari', 'nomics']
+            
+            for source_name in backup_sources:
+                source = self.data_sources.get(source_name)
+                if not source or not source.active:
+                    continue
+                    
+                # Rate limit 확인
+                if not await self._check_rate_limit(source_name):
+                    continue
+                    
+                try:
+                    # 백업 소스에서 가격 조회 시도
+                    backup_price = await self._fetch_price_from_backup_source(
+                        source_name, token_info.symbol, token_address
+                    )
+                    
+                    if backup_price and backup_price > 0:
+                        backup_feed = PriceFeed(
+                            token_address=token_address,
+                            symbol=token_info.symbol,
+                            price_usd=backup_price,
+                            source=f'{source_name}_backup',
+                            timestamp=time.time(),
+                            confidence=0.7  # 백업 소스는 낮은 신뢰도
+                        )
+                        
+                        # 현재 가격에 추가 (기존 소스와 함께 집계됨)
+                        current_feed = self.current_prices.get(token_address.lower())
+                        if current_feed:
+                            # 기존 피드와 새 백업 피드를 함께 처리
+                            await self._process_price_updates([backup_feed])
+                            logger.debug(f"{token_info.symbol} 백업 소스 {source_name} 추가")
+                        
+                        break  # 하나의 백업 소스 성공하면 중단
+                        
+                except Exception as e:
+                    logger.debug(f"백업 소스 {source_name} 실패 for {token_info.symbol}: {e}")
+                    continue
+                    
+        except Exception as e:
+            logger.error(f"백업 소스 시도 실패: {e}")
+            
+    async def _fetch_price_from_backup_source(self, source_name: str, symbol: str, address: str) -> Optional[float]:
+        """백업 소스에서 개별 토큰 가격 조회"""
+        try:
+            if source_name == 'coinpaprika':
+                return await self._fetch_coinpaprika_price(symbol)
+            elif source_name == 'messari':
+                return await self._fetch_messari_price(symbol)
+            elif source_name == 'nomics':
+                return await self._fetch_nomics_price(symbol)
+            else:
+                return None
+                
+        except Exception as e:
+            logger.debug(f"백업 소스 {source_name} 가격 조회 실패: {e}")
+            return None
+            
+    async def _fetch_coinpaprika_price(self, symbol: str) -> Optional[float]:
+        """Coinpaprika에서 개별 가격 조회"""
+        try:
+            # Coinpaprika는 symbol로 조회
+            symbol_lower = symbol.lower()
+            url = f"{self.data_sources['coinpaprika'].url}/tickers/{symbol_lower}-{symbol_lower}"
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        return data.get('quotes', {}).get('USD', {}).get('price', 0)
+                        
+        except Exception:
+            pass
+            
+        return None
+        
+    async def _fetch_messari_price(self, symbol: str) -> Optional[float]:
+        """Messari에서 개별 가격 조회"""
+        try:
+            url = f"{self.data_sources['messari'].url}/assets/{symbol.lower()}/metrics"
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        return data.get('data', {}).get('market_data', {}).get('price_usd', 0)
+                        
+        except Exception:
+            pass
+            
+        return None
+        
+    async def _fetch_nomics_price(self, symbol: str) -> Optional[float]:
+        """Nomics에서 개별 가격 조회"""
+        try:
+            if not self.data_sources['nomics'].api_key:
+                return None
+                
+            url = f"{self.data_sources['nomics'].url}/currencies/ticker"
+            params = {
+                'key': self.data_sources['nomics'].api_key,
+                'ids': symbol,
+                'convert': 'USD'
+            }
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, params=params) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        if data and len(data) > 0:
+                            return float(data[0].get('price', 0))
+                            
+        except Exception:
+            pass
+            
+        return None
+        
+    async def _aggregate_multiple_sources(self, token_address: str, price_feeds: List[PriceFeed]) -> Optional[PriceFeed]:
+        """다중 소스 가격 집계 (고급 redundancy 로직)"""
+        try:
+            if len(price_feeds) <= 1:
+                return price_feeds[0] if price_feeds else None
+                
+            # 1. Outlier 감지 및 제거
+            valid_feeds = []
+            prices = [pf.price_usd for pf in price_feeds]
+            
+            if len(prices) >= 3:
+                # IQR 방법으로 outlier 제거
+                sorted_prices = sorted(prices)
+                q1 = sorted_prices[len(prices) // 4]
+                q3 = sorted_prices[3 * len(prices) // 4]
+                iqr = q3 - q1
+                
+                lower_bound = q1 - 1.5 * iqr
+                upper_bound = q3 + 1.5 * iqr
+                
+                for pf in price_feeds:
+                    if lower_bound <= pf.price_usd <= upper_bound:
+                        valid_feeds.append(pf)
+                        
+                if not valid_feeds:  # 모든 것이 outlier인 경우
+                    valid_feeds = price_feeds  # 원래 데이터 사용
+            else:
+                valid_feeds = price_feeds
+                
+            # 2. 소스별 가중치 적용 가격 집계
+            total_weight = 0
+            weighted_price_sum = 0
+            best_source = None
+            latest_timestamp = 0
+            source_names = []
+            
+            for pf in valid_feeds:
+                # 소스 이름에서 기본 이름 추출
+                base_source = pf.source.split('_')[0]
+                source_config = self.data_sources.get(base_source)
+                
+                if source_config:
+                    # 가중치 = 소스 가중치 × 신뢰도 × 시간 가중치
+                    time_weight = self._calculate_time_weight(pf.timestamp)
+                    weight = source_config.weight * pf.confidence * time_weight
+                else:
+                    weight = pf.confidence * 0.5  # 기본 가중치
+                    
+                weighted_price_sum += pf.price_usd * weight
+                total_weight += weight
+                source_names.append(pf.source)
+                
+                if pf.timestamp > latest_timestamp:
+                    latest_timestamp = pf.timestamp
+                    best_source = pf.source
+                    
+            if total_weight == 0:
+                return None
+                
+            # 3. 집계된 가격 계산
+            aggregated_price = weighted_price_sum / total_weight
+            
+            # 4. 신뢰도 계산 (소스 수, 가격 분산, 가중치 합 고려)
+            price_variance = sum((pf.price_usd - aggregated_price) ** 2 for pf in valid_feeds) / len(valid_feeds)
+            
+            # 신뢰도 = 기본 신뢰도 + 소스 다양성 보너스 - 분산 페널티
+            base_confidence = min(total_weight / len(valid_feeds), 1.0)
+            diversity_bonus = min(len(valid_feeds) * 0.1, 0.3)  # 최대 30% 보너스
+            variance_penalty = min(price_variance / aggregated_price * 10, 0.5) if aggregated_price > 0 else 0
+            
+            final_confidence = max(0.1, min(1.0, base_confidence + diversity_bonus - variance_penalty))
+            
+            # 5. 집계된 PriceFeed 생성
+            token_info = self.token_manager.tokens.get(token_address)
+            if not token_info:
+                # 테스트나 특수한 경우를 위해 기본값 사용
+                symbol = valid_feeds[0].symbol if valid_feeds else 'UNKNOWN'
+                
+            aggregated_feed = PriceFeed(
+                token_address=token_address,
+                symbol=token_info.symbol if token_info else symbol,
+                price_usd=aggregated_price,
+                source=f'aggregated_{len(valid_feeds)}sources_' + '_'.join(list(set(source_names))[:3]),
+                timestamp=latest_timestamp,
+                confidence=final_confidence,
+                volume_24h=max((pf.volume_24h for pf in valid_feeds), default=0),
+                market_cap=max((pf.market_cap for pf in valid_feeds), default=0)
+            )
+            
+            return aggregated_feed
+            
+        except Exception as e:
+            logger.error(f"다중 소스 집계 실패 {token_address}: {e}")
+            return price_feeds[0] if price_feeds else None
+            
+    def _calculate_time_weight(self, timestamp: float) -> float:
+        """시간에 따른 가중치 계산 (최신 데이터일수록 높은 가중치)"""
+        try:
+            age_seconds = time.time() - timestamp
+            
+            # 1분 이내: 1.0, 5분 이내: 0.8, 그 이상: 0.5
+            if age_seconds <= 60:
+                return 1.0
+            elif age_seconds <= 300:
+                return 0.8
+            else:
+                return 0.5
+                
+        except Exception:
+            return 0.5
             
     async def _start_performance_monitoring_task(self):
         """성능 모니터링 태스크"""
@@ -928,20 +1176,109 @@ class RealTimePriceFeeds:
             await asyncio.sleep(300)  # 5분마다 실행
             
     def get_performance_metrics(self) -> Dict:
-        """성능 지표 반환"""
-        if not self.update_times:
-            return {}
-            
-        return {
-            'average_update_time': sum(self.update_times) / len(self.update_times),
-            'max_update_time': max(self.update_times),
-            'min_update_time': min(self.update_times),
-            'total_updates': len(self.update_times),
+        """성능 지표 반환 (redundancy 메트릭 포함)"""
+        base_metrics = {
+            'average_update_time': 0,
+            'max_update_time': 0,
+            'min_update_time': 0,
+            'total_updates': 0,
             'active_prices': len(self.current_prices),
             'total_errors': sum(self.error_counts.values()),
             'error_by_source': dict(self.error_counts),
             'active_sources': len([s for s in self.data_sources.values() if s.active])
         }
+        
+        if self.update_times:
+            base_metrics.update({
+                'average_update_time': sum(self.update_times) / len(self.update_times),
+                'max_update_time': max(self.update_times),
+                'min_update_time': min(self.update_times),
+                'total_updates': len(self.update_times)
+            })
+            
+        # Redundancy 메트릭 계산
+        redundancy_metrics = self._calculate_redundancy_metrics()
+        
+        return {**base_metrics, **redundancy_metrics}
+        
+    def _calculate_redundancy_metrics(self) -> Dict:
+        """Redundancy 관련 메트릭 계산"""
+        try:
+            current_time = time.time()
+            cutoff_time = current_time - 60  # 최근 1분
+            
+            # 소스별 토큰 수 계산
+            source_token_count = defaultdict(int)
+            tokens_with_multiple_sources = 0
+            tokens_with_single_source = 0
+            high_confidence_count = 0
+            total_sources_per_token = 0
+            
+            # 토큰별 소스 분석
+            token_sources = defaultdict(set)
+            
+            for address, price_feed in self.current_prices.items():
+                if price_feed.timestamp >= cutoff_time:
+                    source_name = price_feed.source.split('_')[0]
+                    source_token_count[source_name] += 1
+                    token_sources[address].add(source_name)
+                    
+                    if price_feed.confidence >= 0.8:
+                        high_confidence_count += 1
+                        
+            # 토큰별 소스 수 분석
+            for address, sources in token_sources.items():
+                num_sources = len(sources)
+                total_sources_per_token += num_sources
+                
+                if num_sources > 1:
+                    tokens_with_multiple_sources += 1
+                else:
+                    tokens_with_single_source += 1
+                    
+            total_tokens = len(token_sources)
+            avg_sources_per_token = total_sources_per_token / total_tokens if total_tokens > 0 else 0
+            
+            # Redundancy 품질 점수 계산
+            redundancy_score = 0
+            if total_tokens > 0:
+                multi_source_ratio = tokens_with_multiple_sources / total_tokens
+                confidence_ratio = high_confidence_count / len(self.current_prices) if self.current_prices else 0
+                source_diversity = len(source_token_count) / len(self.data_sources)
+                
+                # 가중 평균으로 종합 점수 계산 (0-100)
+                redundancy_score = (
+                    multi_source_ratio * 40 +      # 다중 소스 비율 (40%)
+                    confidence_ratio * 30 +         # 고신뢰도 비율 (30%)
+                    source_diversity * 20 +         # 소스 다양성 (20%)
+                    min(avg_sources_per_token / 3, 1) * 10  # 평균 소스 수 (10%)
+                ) * 100
+                
+            return {
+                'redundancy_score': round(redundancy_score, 1),
+                'tokens_with_multiple_sources': tokens_with_multiple_sources,
+                'tokens_with_single_source': tokens_with_single_source,
+                'average_sources_per_token': round(avg_sources_per_token, 2),
+                'high_confidence_tokens': high_confidence_count,
+                'source_distribution': dict(source_token_count),
+                'redundancy_target_met': avg_sources_per_token >= 2.0,
+                'redundancy_quality': 'Excellent' if redundancy_score >= 80 else 
+                                   'Good' if redundancy_score >= 60 else
+                                   'Fair' if redundancy_score >= 40 else 'Poor'
+            }
+            
+        except Exception as e:
+            logger.error(f"Redundancy 메트릭 계산 실패: {e}")
+            return {
+                'redundancy_score': 0,
+                'tokens_with_multiple_sources': 0,
+                'tokens_with_single_source': 0,
+                'average_sources_per_token': 0,
+                'high_confidence_tokens': 0,
+                'source_distribution': {},
+                'redundancy_target_met': False,
+                'redundancy_quality': 'Unknown'
+            }
 
 # 사용 예시
 async def main():

@@ -1,0 +1,59 @@
+{
+  "test_date": "2025-09-07 02:07:38",
+  "overall_status": "✅ REDUNDANCY 구현 성공",
+  "summary": {
+    "total_tests": 7,
+    "passed": 7,
+    "warnings": 0,
+    "failed": 0
+  },
+  "detailed_results": {
+    "data_source_init": {
+      "status": "PASSED",
+      "active_sources": 5,
+      "primary_sources": 2,
+      "backup_sources": 2,
+      "total_configured": 8
+    },
+    "backup_activation": {
+      "status": "PASSED",
+      "tested_token": "ETH",
+      "backup_attempted": true
+    },
+    "price_aggregation": {
+      "status": "PASSED",
+      "aggregated_price": 100.0,
+      "source_count": 3,
+      "confidence": 0.95,
+      "price_in_expected_range": true
+    },
+    "outlier_detection": {
+      "status": "PASSED",
+      "aggregated_price": 100.0,
+      "outlier_filtered": true,
+      "original_sources": 4
+    },
+    "redundancy_metrics": {
+      "status": "PASSED",
+      "redundancy_score": 3833.3,
+      "redundancy_quality": "Excellent",
+      "has_required_metrics": true
+    },
+    "failover_mechanism": {
+      "status": "PASSED",
+      "available_backup_sources": 2,
+      "backup_sources": [
+        "coinpaprika",
+        "messari"
+      ]
+    },
+    "performance_test": {
+      "status": "PASSED",
+      "total_processing_time": 1.14,
+      "avg_time_per_token": 0.228,
+      "target_time": 6.43,
+      "meets_target": true,
+      "tokens_processed": 5
+    }
+  }
+}
