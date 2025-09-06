@@ -295,14 +295,33 @@ class TokenManager:
                 name="POA ERC20 on Foundation",
                 decimals=18,
                 coingecko_id="poa-network"
+            ),
+            
+            # Additional stablecoins - Required for DeFi arbitrage expansion
+            # USDC - USD Coin (Circle)
+            "0xA0b86a33E6441946e15b3C1F5d44F7c0e3A1b82C": TokenInfo(
+                address="0xA0b86a33E6441946e15b3C1F5d44F7c0e3A1b82C",
+                symbol="USDC",
+                name="USD Coin",
+                decimals=6,
+                coingecko_id="usd-coin"
+            ),
+            
+            # USDT - Tether USD
+            "0xdAC17F958D2ee523a2206206994597C13D831ec7": TokenInfo(
+                address="0xdAC17F958D2ee523a2206206994597C13D831ec7",
+                symbol="USDT",
+                name="Tether USD",
+                decimals=6,
+                coingecko_id="tether"
             )
         }
         
-        # **논문 기준 검증**: 25개 assets + WETH 목표 달성 확인
-        if len(common_tokens) != 26:
-            logger.warning(f"Asset count mismatch! Expected: 26 (25 + WETH), Got: {len(common_tokens)}")
+        # **논문 기준 검증**: 25개 assets + WETH + 2 additional stablecoins (USDC, USDT) 
+        if len(common_tokens) != 28:
+            logger.warning(f"Asset count mismatch! Expected: 28 (25 paper + WETH + USDC + USDT), Got: {len(common_tokens)}")
         else:
-            logger.info("✅ Paper specification enhanced: 25 assets + WETH (26 total) registered")
+            logger.info("✅ Paper specification enhanced: 25 assets + WETH + 2 stablecoins (28 total) registered")
         
         self.tokens.update(common_tokens)
         
@@ -492,7 +511,29 @@ class TokenManager:
             
             # MakerDAO pairs
             ("DAI", "SAI"),
-            ("SAI", "DAI")
+            ("SAI", "DAI"),
+            
+            # Stablecoin arbitrage pairs (CRITICAL for DeFi profit generation)
+            ("USDC", "USDT"),
+            ("USDT", "USDC"),
+            ("DAI", "USDC"),
+            ("USDC", "DAI"),
+            ("DAI", "USDT"),
+            ("USDT", "DAI"),
+            ("SAI", "USDC"),
+            ("USDC", "SAI"),
+            ("SAI", "USDT"),
+            ("USDT", "SAI"),
+            
+            # ETH/WETH pairs with new stablecoins
+            ("ETH", "USDC"),
+            ("USDC", "ETH"),
+            ("ETH", "USDT"),
+            ("USDT", "ETH"),
+            ("WETH", "USDC"),
+            ("USDC", "WETH"),
+            ("WETH", "USDT"),
+            ("USDT", "WETH")
         ]
         
         # 주소로 변환
