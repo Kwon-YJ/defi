@@ -314,14 +314,60 @@ class TokenManager:
                 name="Tether USD",
                 decimals=6,
                 coingecko_id="tether"
+            ),
+            
+            # Major DeFi tokens (TODO requirement completion)
+            # WBTC - Wrapped Bitcoin
+            "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599": TokenInfo(
+                address="0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599",
+                symbol="WBTC",
+                name="Wrapped BTC",
+                decimals=8,
+                coingecko_id="wrapped-bitcoin"
+            ),
+            
+            # UNI - Uniswap
+            "0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984": TokenInfo(
+                address="0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984",
+                symbol="UNI",
+                name="Uniswap",
+                decimals=18,
+                coingecko_id="uniswap"
+            ),
+            
+            # SUSHI - SushiSwap
+            "0x6B3595068778DD592e39A122f4f5a5cF09C90fE2": TokenInfo(
+                address="0x6B3595068778DD592e39A122f4f5a5cF09C90fE2",
+                symbol="SUSHI",
+                name="SushiToken",
+                decimals=18,
+                coingecko_id="sushi"
+            ),
+            
+            # COMP - Compound
+            "0xc00e94Cb662C3520282E6f5717214004A7f26888": TokenInfo(
+                address="0xc00e94Cb662C3520282E6f5717214004A7f26888",
+                symbol="COMP",
+                name="Compound",
+                decimals=18,
+                coingecko_id="compound-governance-token"
+            ),
+            
+            # AAVE - Aave Token
+            "0x7Fc66500c84A76Ad7e9c93437bFc5Ac33E2DDaE9": TokenInfo(
+                address="0x7Fc66500c84A76Ad7e9c93437bFc5Ac33E2DDaE9",
+                symbol="AAVE",
+                name="Aave Token",
+                decimals=18,
+                coingecko_id="aave"
             )
         }
         
-        # **논문 기준 검증**: 25개 assets + WETH + 2 additional stablecoins (USDC, USDT) 
-        if len(common_tokens) != 28:
-            logger.warning(f"Asset count mismatch! Expected: 28 (25 paper + WETH + USDC + USDT), Got: {len(common_tokens)}")
+        # **논문 기준 검증**: 25개 assets + WETH + 2 additional stablecoins (USDC, USDT) + 5 major tokens (WBTC, UNI, SUSHI, COMP, AAVE)
+        if len(common_tokens) != 33:
+            logger.warning(f"Asset count mismatch! Expected: 33 (25 paper + WETH + 2 stablecoins + 5 major tokens), Got: {len(common_tokens)}")
         else:
-            logger.info("✅ Paper specification enhanced: 25 assets + WETH + 2 stablecoins (28 total) registered")
+            logger.info("✅ Paper specification enhanced: 25 assets + WETH + 2 stablecoins + 5 major tokens (33 total) registered")
         
         self.tokens.update(common_tokens)
         
@@ -533,7 +579,90 @@ class TokenManager:
             ("WETH", "USDC"),
             ("USDC", "WETH"),
             ("WETH", "USDT"),
-            ("USDT", "WETH")
+            ("USDT", "WETH"),
+            
+            # Major DeFi token pairs (WBTC, UNI, SUSHI, COMP, AAVE)
+            # ETH pairs with major tokens
+            ("ETH", "WBTC"),
+            ("WBTC", "ETH"),
+            ("ETH", "UNI"),
+            ("UNI", "ETH"),
+            ("ETH", "SUSHI"),
+            ("SUSHI", "ETH"),
+            ("ETH", "COMP"),
+            ("COMP", "ETH"),
+            ("ETH", "AAVE"),
+            ("AAVE", "ETH"),
+            
+            # WETH pairs with major tokens  
+            ("WETH", "WBTC"),
+            ("WBTC", "WETH"),
+            ("WETH", "UNI"),
+            ("UNI", "WETH"),
+            ("WETH", "SUSHI"),
+            ("SUSHI", "WETH"),
+            ("WETH", "COMP"),
+            ("COMP", "WETH"),
+            ("WETH", "AAVE"),
+            ("AAVE", "WETH"),
+            
+            # Major tokens with stablecoins (high liquidity pairs)
+            ("WBTC", "USDC"),
+            ("USDC", "WBTC"),
+            ("WBTC", "USDT"),
+            ("USDT", "WBTC"),
+            ("WBTC", "DAI"),
+            ("DAI", "WBTC"),
+            
+            ("UNI", "USDC"),
+            ("USDC", "UNI"),
+            ("UNI", "USDT"),
+            ("USDT", "UNI"),
+            ("UNI", "DAI"),
+            ("DAI", "UNI"),
+            
+            ("SUSHI", "USDC"),
+            ("USDC", "SUSHI"),
+            ("SUSHI", "USDT"),
+            ("USDT", "SUSHI"),
+            ("SUSHI", "DAI"),
+            ("DAI", "SUSHI"),
+            
+            ("COMP", "USDC"),
+            ("USDC", "COMP"),
+            ("COMP", "USDT"),
+            ("USDT", "COMP"),
+            ("COMP", "DAI"),
+            ("DAI", "COMP"),
+            
+            ("AAVE", "USDC"),
+            ("USDC", "AAVE"),
+            ("AAVE", "USDT"),
+            ("USDT", "AAVE"),
+            ("AAVE", "DAI"),
+            ("DAI", "AAVE"),
+            
+            # Cross major token pairs (for complex arbitrage)
+            ("WBTC", "UNI"),
+            ("UNI", "WBTC"),
+            ("WBTC", "SUSHI"),
+            ("SUSHI", "WBTC"),
+            ("WBTC", "COMP"),
+            ("COMP", "WBTC"),
+            ("WBTC", "AAVE"),
+            ("AAVE", "WBTC"),
+            ("UNI", "SUSHI"),
+            ("SUSHI", "UNI"),
+            ("UNI", "COMP"),
+            ("COMP", "UNI"),
+            ("UNI", "AAVE"),
+            ("AAVE", "UNI"),
+            ("SUSHI", "COMP"),
+            ("COMP", "SUSHI"),
+            ("SUSHI", "AAVE"),
+            ("AAVE", "SUSHI"),
+            ("COMP", "AAVE"),
+            ("AAVE", "COMP")
         ]
         
         # 주소로 변환
