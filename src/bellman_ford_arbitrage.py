@@ -1,4 +1,6 @@
 import math
+import asyncio
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, List, Tuple, Optional
 from collections import defaultdict
 import random
@@ -35,7 +37,10 @@ class BellmanFordArbitrage:
                     if optimized_opportunity:
                         opportunities.append(optimized_opportunity)
         
-        return sorted(opportunities, key=lambda x: x.net_profit, reverse=True)
+        # 5. **CRITICAL**: Best revenue transaction 선택 로직 구현
+        best_opportunities = self._select_best_revenue_transactions(opportunities)
+        
+        return best_opportunities
     
     def _bellman_ford(self, source: str, max_iterations: int) -> bool:
         """Bellman-Ford 알고리즘 실행"""
@@ -198,32 +203,97 @@ class BellmanFordArbitrage:
     
     def _perform_local_search(self, opportunity: ArbitrageOpportunity, 
                             max_iterations: int = 50,
-                            num_starting_points: int = 5) -> Optional[ArbitrageOpportunity]:
+                            num_starting_points: int = 5,
+                            max_workers: int = 3) -> Optional[ArbitrageOpportunity]:
         """
         Local Search 알고리즘 - 논문 Figure 1의 4단계
         Hill climbing을 통한 거래량 최적화
-        Multiple starting points에서 병렬 실행
+        Multiple starting points에서 병렬 실행 (PARALLEL IMPLEMENTATION)
         """
-        logger.debug(f"Local search 시작: {' -> '.join(opportunity.path)}")
+        logger.debug(f"Local search 시작 (병렬 실행): {' -> '.join(opportunity.path)}")
         
         best_opportunity = opportunity
         best_revenue = opportunity.net_profit
         
-        # Multiple starting points에서 local search 실행
-        for start_point in range(num_starting_points):
-            # 초기 거래량 설정 (다양한 시작점)
-            initial_amount = self._generate_initial_amount(opportunity, start_point)
+        # ThreadPoolExecutor를 사용한 병렬 실행
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # 각 starting point에서 hill climbing 작업 제출
+            future_to_start_point = {}
             
-            # Hill climbing 수행
-            optimized = self._hill_climbing_optimization(opportunity, initial_amount, max_iterations)
+            for start_point in range(num_starting_points):
+                initial_amount = self._generate_initial_amount(opportunity, start_point)
+                future = executor.submit(
+                    self._hill_climbing_optimization, 
+                    opportunity, 
+                    initial_amount, 
+                    max_iterations
+                )
+                future_to_start_point[future] = start_point
             
-            if optimized and optimized.net_profit > best_revenue:
-                best_opportunity = optimized
-                best_revenue = optimized.net_profit
-                logger.debug(f"더 좋은 solution 발견: {best_revenue:.6f} ETH")
+            # 결과 수집 및 최적 솔루션 선택
+            for future in as_completed(future_to_start_point):
+                start_point = future_to_start_point[future]
+                try:
+                    optimized = future.result()
+                    if optimized and optimized.net_profit > best_revenue:
+                        best_opportunity = optimized
+                        best_revenue = optimized.net_profit
+                        logger.debug(f"병렬 search에서 더 좋은 solution 발견 (start_point {start_point}): {best_revenue:.6f} ETH")
+                        
+                except Exception as e:
+                    logger.warning(f"Start point {start_point}에서 hill climbing 실패: {e}")
         
         if best_revenue > opportunity.net_profit:
-            logger.info(f"Local search 최적화 완료: {opportunity.net_profit:.6f} -> {best_revenue:.6f} ETH")
+            logger.info(f"병렬 Local search 최적화 완료: {opportunity.net_profit:.6f} -> {best_revenue:.6f} ETH")
+            return best_opportunity
+        
+        return opportunity
+    
+    async def _perform_local_search_async(self, opportunity: ArbitrageOpportunity, 
+                                        max_iterations: int = 50,
+                                        num_starting_points: int = 5,
+                                        max_workers: int = 3) -> Optional[ArbitrageOpportunity]:
+        """
+        비동기 Local Search 알고리즘 - 메인 이벤트 루프를 블로킹하지 않음
+        Multiple starting points에서 병렬 실행 (ASYNC PARALLEL IMPLEMENTATION)
+        """
+        logger.debug(f"비동기 Local search 시작 (병렬 실행): {' -> '.join(opportunity.path)}")
+        
+        best_opportunity = opportunity
+        best_revenue = opportunity.net_profit
+        
+        # 이벤트 루프에서 ThreadPoolExecutor 실행
+        loop = asyncio.get_event_loop()
+        
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # 각 starting point에서 hill climbing 작업 생성
+            tasks = []
+            
+            for start_point in range(num_starting_points):
+                initial_amount = self._generate_initial_amount(opportunity, start_point)
+                task = loop.run_in_executor(
+                    executor,
+                    self._hill_climbing_optimization, 
+                    opportunity, 
+                    initial_amount, 
+                    max_iterations
+                )
+                tasks.append((task, start_point))
+            
+            # 모든 작업 완료 대기
+            for task, start_point in tasks:
+                try:
+                    optimized = await task
+                    if optimized and optimized.net_profit > best_revenue:
+                        best_opportunity = optimized
+                        best_revenue = optimized.net_profit
+                        logger.debug(f"비동기 병렬 search에서 더 좋은 solution 발견 (start_point {start_point}): {best_revenue:.6f} ETH")
+                        
+                except Exception as e:
+                    logger.warning(f"비동기 Start point {start_point}에서 hill climbing 실패: {e}")
+        
+        if best_revenue > opportunity.net_profit:
+            logger.info(f"비동기 병렬 Local search 최적화 완료: {opportunity.net_profit:.6f} -> {best_revenue:.6f} ETH")
             return best_opportunity
         
         return opportunity
@@ -347,3 +417,64 @@ class BellmanFordArbitrage:
             net_profit=optimal_revenue,  # 이미 gas 차감된 net profit
             confidence=original.confidence
         )
+    
+    def _select_best_revenue_transactions(self, opportunities: List[ArbitrageOpportunity],
+                                        max_concurrent: int = 3,
+                                        min_profit_threshold: float = 0.01) -> List[ArbitrageOpportunity]:
+        """
+        **CRITICAL**: Best revenue transaction 선택 로직 구현
+        - 최고 수익 거래 선택
+        - 자원 충돌 방지 (같은 DEX 풀 동시 사용 방지)
+        - 위험도 기반 포트폴리오 구성
+        """
+        if not opportunities:
+            return []
+        
+        logger.debug(f"Best revenue transaction 선택: {len(opportunities)}개 후보에서 선택")
+        
+        # 1. 수익률 기준 정렬 (이미 정렬되어 있지만 확실히)
+        sorted_opportunities = sorted(opportunities, key=lambda x: x.net_profit, reverse=True)
+        
+        # 2. 최소 수익 임계값 필터링
+        filtered_opportunities = [
+            opp for opp in sorted_opportunities 
+            if opp.net_profit >= min_profit_threshold
+        ]
+        
+        if not filtered_opportunities:
+            logger.info("수익 임계값을 만족하는 거래가 없습니다.")
+            return []
+        
+        # 3. 자원 충돌 검사 및 최적 조합 선택
+        selected_opportunities = []
+        used_dex_pools = set()
+        
+        for opp in filtered_opportunities:
+            # DEX 풀 충돌 검사
+            opp_dex_pools = set()
+            for edge in opp.edges:
+                pool_key = f"{edge.dex}_{edge.from_token}_{edge.to_token}"
+                opp_dex_pools.add(pool_key)
+            
+            # 충돌 검사
+            if opp_dex_pools.isdisjoint(used_dex_pools):
+                selected_opportunities.append(opp)
+                used_dex_pools.update(opp_dex_pools)
+                
+                logger.info(f"선택된 거래: {' -> '.join(opp.path)}, "
+                          f"수익: {opp.net_profit:.6f} ETH, "
+                          f"신뢰도: {opp.confidence:.2f}")
+                
+                # 최대 동시 거래 수 제한
+                if len(selected_opportunities) >= max_concurrent:
+                    break
+            else:
+                logger.debug(f"자원 충돌로 인한 거래 제외: {' -> '.join(opp.path)}")
+        
+        # 4. 최종 선택된 거래들을 수익률 순으로 정렬
+        final_selection = sorted(selected_opportunities, key=lambda x: x.net_profit, reverse=True)
+        
+        total_revenue = sum(opp.net_profit for opp in final_selection)
+        logger.info(f"최종 선택: {len(final_selection)}개 거래, 총 예상 수익: {total_revenue:.6f} ETH")
+        
+        return final_selection

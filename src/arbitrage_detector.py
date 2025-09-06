@@ -43,7 +43,7 @@ class ArbitrageDetector:
                 all_opportunities = []
                 
                 for base_token in self.base_tokens:
-                    opportunities = self.bellman_ford.find_negative_cycles(base_token)
+                    opportunities = await self._find_negative_cycles_async(base_token)
                     
                     # 3. 기회 최적화 및 필터링
                     for opp in opportunities:
@@ -121,6 +121,23 @@ class ArbitrageDetector:
                 'confidence': opp.confidence,
                 'dexes': [edge.dex for edge in opp.edges]
             })
+    
+    async def _find_negative_cycles_async(self, source_token: str, 
+                                        max_path_length: int = 4) -> List:
+        """
+        비동기 음의 사이클 탐지 - 병렬 local search 포함
+        """
+        loop = asyncio.get_event_loop()
+        
+        # Bellman-Ford 알고리즘을 별도 스레드에서 실행 (CPU 집약적)
+        opportunities = await loop.run_in_executor(
+            None, 
+            self.bellman_ford.find_negative_cycles, 
+            source_token, 
+            max_path_length
+        )
+        
+        return opportunities
     
     def stop_detection(self):
         """탐지 중지"""
