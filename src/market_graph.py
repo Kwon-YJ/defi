@@ -34,10 +34,15 @@ class ArbitrageOpportunity:
 
 class DeFiMarketGraph:
     def __init__(self, web3_provider=None):
-        self.graph = nx.DiGraph()
+        # **CRITICAL**: Multi-graph 지원을 위해 nx.MultiDiGraph 사용
+        self.graph = nx.MultiDiGraph()  # 동일 토큰 쌍에서 여러 DEX edge 처리
         self.token_nodes = set()
         self.dex_pools = {}  # dex -> {(token0, token1): pool_info}
         self.last_update = 0
+        
+        # **Multi-graph 지원**: 동일 토큰 쌍의 여러 DEX edge 관리
+        self._edge_registry = {}  # (from_token, to_token) -> {dex: edge_key}
+        self._best_edges = {}     # (from_token, to_token) -> (dex, edge_key) for best rate
         
         # **CRITICAL**: 96개 protocol actions 지원을 위한 프로토콜 레지스트리
         self.protocol_registry = ProtocolRegistry(web3_provider) if web3_provider else None
@@ -56,7 +61,7 @@ class DeFiMarketGraph:
     def add_trading_pair(self, token0: str, token1: str, dex: str, 
                         pool_address: str, reserve0: float, reserve1: float,
                         fee: float = 0.003):
-        """거래 쌍 추가 (양방향 엣지)"""
+        """거래 쌍 추가 (양방향 엣지) - Multi-graph 지원"""
         # 토큰 노드 추가
         self.add_token(token0)
         self.add_token(token1)
@@ -103,11 +108,15 @@ class DeFiMarketGraph:
             weight=weight_10  # 순수 spot price의 -log 값
         )
         
-        # 그래프에 엣지 추가
-        self.graph.add_edge(token0, token1, **edge_01.__dict__)
-        self.graph.add_edge(token1, token0, **edge_10.__dict__)
+        # **Multi-graph 지원**: 동일 토큰 쌍에서 여러 DEX edge 처리
+        edge_key_01 = self._add_multi_edge(token0, token1, edge_01)
+        edge_key_10 = self._add_multi_edge(token1, token0, edge_10)
         
-        logger.debug(f"거래 쌍 추가: {dex} {token0}-{token1}")
+        # Edge registry 업데이트
+        self._register_edge(token0, token1, dex, edge_key_01, effective_rate_01)
+        self._register_edge(token1, token0, dex, edge_key_10, effective_rate_10)
+        
+        logger.debug(f"거래 쌍 추가 (Multi-graph): {dex} {token0}-{token1}")
     
     def _calculate_edge_weight(self, spot_price: float) -> float:
         """
@@ -154,10 +163,143 @@ class DeFiMarketGraph:
         
         return (gas_limit * gas_price * eth_price) / 1e18
     
+    # =============================================================================
+    # **Multi-graph 지원**: 동일 토큰 쌍에서 여러 DEX edge 처리
+    # =============================================================================
+    
+    def _add_multi_edge(self, from_token: str, to_token: str, edge: TradingEdge) -> int:
+        """Multi-graph에 edge 추가하고 edge key 반환"""
+        edge_key = self.graph.add_edge(from_token, to_token, **edge.__dict__)
+        return edge_key
+    
+    def _register_edge(self, from_token: str, to_token: str, dex: str, edge_key: int, rate: float):
+        """Edge registry에 등록하고 최적 edge 추적"""
+        # Edge registry 업데이트
+        pair_key = (from_token, to_token)
+        if pair_key not in self._edge_registry:
+            self._edge_registry[pair_key] = {}
+        self._edge_registry[pair_key][dex] = edge_key
+        
+        # 최적 edge 업데이트 (가장 높은 환율)
+        if pair_key not in self._best_edges or rate > self._get_edge_rate(pair_key):
+            self._best_edges[pair_key] = (dex, edge_key)
+    
+    def _get_edge_rate(self, pair_key: Tuple[str, str]) -> float:
+        """현재 최적 edge의 환율 반환"""
+        if pair_key not in self._best_edges:
+            return 0.0
+        
+        dex, edge_key = self._best_edges[pair_key]
+        from_token, to_token = pair_key
+        
+        edge_data = self.graph[from_token][to_token][edge_key]
+        return edge_data.get('exchange_rate', 0.0)
+    
+    def get_best_edge(self, from_token: str, to_token: str) -> Optional[Dict]:
+        """두 토큰 간 최적 edge 정보 반환"""
+        pair_key = (from_token, to_token)
+        if pair_key not in self._best_edges:
+            return None
+        
+        dex, edge_key = self._best_edges[pair_key]
+        edge_data = dict(self.graph[from_token][to_token][edge_key])
+        edge_data['dex'] = dex
+        edge_data['edge_key'] = edge_key
+        return edge_data
+    
+    def get_all_edges(self, from_token: str, to_token: str) -> List[Dict]:
+        """두 토큰 간 모든 edge 정보 반환 (모든 DEX)"""
+        if not self.graph.has_edge(from_token, to_token):
+            return []
+        
+        edges = []
+        for edge_key, edge_data in self.graph[from_token][to_token].items():
+            edge_info = dict(edge_data)
+            edge_info['edge_key'] = edge_key
+            edges.append(edge_info)
+        
+        # 환율 기준 내림차순 정렬
+        edges.sort(key=lambda x: x.get('exchange_rate', 0), reverse=True)
+        return edges
+    
+    def get_dex_count_for_pair(self, from_token: str, to_token: str) -> int:
+        """특정 토큰 쌍에 대해 지원되는 DEX 개수 반환"""
+        pair_key = (from_token, to_token)
+        return len(self._edge_registry.get(pair_key, {}))
+    
+    def get_multi_graph_stats(self) -> Dict:
+        """Multi-graph 통계 정보"""
+        total_pairs = len(self._edge_registry)
+        multi_dex_pairs = sum(1 for edges in self._edge_registry.values() if len(edges) > 1)
+        max_dex_per_pair = max((len(edges) for edges in self._edge_registry.values()), default=0)
+        
+        return {
+            'total_token_pairs': total_pairs,
+            'multi_dex_pairs': multi_dex_pairs,  # 2개 이상 DEX 지원 쌍
+            'single_dex_pairs': total_pairs - multi_dex_pairs,
+            'max_dex_per_pair': max_dex_per_pair,
+            'average_dex_per_pair': sum(len(edges) for edges in self._edge_registry.values()) / total_pairs if total_pairs > 0 else 0,
+            'multi_graph_efficiency': multi_dex_pairs / total_pairs if total_pairs > 0 else 0
+        }
+    
+    def remove_edge_by_dex(self, from_token: str, to_token: str, dex: str) -> bool:
+        """특정 DEX의 edge 제거"""
+        pair_key = (from_token, to_token)
+        if pair_key not in self._edge_registry or dex not in self._edge_registry[pair_key]:
+            return False
+        
+        edge_key = self._edge_registry[pair_key][dex]
+        
+        # 그래프에서 edge 제거 (NetworkX MultiDiGraph의 올바른 방법)
+        try:
+            if self.graph.has_edge(from_token, to_token, key=edge_key):
+                self.graph.remove_edge(from_token, to_token, key=edge_key)
+        except Exception as e:
+            logger.error(f"Edge removal failed: {e}")
+            return False
+        
+        # Registry에서 제거
+        del self._edge_registry[pair_key][dex]
+        
+        # 최적 edge 재계산
+        if pair_key in self._best_edges and self._best_edges[pair_key][0] == dex:
+            self._update_best_edge(pair_key)
+        
+        logger.debug(f"DEX edge 제거: {dex} {from_token}-{to_token}")
+        return True
+    
+    def _update_best_edge(self, pair_key: Tuple[str, str]):
+        """특정 토큰 쌍의 최적 edge 재계산"""
+        from_token, to_token = pair_key
+        
+        if pair_key not in self._edge_registry or not self._edge_registry[pair_key]:
+            # 모든 edge가 제거된 경우
+            if pair_key in self._best_edges:
+                del self._best_edges[pair_key]
+            return
+        
+        # 모든 edge 중 최고 환율 찾기
+        best_rate = 0
+        best_dex = None
+        best_edge_key = None
+        
+        for dex, edge_key in self._edge_registry[pair_key].items():
+            if edge_key in self.graph[from_token][to_token]:
+                rate = self.graph[from_token][to_token][edge_key].get('exchange_rate', 0)
+                if rate > best_rate:
+                    best_rate = rate
+                    best_dex = dex
+                    best_edge_key = edge_key
+        
+        if best_dex:
+            self._best_edges[pair_key] = (best_dex, best_edge_key)
+    
     def update_pool_data(self, pool_address: str, reserve0: float, reserve1: float):
-        """풀 데이터 업데이트 - 논문의 정확한 weight calculation 적용"""
-        # 해당 풀과 연관된 엣지들 찾아서 업데이트
-        for u, v, data in self.graph.edges(data=True):
+        """풀 데이터 업데이트 - Multi-graph 지원, 논문의 정확한 weight calculation 적용"""
+        updated_pairs = []
+        
+        # 해당 풀과 연관된 엣지들 찾아서 업데이트 (Multi-graph 처리)
+        for u, v, edge_key, data in self.graph.edges(data=True, keys=True):
             if data.get('pool_address') == pool_address:
                 # 새로운 spot price 및 effective rate 계산
                 if data['from_token'] == u:
@@ -171,15 +313,28 @@ class DeFiMarketGraph:
                 data['exchange_rate'] = effective_rate  # 실제 거래 환율
                 data['weight'] = self._calculate_edge_weight(spot_price)  # 논문 공식 사용
                 data['liquidity'] = min(reserve0, reserve1)
+                
+                # Best edge 재평가를 위해 쌍 기록
+                pair_key = (u, v)
+                if pair_key not in updated_pairs:
+                    updated_pairs.append(pair_key)
+        
+        # 업데이트된 토큰 쌍들의 최적 edge 재계산
+        for pair_key in updated_pairs:
+            self._update_best_edge(pair_key)
+            logger.debug(f"Pool 업데이트: {pool_address} - {pair_key[0]}-{pair_key[1]}")
     
     def get_graph_stats(self) -> Dict:
-        """그래프 통계 정보"""
+        """그래프 통계 정보 - Multi-graph 지원"""
+        multi_stats = self.get_multi_graph_stats()
+        
         return {
             'nodes': len(self.graph.nodes),
             'edges': len(self.graph.edges),
             'tokens': len(self.token_nodes),
             'density': nx.density(self.graph),
-            'is_connected': nx.is_weakly_connected(self.graph)
+            'is_connected': nx.is_weakly_connected(self.graph),
+            'multi_graph': multi_stats
         }
     
     # =============================================================================
@@ -190,7 +345,7 @@ class DeFiMarketGraph:
                                max_fee: float = 0.01,
                                min_exchange_rate: float = 1e-6) -> int:
         """
-        비효율적인 edge 자동 제거 - 논문의 96개 protocol actions 처리 효율성 향상
+        비효율적인 edge 자동 제거 - Multi-graph 지원, 논문의 96개 protocol actions 처리 효율성 향상
         
         Args:
             min_liquidity: 최소 유동성 임계값 (ETH 단위)
@@ -200,35 +355,50 @@ class DeFiMarketGraph:
         Returns:
             제거된 edge 개수
         """
-        edges_to_remove = []
+        edges_to_remove = []  # (u, v, edge_key, dex)
         
-        for u, v, data in self.graph.edges(data=True):
+        for u, v, edge_key, data in self.graph.edges(data=True, keys=True):
             # 1. 유동성 부족한 edge 제거
             if data.get('liquidity', 0) < min_liquidity:
-                edges_to_remove.append((u, v))
+                edges_to_remove.append((u, v, edge_key, data.get('dex')))
                 continue
             
             # 2. 수수료가 너무 높은 edge 제거
             if data.get('fee', 0) > max_fee:
-                edges_to_remove.append((u, v))
+                edges_to_remove.append((u, v, edge_key, data.get('dex')))
                 continue
             
             # 3. 환율이 너무 낮은 edge 제거 (사실상 거래 불가능)
             if data.get('exchange_rate', 0) < min_exchange_rate:
-                edges_to_remove.append((u, v))
+                edges_to_remove.append((u, v, edge_key, data.get('dex')))
                 continue
             
             # 4. 무한대 가중치 edge 제거
             if data.get('weight', 0) == float('inf'):
-                edges_to_remove.append((u, v))
+                edges_to_remove.append((u, v, edge_key, data.get('dex')))
                 continue
         
-        # Edge 제거 실행
-        for u, v in edges_to_remove:
-            if self.graph.has_edge(u, v):
-                self.graph.remove_edge(u, v)
+        # Edge 제거 실행 (Multi-graph 처리)
+        removed_count = 0
+        for u, v, edge_key, dex in edges_to_remove:
+            try:
+                if self.graph.has_edge(u, v, key=edge_key):
+                    # 그래프에서 제거
+                    self.graph.remove_edge(u, v, key=edge_key)
+                    removed_count += 1
+                    
+                    # Registry에서 제거
+                    if dex:
+                        pair_key = (u, v)
+                        if pair_key in self._edge_registry and dex in self._edge_registry[pair_key]:
+                            del self._edge_registry[pair_key][dex]
+                            
+                            # 최적 edge 재계산
+                            if pair_key in self._best_edges and self._best_edges[pair_key][0] == dex:
+                                self._update_best_edge(pair_key)
+            except Exception as e:
+                logger.error(f"Failed to remove edge {u}-{v} (key={edge_key}): {e}")
         
-        removed_count = len(edges_to_remove)
         if removed_count > 0:
             logger.info(f"Graph pruning 완료: {removed_count}개 비효율적 edge 제거")
         
@@ -270,8 +440,8 @@ class DeFiMarketGraph:
         return optimization_result
     
     def _optimize_edge_data(self):
-        """Edge 데이터 메모리 최적화 - 불필요한 정밀도 제거"""
-        for u, v, data in self.graph.edges(data=True):
+        """Edge 데이터 메모리 최적화 - Multi-graph 지원, 불필요한 정밀도 제거"""
+        for u, v, edge_key, data in self.graph.edges(data=True, keys=True):
             # 부동소수점 정밀도 최적화 (6자리까지만)
             if 'exchange_rate' in data:
                 data['exchange_rate'] = round(data['exchange_rate'], 6)
@@ -427,9 +597,13 @@ class DeFiMarketGraph:
                 weight=weight_10
             )
             
-            # 그래프에 엣지 추가
-            self.graph.add_edge(token0, token1, **edge_01.__dict__)
-            self.graph.add_edge(token1, token0, **edge_10.__dict__)
+            # Multi-graph 지원: edge 추가
+            edge_key_01 = self._add_multi_edge(token0, token1, edge_01)
+            edge_key_10 = self._add_multi_edge(token1, token0, edge_10)
+            
+            # Registry 업데이트
+            self._register_edge(token0, token1, action.protocol_name, edge_key_01, effective_rate_01)
+            self._register_edge(token1, token0, action.protocol_name, edge_key_10, effective_rate_10)
             
             return True
             
@@ -462,7 +636,10 @@ class DeFiMarketGraph:
                 weight=weight
             )
             
-            self.graph.add_edge(token0, token1, **lending_edge.__dict__)
+            # Multi-graph 지원: lending edge 추가
+            edge_key = self._add_multi_edge(token0, token1, lending_edge)
+            self._register_edge(token0, token1, f"{action.protocol_name}_lending", edge_key, effective_rate)
+            
             return True
             
         except Exception as e:
