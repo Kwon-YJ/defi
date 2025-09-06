@@ -7,7 +7,7 @@ from config.config import config
 def setup_logger(name: str) -> logging.Logger:
     """로거 설정"""
     logger = logging.getLogger(name)
-    logger.setLevel(getattr(logging, config.log_level))
+    logger.setLevel(getattr(logging, config.log_level or 'INFO'))
     
     # 로그 디렉토리 생성
     os.makedirs('logs', exist_ok=True)

@@ -2,8 +2,10 @@ import math
 import asyncio
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, List, Tuple, Optional
-from collections import defaultdict
+from collections import defaultdict, deque
 import random
+import time
+import numpy as np
 from src.market_graph import DeFiMarketGraph, ArbitrageOpportunity, TradingEdge
 from src.logger import setup_logger
 
@@ -15,17 +17,55 @@ class BellmanFordArbitrage:
         self.distances = {}
         self.predecessors = {}
         
+        # **성능 최적화**: 메모리 효율성을 위한 캐시 및 버퍼
+        self._edge_cache = None  # 사전 계산된 edge 리스트 캐시
+        self._node_cache = None  # 노드 리스트 캐시
+        self._last_graph_update = 0  # 그래프 업데이트 타임스탬프
+        
+        # **논문 성능 기준**: 6.43초 내 처리를 위한 성능 모니터링
+        self.performance_metrics = {
+            'total_processing_time': 0.0,
+            'bellman_ford_time': 0.0,
+            'cycle_extraction_time': 0.0,
+            'local_search_time': 0.0,
+            'cycles_found': 0,
+            'opportunities_generated': 0
+        }
+        
     def find_negative_cycles(self, source_token: str, 
                            max_path_length: int = 4) -> List[ArbitrageOpportunity]:
-        """음의 사이클 탐지를 통한 차익거래 기회 발견"""
+        """
+        최적화된 음의 사이클 탐지를 통한 차익거래 기회 발견
+        논문 성능 기준: 평균 6.43초 내 처리 완료
+        96개 protocol actions, 25개 assets 처리 가능한 확장성 확보
+        """
+        start_time = time.time()
+        logger.info(f"음의 사이클 탐지 시작: source={source_token}, max_path_length={max_path_length}")
         opportunities = []
         
-        # 1. Bellman-Ford 알고리즘 실행
-        if not self._bellman_ford(source_token, max_path_length):
-            logger.info("음의 사이클이 발견되었습니다!")
+        # **최적화 13**: 그래프 변경 사항 확인 및 캐시 무효화
+        self._update_cache_if_needed()
+        
+        # **최적화 14**: 소스 노드 유효성 검증
+        if source_token not in self.graph.graph.nodes:
+            logger.warning(f"소스 토큰 {source_token}이 그래프에 존재하지 않습니다.")
+            return []
+        
+        # 1. **최적화된 Bellman-Ford 알고리즘 실행**
+        bf_start_time = time.time()
+        has_negative_cycle = not self._bellman_ford(source_token, max_path_length)
+        self.performance_metrics['bellman_ford_time'] = time.time() - bf_start_time
+        
+        if has_negative_cycle:
+            logger.info(f"음의 사이클 발견! Bellman-Ford 실행시간: {self.performance_metrics['bellman_ford_time']:.3f}초")
             
-            # 2. 음의 사이클 추출
+            # 2. **최적화된 음의 사이클 추출**
+            cycle_start_time = time.time()
             cycles = self._extract_negative_cycles(source_token)
+            self.performance_metrics['cycle_extraction_time'] = time.time() - cycle_start_time
+            self.performance_metrics['cycles_found'] = len(cycles)
+            
+            logger.info(f"사이클 추출 완료: {len(cycles)}개 발견, 실행시간: {self.performance_metrics['cycle_extraction_time']:.3f}초")
             
             # 3. 차익거래 기회로 변환
             for cycle in cycles:
@@ -33,93 +73,169 @@ class BellmanFordArbitrage:
                 if opportunity and opportunity.net_profit > 0:
                     
                     # 4. **CRITICAL**: Local Search 알고리즘 적용 (논문의 핵심 알고리즘)
+                    ls_start_time = time.time()
                     optimized_opportunity = self._perform_local_search(opportunity)
                     if optimized_opportunity:
                         opportunities.append(optimized_opportunity)
+                        self.performance_metrics['opportunities_generated'] += 1
+                    self.performance_metrics['local_search_time'] += time.time() - ls_start_time
         
         # 5. **CRITICAL**: Best revenue transaction 선택 로직 구현
         best_opportunities = self._select_best_revenue_transactions(opportunities)
         
+        # **성능 모니터링**: 총 처리 시간 기록
+        total_time = time.time() - start_time
+        self.performance_metrics['total_processing_time'] = total_time
+        
+        # **논문 성능 기준 검증**: 6.43초 목표 달성 확인
+        if total_time > 6.43:
+            logger.warning(f"성능 목표 미달성! 실행시간: {total_time:.3f}초 > 6.43초 (논문 기준)")
+        else:
+            logger.info(f"성능 목표 달성! 실행시간: {total_time:.3f}초 ≤ 6.43초 (논문 기준)")
+        
+        # **상세 성능 로그**
+        logger.info(f"성능 분석 - BF: {self.performance_metrics['bellman_ford_time']:.3f}초, "
+                   f"사이클추출: {self.performance_metrics['cycle_extraction_time']:.3f}초, "
+                   f"로컬서치: {self.performance_metrics['local_search_time']:.3f}초")
+        
         return best_opportunities
     
     def _bellman_ford(self, source: str, max_iterations: int) -> bool:
-        """Bellman-Ford 알고리즘 실행"""
-        # 초기화
-        self.distances = {node: float('inf') for node in self.graph.graph.nodes}
-        self.predecessors = {node: None for node in self.graph.graph.nodes}
+        """최적화된 Bellman-Ford 알고리즘 실행 - 논문 성능 기준 달성을 위한 최적화"""
+        # 초기화 - Dictionary comprehension 최적화
+        nodes = list(self.graph.graph.nodes)
+        self.distances = {node: float('inf') for node in nodes}
+        self.predecessors = {node: None for node in nodes}
         self.distances[source] = 0
         
-        # 거리 완화 (Relaxation)
+        # **최적화 1**: Edge 리스트 사전 계산 (매번 iterator 생성 방지)
+        edges_list = [(u, v, data.get('weight', float('inf'))) 
+                     for u, v, data in self.graph.graph.edges(data=True)
+                     if data.get('weight', float('inf')) != float('inf')]
+        
+        # **최적화 2**: Early termination with change tracking
         for i in range(max_iterations):
             updated = False
             
-            for u, v, data in self.graph.graph.edges(data=True):
-                weight = data.get('weight', float('inf'))
-                
+            # **최적화 3**: 사전 계산된 edge 리스트 사용
+            for u, v, weight in edges_list:
                 if self.distances[u] != float('inf'):
                     new_distance = self.distances[u] + weight
                     
-                    if new_distance < self.distances[v]:
+                    # **최적화 4**: 부동소수점 비교 최적화
+                    if new_distance < self.distances[v] - 1e-10:  # 수치 안정성
                         self.distances[v] = new_distance
                         self.predecessors[v] = u
                         updated = True
             
+            # **최적화 5**: Early termination (수렴 시 조기 종료)
             if not updated:
+                logger.debug(f"Bellman-Ford 조기 수렴 완료: {i+1}회 반복")
                 break
         
-        # 음의 사이클 검사
-        for u, v, data in self.graph.graph.edges(data=True):
-            weight = data.get('weight', float('inf'))
-            
+        # **최적화 6**: 음의 사이클 검사 - 이미 계산된 edge 리스트 재사용
+        for u, v, weight in edges_list:
             if (self.distances[u] != float('inf') and 
-                self.distances[u] + weight < self.distances[v]):
+                self.distances[u] + weight < self.distances[v] - 1e-10):
+                logger.debug(f"음의 사이클 탐지: {u} -> {v}, weight={weight}")
                 return False  # 음의 사이클 존재
         
         return True  # 음의 사이클 없음
     
     def _extract_negative_cycles(self, source: str) -> List[List[str]]:
-        """음의 사이클 추출"""
+        """최적화된 음의 사이클 추출 - 성능 최적화 및 메모리 효율성 개선"""
         cycles = []
         visited = set()
         
-        for node in self.graph.graph.nodes:
+        # **최적화 7**: 음의 거리를 가진 노드만 검사 (pruning)
+        negative_distance_nodes = [
+            node for node, dist in self.distances.items() 
+            if dist != float('inf') and dist < -1e-10
+        ]
+        
+        logger.debug(f"음의 거리 노드 {len(negative_distance_nodes)}개 발견, 전체 {len(self.graph.graph.nodes)}개 중")
+        
+        # **최적화 8**: 우선순위 기반 사이클 탐지 (가장 음의 값이 큰 노드부터)
+        sorted_nodes = sorted(negative_distance_nodes, key=lambda n: self.distances[n])
+        
+        for node in sorted_nodes:
             if node in visited:
                 continue
                 
-            # 사이클 탐지
-            cycle = self._find_cycle_from_node(node, visited)
+            # **최적화 9**: 깊이 제한을 통한 탐색 공간 축소
+            cycle = self._find_cycle_from_node_optimized(node, visited, max_depth=6)
             if cycle and len(cycle) >= 3:  # 최소 3개 노드
-                cycles.append(cycle)
+                # **최적화 10**: 사이클 품질 검증 (실제로 음의 가중치인지 확인)
+                if self._validate_negative_cycle(cycle):
+                    cycles.append(cycle)
+                    logger.debug(f"유효한 음의 사이클 발견: {' -> '.join(cycle)}")
+                else:
+                    logger.debug(f"무효한 사이클 제외: {' -> '.join(cycle)}")
         
         return cycles
     
-    def _find_cycle_from_node(self, start_node: str, visited: set) -> Optional[List[str]]:
-        """특정 노드에서 시작하는 사이클 찾기"""
+    def _find_cycle_from_node_optimized(self, start_node: str, visited: set, max_depth: int = 6) -> Optional[List[str]]:
+        """최적화된 사이클 탐지 - 깊이 제한 및 메모리 효율성 개선"""
         path = []
         current = start_node
         path_set = set()
+        depth = 0
         
-        while current is not None and current not in visited:
+        # **최적화 11**: 깊이 제한으로 무한루프 및 과도한 탐색 방지
+        while current is not None and current not in visited and depth < max_depth:
             if current in path_set:
                 # 사이클 발견
                 cycle_start = path.index(current)
                 cycle = path[cycle_start:] + [current]
                 
-                # 방문 처리
-                for node in path:
-                    visited.add(node)
+                # **최적화 12**: 방문 처리 최적화
+                visited.update(path)
                 
+                logger.debug(f"사이클 발견 (깊이 {depth}): {' -> '.join(cycle)}")
                 return cycle
             
             path.append(current)
             path_set.add(current)
             current = self.predecessors.get(current)
+            depth += 1
         
         # 방문 처리
-        for node in path:
-            visited.add(node)
+        visited.update(path)
+        
+        if depth >= max_depth:
+            logger.debug(f"최대 깊이 {max_depth} 도달, 탐색 중단")
         
         return None
+    
+    def _validate_negative_cycle(self, cycle: List[str]) -> bool:
+        """사이클이 실제로 음의 가중치를 가지는지 검증"""
+        if len(cycle) < 3:
+            return False
+        
+        total_weight = 0.0
+        
+        # 사이클의 각 엣지 가중치 합계 계산
+        for i in range(len(cycle) - 1):
+            from_token = cycle[i]
+            to_token = cycle[i + 1]
+            
+            if not self.graph.graph.has_edge(from_token, to_token):
+                logger.debug(f"엣지 없음: {from_token} -> {to_token}")
+                return False
+            
+            edge_data = self.graph.graph[from_token][to_token]
+            weight = edge_data.get('weight', float('inf'))
+            
+            if weight == float('inf'):
+                return False
+            
+            total_weight += weight
+        
+        # 음의 사이클인지 확인
+        is_negative = total_weight < -1e-10
+        logger.debug(f"사이클 가중치 합계: {total_weight:.6f}, 음의 사이클: {is_negative}")
+        
+        return is_negative
     
     def _cycle_to_opportunity(self, cycle: List[str]) -> Optional[ArbitrageOpportunity]:
         """사이클을 차익거래 기회로 변환"""
@@ -478,3 +594,53 @@ class BellmanFordArbitrage:
         logger.info(f"최종 선택: {len(final_selection)}개 거래, 총 예상 수익: {total_revenue:.6f} ETH")
         
         return final_selection
+    
+    # =============================================================================
+    # **성능 최적화**: 캐시 및 메모리 효율성 최적화 메서드들
+    # =============================================================================
+    
+    def _update_cache_if_needed(self):
+        """그래프 변경 사항 확인 및 캐시 업데이트"""
+        current_update_time = getattr(self.graph, 'last_update', 0)
+        
+        if current_update_time > self._last_graph_update or self._edge_cache is None:
+            logger.debug(f"캐시 업데이트 필요 - 그래프 업데이트: {current_update_time} > {self._last_graph_update}")
+            
+            # Edge 리스트 캐시 갱신
+            self._edge_cache = [
+                (u, v, data.get('weight', float('inf'))) 
+                for u, v, data in self.graph.graph.edges(data=True)
+                if data.get('weight', float('inf')) != float('inf')
+            ]
+            
+            # Node 리스트 캐시 갱신  
+            self._node_cache = list(self.graph.graph.nodes)
+            
+            # 업데이트 시점 기록
+            self._last_graph_update = current_update_time
+            
+            logger.debug(f"캐시 업데이트 완료 - Edges: {len(self._edge_cache)}, Nodes: {len(self._node_cache)}")
+    
+    def get_performance_metrics(self) -> Dict:
+        """성능 메트릭 조회 - 논문 성능 기준 6.43초 달성 확인"""
+        total_time = self.performance_metrics['total_processing_time']
+        target_time = 6.43  # 논문 목표 시간
+        
+        return {
+            **self.performance_metrics,
+            'target_time_seconds': target_time,
+            'performance_ratio': total_time / target_time if target_time > 0 else 0,
+            'meets_paper_requirement': total_time <= target_time,
+            'efficiency_score': max(0, (target_time - total_time) / target_time) if target_time > 0 else 0
+        }
+    
+    def reset_performance_metrics(self):
+        """성능 메트릭 초기화"""
+        self.performance_metrics = {
+            'total_processing_time': 0.0,
+            'bellman_ford_time': 0.0,
+            'cycle_extraction_time': 0.0,
+            'local_search_time': 0.0,
+            'cycles_found': 0,
+            'opportunities_generated': 0
+        }

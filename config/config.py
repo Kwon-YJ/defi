@@ -21,8 +21,8 @@ class Config:
     
     # 거래 설정
     private_key: str = os.getenv('PRIVATE_KEY', '')
-    max_gas_price: int = int(os.getenv('MAX_GAS_PRICE', '50000000000'))
-    min_profit_threshold: float = float(os.getenv('MIN_PROFIT_THRESHOLD', '0.001'))
+    max_gas_price: int = int(os.getenv('MAX_GAS_PRICE', '50000000000') or '50000000000')
+    min_profit_threshold: float = float(os.getenv('MIN_PROFIT_THRESHOLD', '0.001') or '0.001')
     
     # 모니터링
     log_level: str = os.getenv('LOG_LEVEL', 'INFO')
