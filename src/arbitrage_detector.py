@@ -2,6 +2,9 @@
 """
 DeFi Arbitrage Detector - Main execution script
 실시간 차익거래 기회 탐지 및 실행
+
+Updated: 블록 기반 실시간 그래프 상태 업데이트 구현
+논문 요구사항: 매 블록마다 그래프 상태 업데이트 (13.5초 블록 시간 내 6.43초 처리)
 """
 
 import asyncio
@@ -9,22 +12,37 @@ from typing import List, Dict
 from datetime import datetime
 from src.market_graph import DeFiMarketGraph
 from src.bellman_ford_arbitrage import BellmanFordArbitrage
+from src.block_based_detector import BlockBasedArbitrageDetector
 from src.data_storage import DataStorage
 from src.logger import setup_logger
 
 logger = setup_logger(__name__)
 
 class ArbitrageDetector:
-    def __init__(self):
-        self.market_graph = DeFiMarketGraph()
-        self.bellman_ford = BellmanFordArbitrage(self.market_graph)
-        self.storage = DataStorage()
+    def __init__(self, use_block_based: bool = True):
+        """
+        Args:
+            use_block_based: True면 블록 기반 탐지 사용, False면 기존 5초 주기 탐지 사용
+        """
+        self.use_block_based = use_block_based
+        
+        if use_block_based:
+            # 블록 기반 탐지기 사용 (논문 요구사항)
+            self.block_detector = BlockBasedArbitrageDetector()
+            logger.info("블록 기반 탐지 모드 활성화 (논문 요구사항)")
+        else:
+            # 기존 방식 (하위 호환성)
+            self.market_graph = DeFiMarketGraph()
+            self.bellman_ford = BellmanFordArbitrage(self.market_graph)
+            self.storage = DataStorage()
+            logger.info("기존 5초 주기 탐지 모드 (하위 호환성)")
+        
         self.running = False
         
         # 주요 토큰들 (차익거래 시작점)
         self.base_tokens = [
             "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",  # WETH
-            "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",  # USDC (수정됨)
+            "0xA0b86a91c6218b36c1d19D4a2e9Eb0cE3606eB48",  # USDC (수정됨)
             "0x6B175474E89094C44Da98b954EedeAC495271d0F",  # DAI
             "0xdAC17F958D2ee523a2206206994597C13D831ec7",  # USDT
         ]
@@ -32,8 +50,19 @@ class ArbitrageDetector:
     async def start_detection(self):
         """차익거래 탐지 시작"""
         self.running = True
-        logger.info("차익거래 탐지 시작")
         
+        if self.use_block_based:
+            # 블록 기반 탐지 시작 (논문 요구사항)
+            logger.info("블록 기반 차익거래 탐지 시작")
+            logger.info("목표: 매 블록마다 그래프 상태 실시간 업데이트, 평균 6.43초 처리")
+            await self.block_detector.start_detection()
+        else:
+            # 기존 5초 주기 탐지 (하위 호환성)
+            logger.info("기존 5초 주기 차익거래 탐지 시작")
+            await self._legacy_detection_loop()
+    
+    async def _legacy_detection_loop(self):
+        """기존 5초 주기 탐지 루프 (하위 호환성)"""
         while self.running:
             try:
                 # 1. 시장 데이터 업데이트
@@ -142,7 +171,21 @@ class ArbitrageDetector:
     def stop_detection(self):
         """탐지 중지"""
         self.running = False
+        
+        if self.use_block_based:
+            self.block_detector.stop_detection()
+        
         logger.info("차익거래 탐지 중지")
+    
+    def get_metrics(self) -> Dict:
+        """성능 메트릭 조회"""
+        if self.use_block_based:
+            return self.block_detector.get_metrics()
+        else:
+            return {
+                'mode': 'legacy',
+                'message': '기존 모드에서는 상세 메트릭을 제공하지 않습니다.'
+            }
 
 async def main():
     """메인 실행 함수"""
