@@ -612,15 +612,34 @@ class TokenManager:
                 name="Curve.fi hBTC/wBTC",
                 decimals=18,
                 coingecko_id="curve-fi-hbtc-wbtc"
+            ),
+            
+            # Synthetix synthetic assets (TODO requirement completion)
+            # sUSD - Synthetic USD (Synthetix stablecoin)
+            "0x57Ab1ec28D129707052df4dF418D58a2D46d5f51": TokenInfo(
+                address="0x57Ab1ec28D129707052df4dF418D58a2D46d5f51",
+                symbol="sUSD",
+                name="Synth sUSD",
+                decimals=18,
+                coingecko_id="susd"
+            ),
+            
+            # sETH - Synthetic ETH (Synthetix synthetic Ether)
+            "0x5e74C9036fb86BD7eCdcb084a0673EFc32eA31cb": TokenInfo(
+                address="0x5e74C9036fb86BD7eCdcb084a0673EFc32eA31cb",
+                symbol="sETH",
+                name="Synth sETH",
+                decimals=18,
+                coingecko_id="seth"
             )
         }
         
-        # **논문 기준 검증**: 25개 assets + WETH + 2 additional stablecoins (USDC, USDT) + 5 major tokens (WBTC, UNI, SUSHI, COMP, AAVE) + 3 DeFi ecosystem tokens (CRV, BAL, YFI) + 4 lending protocol tokens (cETH, cUSDC, aETH, aUSDC) + 20 LP tokens (10 UNI-V2 pairs + 10 Curve LP tokens)
-        expected_count = 60  # 25 + 1 + 2 + 5 + 3 + 4 + 20
+        # **논문 기준 검증**: 25개 assets + WETH + 2 additional stablecoins (USDC, USDT) + 5 major tokens (WBTC, UNI, SUSHI, COMP, AAVE) + 3 DeFi ecosystem tokens (CRV, BAL, YFI) + 4 lending protocol tokens (cETH, cUSDC, aETH, aUSDC) + 20 LP tokens (10 UNI-V2 pairs + 10 Curve LP tokens) + 2 Synthetix assets (sUSD, sETH)
+        expected_count = 62  # 25 + 1 + 2 + 5 + 3 + 4 + 20 + 2
         if len(common_tokens) != expected_count:
-            logger.warning(f"Asset count mismatch! Expected: {expected_count} (25 paper + WETH + 2 stablecoins + 5 major tokens + 3 DeFi ecosystem + 4 lending protocol + 20 LP tokens), Got: {len(common_tokens)}")
+            logger.warning(f"Asset count mismatch! Expected: {expected_count} (25 paper + WETH + 2 stablecoins + 5 major tokens + 3 DeFi ecosystem + 4 lending protocol + 20 LP tokens + 2 Synthetix assets), Got: {len(common_tokens)}")
         else:
-            logger.info("✅ Paper specification enhanced: 25 assets + WETH + 2 stablecoins + 5 major tokens + 3 DeFi ecosystem tokens + 4 lending protocol tokens + 20 LP tokens (60 total) registered")
+            logger.info("✅ Paper specification enhanced: 25 assets + WETH + 2 stablecoins + 5 major tokens + 3 DeFi ecosystem tokens + 4 lending protocol tokens + 20 LP tokens + 2 Synthetix assets (62 total) registered")
         
         self.tokens.update(common_tokens)
         
@@ -1215,6 +1234,37 @@ class TokenManager:
             ("3CRV", "USDN3CRV"),
             ("USDP3CRV", "3CRV"),
             ("3CRV", "USDP3CRV"),
+            
+            # Synthetic assets pairs (Synthetix)
+            # sUSD - Synthetic USD (Synthetix stablecoin)
+            ("ETH", "sUSD"),
+            ("sUSD", "ETH"),
+            ("WETH", "sUSD"),
+            ("sUSD", "WETH"),
+            ("sUSD", "USDC"),
+            ("USDC", "sUSD"),
+            ("sUSD", "USDT"),
+            ("USDT", "sUSD"),
+            ("sUSD", "DAI"),
+            ("DAI", "sUSD"),
+            
+            # sETH - Synthetic ETH (Synthetix synthetic Ether)
+            ("ETH", "sETH"),
+            ("sETH", "ETH"),
+            ("WETH", "sETH"),
+            ("sETH", "WETH"),
+            ("sETH", "USDC"),
+            ("USDC", "sETH"),
+            ("sETH", "USDT"),
+            ("USDT", "sETH"),
+            ("sETH", "DAI"),
+            ("DAI", "sETH"),
+            ("sETH", "WBTC"),
+            ("WBTC", "sETH"),
+            
+            # Cross synthetic asset pairs
+            ("sUSD", "sETH"),
+            ("sETH", "sUSD"),
             
             # Curve BTC LP tokens with BTC assets
             ("crvRenWSBTC", "WBTC"),
