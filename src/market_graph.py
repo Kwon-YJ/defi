@@ -3,6 +3,7 @@ import math
 from typing import Dict, List, Tuple, Optional
 from dataclasses import dataclass
 from src.logger import setup_logger
+from src.protocol_actions import ProtocolRegistry, ProtocolAction, ProtocolType
 
 logger = setup_logger(__name__)
 
@@ -32,11 +33,18 @@ class ArbitrageOpportunity:
     confidence: float  # 신뢰도 (0-1)
 
 class DeFiMarketGraph:
-    def __init__(self):
+    def __init__(self, web3_provider=None):
         self.graph = nx.DiGraph()
         self.token_nodes = set()
         self.dex_pools = {}  # dex -> {(token0, token1): pool_info}
         self.last_update = 0
+        
+        # **CRITICAL**: 96개 protocol actions 지원을 위한 프로토콜 레지스트리
+        self.protocol_registry = ProtocolRegistry(web3_provider) if web3_provider else None
+        
+        # **논문 기준 확장성**: 96개 protocol actions, 25개 assets 처리 최적화
+        self._protocol_edge_cache = {}  # 프로토콜별 엣지 캐시
+        self._supported_protocols = set()  # 지원되는 프로토콜 목록
         
     def add_token(self, token_address: str, symbol: str = None):
         """토큰 노드 추가"""
@@ -315,3 +323,185 @@ class DeFiMarketGraph:
             recommendations.append("Edge 수가 예상보다 많습니다. 중복 또는 비효율적 edge를 제거하세요.")
         
         return recommendations
+
+    # =============================================================================
+    # **CRITICAL**: 96개 Protocol Actions 지원 구현
+    # =============================================================================
+
+    def add_protocol_edges(self, protocol_name: str, token_pairs: List[Tuple[str, str]], 
+                          reserves_data: Dict[str, Tuple[float, float]]) -> int:
+        """
+        특정 프로토콜의 모든 거래 쌍에 대해 엣지 추가
+        논문의 96개 protocol actions 지원을 위한 확장성 구현
+        
+        Args:
+            protocol_name: 프로토콜 이름 (예: "Uniswap V2", "Compound")
+            token_pairs: 토큰 쌍 목록
+            reserves_data: 토큰 쌍별 리저브 정보
+        
+        Returns:
+            추가된 엣지 개수
+        """
+        if not self.protocol_registry:
+            logger.warning("Protocol registry not initialized")
+            return 0
+            
+        added_edges = 0
+        protocol_actions = self.protocol_registry.get_actions_by_protocol(protocol_name)
+        
+        if not protocol_actions:
+            logger.warning(f"No actions found for protocol: {protocol_name}")
+            return 0
+        
+        logger.info(f"Adding edges for {protocol_name}: {len(protocol_actions)} actions, {len(token_pairs)} pairs")
+        
+        for token0, token1 in token_pairs:
+            if (token0, token1) not in reserves_data:
+                continue
+                
+            reserve0, reserve1 = reserves_data[(token0, token1)]
+            
+            # 각 프로토콜 액션에 대해 적절한 엣지 생성
+            for action in protocol_actions:
+                if self._is_swap_action(action):
+                    # Swap 액션인 경우 양방향 엣지 추가
+                    if self._add_protocol_swap_edge(action, token0, token1, reserve0, reserve1):
+                        added_edges += 2  # 양방향
+                elif self._is_lending_action(action):
+                    # 렌딩 액션인 경우 단방향 엣지 추가
+                    if self._add_protocol_lending_edge(action, token0, token1, reserve0, reserve1):
+                        added_edges += 1
+        
+        self._supported_protocols.add(protocol_name)
+        logger.info(f"✅ {protocol_name}: {added_edges}개 엣지 추가 완료")
+        return added_edges
+
+    def _is_swap_action(self, action: ProtocolAction) -> bool:
+        """액션이 스왑/교환 액션인지 확인"""
+        swap_keywords = ['swap', 'exchange', 'trade']
+        return any(keyword in action.action_type.lower() for keyword in swap_keywords)
+
+    def _is_lending_action(self, action: ProtocolAction) -> bool:
+        """액션이 렌딩 액션인지 확인"""
+        return action.protocol_type in [ProtocolType.LENDING, ProtocolType.CDP]
+
+    def _add_protocol_swap_edge(self, action: ProtocolAction, token0: str, token1: str, 
+                               reserve0: float, reserve1: float) -> bool:
+        """프로토콜 스왑 액션에 대한 엣지 추가"""
+        try:
+            # 기본적인 AMM 공식 사용 (추후 각 프로토콜별로 특화 필요)
+            if reserve0 <= 0 or reserve1 <= 0:
+                return False
+            
+            # token0 -> token1
+            spot_price_01 = reserve1 / reserve0
+            effective_rate_01 = spot_price_01 * (1 - action.fee_rate)
+            weight_01 = self._calculate_edge_weight(spot_price_01)
+            
+            edge_01 = TradingEdge(
+                from_token=token0,
+                to_token=token1,
+                dex=action.protocol_name,
+                pool_address=action.contract_address,
+                exchange_rate=effective_rate_01,
+                liquidity=min(reserve0, reserve1),
+                fee=action.fee_rate,
+                gas_cost=action.gas_estimate * 20e-9 * 2000,  # 20 gwei * $2000 ETH 가정
+                weight=weight_01
+            )
+            
+            # token1 -> token0
+            spot_price_10 = reserve0 / reserve1
+            effective_rate_10 = spot_price_10 * (1 - action.fee_rate)
+            weight_10 = self._calculate_edge_weight(spot_price_10)
+            
+            edge_10 = TradingEdge(
+                from_token=token1,
+                to_token=token0,
+                dex=action.protocol_name,
+                pool_address=action.contract_address,
+                exchange_rate=effective_rate_10,
+                liquidity=min(reserve0, reserve1),
+                fee=action.fee_rate,
+                gas_cost=action.gas_estimate * 20e-9 * 2000,
+                weight=weight_10
+            )
+            
+            # 그래프에 엣지 추가
+            self.graph.add_edge(token0, token1, **edge_01.__dict__)
+            self.graph.add_edge(token1, token0, **edge_10.__dict__)
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Protocol swap edge creation failed for {action.action_id}: {e}")
+            return False
+
+    def _add_protocol_lending_edge(self, action: ProtocolAction, token0: str, token1: str,
+                                  reserve0: float, reserve1: float) -> bool:
+        """프로토콜 렌딩 액션에 대한 엣지 추가"""
+        try:
+            # 렌딩은 보통 담보 -> 대출 방향의 단방향 엣지
+            if reserve0 <= 0:
+                return False
+            
+            # 대출비율 적용 (일반적으로 70-80%)
+            collateral_ratio = 0.75
+            effective_rate = collateral_ratio * (1 - action.fee_rate)
+            weight = self._calculate_edge_weight(effective_rate)
+            
+            lending_edge = TradingEdge(
+                from_token=token0,  # 담보 토큰
+                to_token=token1,    # 대출 토큰
+                dex=f"{action.protocol_name}_lending",
+                pool_address=action.contract_address,
+                exchange_rate=effective_rate,
+                liquidity=reserve0,
+                fee=action.fee_rate,
+                gas_cost=action.gas_estimate * 20e-9 * 2000,
+                weight=weight
+            )
+            
+            self.graph.add_edge(token0, token1, **lending_edge.__dict__)
+            return True
+            
+        except Exception as e:
+            logger.error(f"Protocol lending edge creation failed for {action.action_id}: {e}")
+            return False
+
+    def get_protocol_summary(self) -> Dict:
+        """96개 protocol actions 지원 현황 요약"""
+        if not self.protocol_registry:
+            return {"error": "Protocol registry not initialized"}
+        
+        action_summary = self.protocol_registry.get_action_summary()
+        
+        return {
+            "total_protocols": len(self._supported_protocols),
+            "supported_protocols": list(self._supported_protocols),
+            "total_actions": action_summary['total_actions'],
+            "action_breakdown": action_summary,
+            "total_nodes": self.graph.number_of_nodes(),
+            "total_edges": self.graph.number_of_edges(),
+            "paper_compliance": {
+                "target_actions": 96,
+                "current_actions": action_summary['total_actions'],
+                "compliance": action_summary['total_actions'] >= 96
+            }
+        }
+
+    def validate_96_protocol_support(self) -> bool:
+        """논문의 96개 protocol actions 지원 여부 검증"""
+        if not self.protocol_registry:
+            logger.error("Protocol registry not initialized - cannot validate 96 protocol support")
+            return False
+            
+        action_summary = self.protocol_registry.get_action_summary()
+        current_actions = action_summary['total_actions']
+        
+        if current_actions >= 96:
+            logger.info(f"✅ Paper compliance achieved: {current_actions}/96 protocol actions supported")
+            return True
+        else:
+            logger.warning(f"❌ Paper compliance NOT achieved: {current_actions}/96 protocol actions supported")
+            return False

@@ -54,9 +54,12 @@ class TokenManager:
         self._load_common_tokens()
     
     def _load_common_tokens(self):
-        """주요 토큰 정보 로드 - 실제 주소로 업데이트 필요"""
+        """
+        논문의 25개 자산 지원 - Paper specification: 25 assets
+        [2103.02228] On the Just-In-Time Discovery of Profit-Generating Transactions in DeFi Protocols
+        """
         common_tokens = {
-            # 메인 토큰들
+            # **Core Assets (5 tokens)** - Most liquid base pairs
             "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2": TokenInfo(
                 address="0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
                 symbol="WETH",
@@ -85,7 +88,15 @@ class TokenManager:
                 decimals=6,
                 coingecko_id="tether"
             ),
-            # DeFi 토큰들
+            "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599": TokenInfo(
+                address="0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599",
+                symbol="WBTC",
+                name="Wrapped BTC",
+                decimals=8,
+                coingecko_id="wrapped-bitcoin"
+            ),
+
+            # **Major DeFi Tokens (8 tokens)** - High volume governance tokens
             "0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984": TokenInfo(
                 address="0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984",
                 symbol="UNI",
@@ -107,6 +118,20 @@ class TokenManager:
                 decimals=18,
                 coingecko_id="sushi"
             ),
+            "0xc00e94Cb662C3520282E6f5717214004A7f26888": TokenInfo(
+                address="0xc00e94Cb662C3520282E6f5717214004A7f26888",
+                symbol="COMP",
+                name="Compound",
+                decimals=18,
+                coingecko_id="compound-governance-token"
+            ),
+            "0x9f8F72aA9304c8B593d555F12eF6589cC3A579A2": TokenInfo(
+                address="0x9f8F72aA9304c8B593d555F12eF6589cC3A579A2",
+                symbol="MKR",
+                name="Maker",
+                decimals=18,
+                coingecko_id="maker"
+            ),
             "0xC011a73ee8576Fb46F5E1c5751cA3B9Fe0af2a6F": TokenInfo(
                 address="0xC011a73ee8576Fb46F5E1c5751cA3B9Fe0af2a6F",
                 symbol="SNX",
@@ -114,7 +139,52 @@ class TokenManager:
                 decimals=18,
                 coingecko_id="havven"
             ),
-            # 스테이블코인들
+            "0xD533a949740bb3306d119CC777fa900bA034cd52": TokenInfo(
+                address="0xD533a949740bb3306d119CC777fa900bA034cd52",
+                symbol="CRV",
+                name="Curve DAO Token",
+                decimals=18,
+                coingecko_id="curve-dao-token"
+            ),
+            "0x0bc529c00C6401aEF6D220BE8C6Ea1667F6Ad93e": TokenInfo(
+                address="0x0bc529c00C6401aEF6D220BE8C6Ea1667F6Ad93e",
+                symbol="YFI",
+                name="yearn.finance",
+                decimals=18,
+                coingecko_id="yearn-finance"
+            ),
+
+            # **Interest Bearing Tokens (4 tokens)** - Lending protocol tokens
+            "0x4Ddc2D193948926D02f9B1fE9e1daa0718270ED5": TokenInfo(
+                address="0x4Ddc2D193948926D02f9B1fE9e1daa0718270ED5",
+                symbol="cETH",
+                name="Compound Ether",
+                decimals=8,
+                coingecko_id="compound-ether"
+            ),
+            "0x39AA39c021dfbaE8faC545936693aC917d5E7563": TokenInfo(
+                address="0x39AA39c021dfbaE8faC545936693aC917d5E7563",
+                symbol="cUSDC",
+                name="Compound USD Coin",
+                decimals=8,
+                coingecko_id="compound-usd-coin"
+            ),
+            "0x030bA81f1c18d280636F32af80b9AAd02Cf0854e": TokenInfo(
+                address="0x030bA81f1c18d280636F32af80b9AAd02Cf0854e",
+                symbol="aWETH",
+                name="Aave interest bearing WETH",
+                decimals=18,
+                coingecko_id="aave-weth"
+            ),
+            "0xBcca60bB61934080951369a648Fb03DF4F96263C": TokenInfo(
+                address="0xBcca60bB61934080951369a648Fb03DF4F96263C",
+                symbol="aUSDC",
+                name="Aave interest bearing USDC",
+                decimals=6,
+                coingecko_id="aave-usdc"
+            ),
+
+            # **Stablecoins & Derivatives (4 tokens)** - Alternative stables and synthetics
             "0x4Fabb145d64652a948d72533023f6E7A623C7C53": TokenInfo(
                 address="0x4Fabb145d64652a948d72533023f6E7A623C7C53",
                 symbol="BUSD",
@@ -128,8 +198,58 @@ class TokenManager:
                 name="Frax",
                 decimals=18,
                 coingecko_id="frax"
+            ),
+            "0x57Ab1ec28D129707052df4dF418D58a2D46d5f51": TokenInfo(
+                address="0x57Ab1ec28D129707052df4dF418D58a2D46d5f51",
+                symbol="sUSD",
+                name="Synth sUSD",
+                decimals=18,
+                coingecko_id="nusd"
+            ),
+            "0x5e74C9036fb86BD7eCdcb084a0673EFc32eA31cb": TokenInfo(
+                address="0x5e74C9036fb86BD7eCdcb084a0673EFc32eA31cb",
+                symbol="sETH",
+                name="Synth sETH",
+                decimals=18,
+                coingecko_id="seth"
+            ),
+
+            # **LP Tokens (4 tokens)** - Major liquidity pool tokens for MEV opportunities
+            "0xA478c2975Ab1Ea89e8196811F51A7B7Ade33eB11": TokenInfo(
+                address="0xA478c2975Ab1Ea89e8196811F51A7B7Ade33eB11",
+                symbol="UNI-V2",
+                name="Uniswap V2 DAI/WETH",
+                decimals=18,
+                coingecko_id="uniswap-dai-weth"
+            ),
+            "0xB4e16d0168e52d35CaCD2c6185b44281Ec28C9Dc": TokenInfo(
+                address="0xB4e16d0168e52d35CaCD2c6185b44281Ec28C9Dc",
+                symbol="UNI-V2-USDC",
+                name="Uniswap V2 USDC/WETH", 
+                decimals=18,
+                coingecko_id="uniswap-usdc-weth"
+            ),
+            "0x6c3F90f043a72FA612cbac8115EE7e52BDe6E490": TokenInfo(
+                address="0x6c3F90f043a72FA612cbac8115EE7e52BDe6E490",
+                symbol="3CRV",
+                name="Curve.fi DAI/USDC/USDT",
+                decimals=18,
+                coingecko_id="lp-3pool-curve"
+            ),
+            "0x5c6Ee304399DBdB9C8Ef030aB642B10820DB8F56": TokenInfo(
+                address="0x5c6Ee304399DBdB9C8Ef030aB642B10820DB8F56",
+                symbol="B-80BAL-20WETH",
+                name="Balancer 80 BAL 20 WETH",
+                decimals=18,
+                coingecko_id="balancer-80-bal-20-weth"
             )
         }
+        
+        # **논문 기준 검증**: 25개 assets 목표 달성 확인
+        if len(common_tokens) != 25:
+            logger.warning(f"Asset count mismatch! Expected: 25, Got: {len(common_tokens)}")
+        else:
+            logger.info("✅ Paper specification achieved: 25 assets registered")
         
         self.tokens.update(common_tokens)
         
