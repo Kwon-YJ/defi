@@ -27,7 +27,7 @@
 ## 2. 데이터 확장 - 논문 규모 달성 (Scale to Paper Specifications)
 
 ### 2.1 DeFi Protocol Actions 확장 (현재 ~6개 → 96개)
-- [ ] **CRITICAL**: 논문에서 언급한 96개 protocol actions 식별 및 구현
+- [x] **CRITICAL**: 논문에서 언급한 96개 protocol actions 식별 및 구현
 - [ ] Uniswap V2/V3, Sushiswap (swap actions)
 - [ ] Compound, Aave (lending/borrowing actions) 
 - [ ] Curve Finance (stableswap actions)
