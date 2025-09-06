@@ -15,6 +15,10 @@ from src.bellman_ford_arbitrage import BellmanFordArbitrage
 from src.block_based_detector import BlockBasedArbitrageDetector
 from src.data_storage import DataStorage
 from src.logger import setup_logger
+from src.performance_benchmarking import (
+    start_benchmarking, end_benchmarking, time_component, 
+    get_performance_report, start_monitoring
+)
 
 logger = setup_logger(__name__)
 
@@ -50,6 +54,10 @@ class ArbitrageDetector:
     async def start_detection(self):
         """차익거래 탐지 시작"""
         self.running = True
+        
+        # 성능 모니터링 시작
+        logger.info("🚀 DEFIPOSER-ARB 시작 - 목표: 평균 6.43초 이하 실행")
+        start_monitoring(check_interval=60)
         
         if self.use_block_based:
             # 블록 기반 탐지 시작 (논문 요구사항)

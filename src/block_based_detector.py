@@ -23,6 +23,10 @@ from src.real_time_collector import RealTimeDataCollector
 from src.data_storage import DataStorage
 from src.logger import setup_logger
 from config.config import config
+from src.performance_benchmarking import (
+    start_benchmarking, end_benchmarking, time_component, 
+    get_performance_report
+)
 
 logger = setup_logger(__name__)
 
@@ -162,51 +166,58 @@ class BlockBasedArbitrageDetector:
         block_number = int(block_data['number'], 16)
         block_hash = block_data['hash']
         
-        start_time = time.time()
+        # 성능 벤치마킹 시작
+        start_benchmarking(block_number)
         
         try:
-            logger.info(f"=== 블록 {block_number} 처리 시작 ===")
+            logger.info(f"=== 블록 {block_number} 처리 시작 (목표: 6.43초) ===")
             
             # 1. 그래프 상태 실시간 업데이트 (논문 요구사항)
-            graph_update_start = time.time()
-            await self._update_graph_state_for_block(block_number)
-            
-            # **DYNAMIC GRAPH UPDATE**: 대기 중인 업데이트들 즉시 처리
-            queued_updates = self.market_graph.process_update_queue(max_items=100)
-            if queued_updates > 0:
-                logger.debug(f"블록 {block_number}: {queued_updates}개 동적 업데이트 처리")
-            
-            graph_update_time = time.time() - graph_update_start
+            with time_component("graph_building"):
+                await self._update_graph_state_for_block(block_number)
+                
+                # **DYNAMIC GRAPH UPDATE**: 대기 중인 업데이트들 즉시 처리
+                queued_updates = self.market_graph.process_update_queue(max_items=100)
+                if queued_updates > 0:
+                    logger.debug(f"블록 {block_number}: {queued_updates}개 동적 업데이트 처리")
             
             # 2. 병렬 차익거래 탐지 (각 base token별)
-            detection_start = time.time()
-            all_opportunities = await self._parallel_arbitrage_detection()
-            detection_time = time.time() - detection_start
+            with time_component("negative_cycle_detection"):
+                all_opportunities = await self._parallel_arbitrage_detection()
             
             # 3. 기회 처리 및 저장
-            if all_opportunities:
-                await self._process_block_opportunities(
-                    block_number, block_hash, all_opportunities
-                )
+            opportunities_found = len(all_opportunities)
+            strategies_executed = 0
+            total_revenue = 0.0
             
-            # 4. 성능 메트릭 업데이트
-            total_time = time.time() - start_time
-            self._update_performance_metrics(
-                total_time, graph_update_time, detection_time, len(all_opportunities)
+            if all_opportunities:
+                with time_component("validation"):
+                    strategies_executed, total_revenue = await self._process_block_opportunities(
+                        block_number, block_hash, all_opportunities
+                    )
+            
+            # 성능 벤치마킹 완료
+            metrics = end_benchmarking(
+                opportunities_found=opportunities_found,
+                strategies_executed=strategies_executed,
+                total_revenue=total_revenue,
+                gas_cost=0.02  # 예상 가스 비용
             )
             
-            # 5. 논문 기준 성능 체크
-            if total_time > 6.43:
+            # 논문 기준 성능 체크
+            if metrics.total_execution_time > 6.43:
                 logger.warning(
-                    f"실행 시간 초과: {total_time:.3f}s > 6.43s 목표"
+                    f"⚠️ 실행 시간 초과: {metrics.total_execution_time:.3f}s > 6.43s 목표"
                 )
             else:
                 logger.info(
-                    f"실행 시간 목표 달성: {total_time:.3f}s < 6.43s"
+                    f"✅ 실행 시간 목표 달성: {metrics.total_execution_time:.3f}s < 6.43s"
                 )
             
         except Exception as e:
             logger.error(f"블록 {block_number} 처리 오류: {e}")
+            # 오류 시에도 벤치마킹 완료
+            end_benchmarking(opportunities_found=0, strategies_executed=0)
         finally:
             self.processing_block = False
             self.current_block = block_number
@@ -333,9 +344,11 @@ class BlockBasedArbitrageDetector:
         loop = asyncio.get_event_loop()
         
         # CPU 집약적 작업을 별도 스레드에서 실행
-        opportunities = await loop.run_in_executor(
-            self.executor,
-            self.bellman_ford.find_negative_cycles,
+        # Local search는 Bellman-Ford 내부에서 수행됨
+        with time_component("local_search"):
+            opportunities = await loop.run_in_executor(
+                self.executor,
+                self.bellman_ford.find_negative_cycles,
             base_token,
             4  # max_path_length
         )
