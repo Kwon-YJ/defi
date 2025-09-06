@@ -71,6 +71,15 @@ class TokenManager:
                 coingecko_id="ethereum"
             ),
             
+            # WETH - Wrapped Ether (most important ERC-20 version of ETH)
+            "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2": TokenInfo(
+                address="0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+                symbol="WETH",
+                name="Wrapped Ether",
+                decimals=18,
+                coingecko_id="weth"
+            ),
+            
             # Top 24 ERC-20 tokens from paper's appendix (ordered by transfer transactions)
             # 1. SAI - Single Collateral DAI (old MakerDAO token)
             "0x89d24A6b4CcB1B6fAA2625fE562bDD9a23260359": TokenInfo(
@@ -289,11 +298,11 @@ class TokenManager:
             )
         }
         
-        # **논문 기준 검증**: 25개 assets 목표 달성 확인
-        if len(common_tokens) != 25:
-            logger.warning(f"Asset count mismatch! Expected: 25, Got: {len(common_tokens)}")
+        # **논문 기준 검증**: 25개 assets + WETH 목표 달성 확인
+        if len(common_tokens) != 26:
+            logger.warning(f"Asset count mismatch! Expected: 26 (25 + WETH), Got: {len(common_tokens)}")
         else:
-            logger.info("✅ Paper specification achieved: 25 assets registered")
+            logger.info("✅ Paper specification enhanced: 25 assets + WETH (26 total) registered")
         
         self.tokens.update(common_tokens)
         
@@ -398,8 +407,12 @@ class TokenManager:
         논문에서 사용된 주요 거래 쌍 목록 반환
         Based on paper's Appendix B: Supported DeFi actions
         """
-        # Paper에서 사용된 주요 거래 쌍들 (ETH를 중심으로 한 모든 ERC-20 토큰 쌍들)
+        # Paper에서 사용된 주요 거래 쌍들 (ETH/WETH를 중심으로 한 모든 ERC-20 토큰 쌍들)
         major_pairs = [
+            # ETH/WETH pair (most liquid conversion pair)
+            ("ETH", "WETH"),
+            ("WETH", "ETH"),
+            
             # ETH with all ERC-20 tokens (Uniswap pairs from paper)
             ("ETH", "SAI"),
             ("ETH", "BNT"), 
@@ -425,6 +438,32 @@ class TokenManager:
             ("ETH", "AMPL"),
             ("ETH", "HEDG"),
             ("ETH", "POA20"),
+            
+            # WETH with all ERC-20 tokens (major DeFi protocols use WETH)
+            ("WETH", "SAI"),
+            ("WETH", "BNT"), 
+            ("WETH", "DAI"),
+            ("WETH", "BAT"),
+            ("WETH", "ENJ"),
+            ("WETH", "SNT"),
+            ("WETH", "KNC"),
+            ("WETH", "MKR"),
+            ("WETH", "DATA"),
+            ("WETH", "MANA"),
+            ("WETH", "ANT"),
+            ("WETH", "RLC"),
+            ("WETH", "RCN"),
+            ("WETH", "UBT"),
+            ("WETH", "GNO"),
+            ("WETH", "RDN"),
+            ("WETH", "TKN"),
+            ("WETH", "TRST"),
+            ("WETH", "AMN"),
+            ("WETH", "FXC"),
+            ("WETH", "SAN"),
+            ("WETH", "AMPL"),
+            ("WETH", "HEDG"),
+            ("WETH", "POA20"),
             
             # BNT with all other ERC-20 tokens (Bancor pairs from paper)
             ("BNT", "SAI"),

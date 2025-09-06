@@ -40,7 +40,7 @@
 
 ### 2.2 자산 지원 확장 (현재 4개 base tokens → 논문의 25개 assets)
 - [x] **CRITICAL**: 논문에서 사용한 정확한 25개 자산 식별 및 구현
-- [ ] ETH, WETH (native and wrapped Ether)
+- [x] ETH, WETH (native and wrapped Ether)
 - [ ] Stablecoins: USDC, USDT, DAI (현재 있음, 확장 필요)  
 - [ ] Major tokens: WBTC, UNI, SUSHI, COMP, AAVE
 - [ ] DeFi ecosystem tokens: CRV, BAL, YFI, MKR
