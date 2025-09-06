@@ -380,12 +380,20 @@ class DeFiMarketGraph:
         """그래프 통계 정보 - Multi-graph 지원"""
         multi_stats = self.get_multi_graph_stats()
         
+        # 빈 그래프에 대한 연결성 검사 처리
+        is_connected = False
+        if self.graph.number_of_nodes() > 0:
+            try:
+                is_connected = nx.is_weakly_connected(self.graph)
+            except:
+                is_connected = False
+        
         return {
             'nodes': len(self.graph.nodes),
             'edges': len(self.graph.edges),
             'tokens': len(self.token_nodes),
             'density': nx.density(self.graph),
-            'is_connected': nx.is_weakly_connected(self.graph),
+            'is_connected': is_connected,
             'multi_graph': multi_stats
         }
     
