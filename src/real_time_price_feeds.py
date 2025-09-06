@@ -27,6 +27,7 @@ from web3 import Web3
 
 from src.logger import setup_logger
 from src.token_manager import TokenManager
+from src.rate_limiter import AdvancedRateLimiter, RateLimitTier
 from config.config import config
 
 logger = setup_logger(__name__)
@@ -73,7 +74,7 @@ class RealTimePriceFeeds:
     논문의 6.43초 평균 실행시간 목표 달성을 위한 최적화된 가격 피드 시스템
     """
     
-    def __init__(self, token_manager: Optional[TokenManager] = None):
+    def __init__(self, token_manager: Optional[TokenManager] = None, redis_url: Optional[str] = None):
         self.token_manager = token_manager or TokenManager()
         
         # 현재 가격 데이터 저장소
@@ -85,10 +86,10 @@ class RealTimePriceFeeds:
         # 구독자들 (콜백 함수들)
         self.subscribers: Dict[str, List[Callable]] = defaultdict(list)
         
-        # Rate limiting (먼저 초기화)
-        self.rate_limiters: Dict[str, dict] = {}
+        # Advanced Rate Limiter 통합
+        self.rate_limiter = AdvancedRateLimiter(redis_url or config.redis_url)
         
-        # 데이터 소스 설정
+        # 데이터 소스 설정 (기존 방식은 deprecated)
         self.data_sources = self._initialize_data_sources()
         
         # WebSocket 연결들
@@ -181,12 +182,12 @@ class RealTimePriceFeeds:
             )
         }
         
-        # Rate limiter 초기화
-        for name, source in sources.items():
-            self.rate_limiters[name] = {
-                'requests': deque(maxlen=source.rate_limit),
-                'last_reset': time.time()
-            }
+        # Rate limiter 초기화 (deprecated - 이제 AdvancedRateLimiter 사용)
+        # for name, source in sources.items():
+        #     self.rate_limiters[name] = {
+        #         'requests': deque(maxlen=source.rate_limit),
+        #         'last_reset': time.time()
+        #     }
             
         active_sources = [name for name, source in sources.items() if source.active]
         logger.info(f"초기화된 데이터 소스: {active_sources}")
@@ -199,8 +200,11 @@ class RealTimePriceFeeds:
             logger.warning("이미 실행 중입니다")
             return
             
+        # Rate Limiter 초기화
+        await self.rate_limiter.initialize()
+        
         self.running = True
-        logger.info("실시간 가격 피드 시작")
+        logger.info("실시간 가격 피드 시작 (고급 Rate Limiting 활성화)")
         
         # WebSocket 연결들 시작
         websocket_tasks = [
@@ -249,6 +253,9 @@ class RealTimePriceFeeds:
                 
         self.websocket_connections.clear()
         self.update_tasks.clear()
+        
+        # Rate Limiter 종료
+        await self.rate_limiter.shutdown()
         
         logger.info("실시간 가격 피드 중지 완료")
         
@@ -369,7 +376,17 @@ class RealTimePriceFeeds:
             try:
                 start_time = time.time()
                 
-                if await self._check_rate_limit(source_name):
+                # 소스별 우선순위 결정
+                tier = RateLimitTier.MEDIUM  # 기본값
+                if source_name in ['ethereum_rpc', 'onchain_uniswap', 'onchain_sushiswap']:
+                    tier = RateLimitTier.HIGH  # 온체인 데이터는 높은 우선순위
+                elif source_name in ['coingecko', 'coinmarketcap']:
+                    tier = RateLimitTier.MEDIUM  # 주요 소스는 중간 우선순위
+                else:
+                    tier = RateLimitTier.LOW  # 기타 소스는 낮은 우선순위
+                
+                # Advanced Rate Limiter 사용
+                async with self.rate_limiter.acquire_slot(source_name, tier):
                     if source_name == 'coingecko':
                         await self._fetch_coingecko_prices()
                     elif source_name == 'coinmarketcap':
@@ -384,9 +401,6 @@ class RealTimePriceFeeds:
                     
                     if update_time > 5.0:  # 5초 이상 걸리면 경고
                         logger.warning(f"{source_name} 업데이트 시간 초과: {update_time:.2f}초")
-                        
-                else:
-                    logger.debug(f"{source_name} rate limit 도달, 대기 중...")
                     
             except Exception as e:
                 logger.error(f"{source_name} API 폴링 오류: {e}")
@@ -400,9 +414,12 @@ class RealTimePriceFeeds:
             try:
                 start_time = time.time()
                 
-                # Uniswap V2 풀들에서 가격 정보 수집
-                await self._fetch_uniswap_prices()
-                await self._fetch_sushiswap_prices()
+                # 온체인 데이터는 CRITICAL 우선순위 (MEV 기회와 직결)
+                async with self.rate_limiter.acquire_slot("onchain_uniswap", RateLimitTier.CRITICAL):
+                    await self._fetch_uniswap_prices()
+                    
+                async with self.rate_limiter.acquire_slot("onchain_sushiswap", RateLimitTier.CRITICAL):
+                    await self._fetch_sushiswap_prices()
                 
                 update_time = time.time() - start_time
                 self.update_times.append(update_time)
@@ -772,33 +789,29 @@ class RealTimePriceFeeds:
         
         # TODO: 텔레그램, 이메일 등 외부 알림 시스템 연동
         
-    async def _check_rate_limit(self, source_name: str) -> bool:
-        """Rate limit 검사"""
+    def get_rate_limit_status(self) -> Dict[str, Dict]:
+        """Rate limiting 상태 반환 (AdvancedRateLimiter 사용)"""
         try:
-            limiter = self.rate_limiters.get(source_name)
-            source = self.data_sources.get(source_name)
-            
-            if not limiter or not source:
-                return True
-                
-            current_time = time.time()
-            
-            # 1분마다 카운터 리셋
-            if current_time - limiter['last_reset'] >= 60:
-                limiter['requests'].clear()
-                limiter['last_reset'] = current_time
-                
-            # Rate limit 확인
-            if len(limiter['requests']) >= source.rate_limit:
-                return False
-                
-            # 요청 기록
-            limiter['requests'].append(current_time)
-            return True
-            
+            return self.rate_limiter.get_all_api_status()
         except Exception as e:
-            logger.error(f"Rate limit 검사 실패: {e}")
-            return True  # 에러시 허용
+            logger.error(f"Rate limit 상태 조회 실패: {e}")
+            return {}
+            
+    async def reset_api_rate_limit(self, api_name: str):
+        """API rate limit 강제 리셋"""
+        try:
+            await self.rate_limiter.reset_api_status(api_name)
+            logger.info(f"API {api_name} rate limit 리셋 완료")
+        except Exception as e:
+            logger.error(f"API {api_name} rate limit 리셋 실패: {e}")
+            
+    def get_api_health_scores(self) -> Dict[str, float]:
+        """각 API의 건강 점수 반환"""
+        try:
+            return self.rate_limiter.health_scores.copy()
+        except Exception as e:
+            logger.error(f"API 건강 점수 조회 실패: {e}")
+            return {}
             
     async def _start_data_validation_task(self):
         """데이터 검증 태스크"""
@@ -920,9 +933,9 @@ class RealTimePriceFeeds:
                 if not source or not source.active:
                     continue
                     
-                # Rate limit 확인
-                if not await self._check_rate_limit(source_name):
-                    continue
+                # Rate limit는 AdvancedRateLimiter에서 처리됨
+                # if not await self._check_rate_limit(source_name):
+                #     continue
                     
                 try:
                     # 백업 소스에서 가격 조회 시도
@@ -1176,7 +1189,7 @@ class RealTimePriceFeeds:
             await asyncio.sleep(300)  # 5분마다 실행
             
     def get_performance_metrics(self) -> Dict:
-        """성능 지표 반환 (redundancy 메트릭 포함)"""
+        """성능 지표 반환 (redundancy 및 rate limiting 메트릭 포함)"""
         base_metrics = {
             'average_update_time': 0,
             'max_update_time': 0,
@@ -1199,7 +1212,26 @@ class RealTimePriceFeeds:
         # Redundancy 메트릭 계산
         redundancy_metrics = self._calculate_redundancy_metrics()
         
-        return {**base_metrics, **redundancy_metrics}
+        # Rate limiting 메트릭 추가
+        rate_limit_metrics = {}
+        try:
+            rate_limit_status = self.get_rate_limit_status()
+            rate_limit_metrics = {
+                'rate_limit_status': rate_limit_status,
+                'api_health_scores': self.get_api_health_scores(),
+                'circuit_breakers_open': len([
+                    api for api, status in rate_limit_status.items() 
+                    if status.get('circuit_breaker_state') == 'open'
+                ]),
+                'quota_exceeded_apis': len([
+                    api for api, status in rate_limit_status.items() 
+                    if status.get('health_status') == 'quota_exceeded'
+                ])
+            }
+        except Exception as e:
+            logger.error(f"Rate limiting 메트릭 계산 실패: {e}")
+        
+        return {**base_metrics, **redundancy_metrics, **rate_limit_metrics}
         
     def _calculate_redundancy_metrics(self) -> Dict:
         """Redundancy 관련 메트릭 계산"""
