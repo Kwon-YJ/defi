@@ -30,7 +30,7 @@
 - [x] **CRITICAL**: 논문에서 언급한 96개 protocol actions 식별 및 구현
 - [x] Uniswap V2/V3, Sushiswap (swap actions)
 - [x] Compound, Aave (lending/borrowing actions) 
-- [ ] Curve Finance (stableswap actions)
+- [x] Curve Finance (stableswap actions)
 - [ ] Balancer (weighted pool actions)
 - [ ] MakerDAO (CDP, DAI minting actions)
 - [ ] Synthetix (synthetic asset actions)
