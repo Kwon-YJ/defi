@@ -360,14 +360,43 @@ class TokenManager:
                 name="Aave Token",
                 decimals=18,
                 coingecko_id="aave"
+            ),
+            
+            # DeFi Ecosystem tokens (TODO requirement completion)
+            # CRV - Curve DAO Token
+            "0xD533a949740bb3306d119CC777fa900bA034cd52": TokenInfo(
+                address="0xD533a949740bb3306d119CC777fa900bA034cd52",
+                symbol="CRV",
+                name="Curve DAO Token",
+                decimals=18,
+                coingecko_id="curve-dao-token"
+            ),
+            
+            # BAL - Balancer
+            "0xba100000625a3754423978a60c9317c58a424e3D": TokenInfo(
+                address="0xba100000625a3754423978a60c9317c58a424e3D",
+                symbol="BAL",
+                name="Balancer",
+                decimals=18,
+                coingecko_id="balancer"
+            ),
+            
+            # YFI - yearn.finance
+            "0x0bc529c00C6401aEF6D220BE8E6EbB43eF6eCc24": TokenInfo(
+                address="0x0bc529c00C6401aEF6D220BE8E6EbB43eF6eCc24",
+                symbol="YFI",
+                name="yearn.finance",
+                decimals=18,
+                coingecko_id="yearn-finance"
             )
         }
         
-        # **논문 기준 검증**: 25개 assets + WETH + 2 additional stablecoins (USDC, USDT) + 5 major tokens (WBTC, UNI, SUSHI, COMP, AAVE)
-        if len(common_tokens) != 33:
-            logger.warning(f"Asset count mismatch! Expected: 33 (25 paper + WETH + 2 stablecoins + 5 major tokens), Got: {len(common_tokens)}")
+        # **논문 기준 검증**: 25개 assets + WETH + 2 additional stablecoins (USDC, USDT) + 5 major tokens (WBTC, UNI, SUSHI, COMP, AAVE) + 3 DeFi ecosystem tokens (CRV, BAL, YFI)
+        expected_count = 36  # 25 + 1 + 2 + 5 + 3
+        if len(common_tokens) != expected_count:
+            logger.warning(f"Asset count mismatch! Expected: {expected_count} (25 paper + WETH + 2 stablecoins + 5 major tokens + 3 DeFi ecosystem), Got: {len(common_tokens)}")
         else:
-            logger.info("✅ Paper specification enhanced: 25 assets + WETH + 2 stablecoins + 5 major tokens (33 total) registered")
+            logger.info("✅ Paper specification enhanced: 25 assets + WETH + 2 stablecoins + 5 major tokens + 3 DeFi ecosystem tokens (36 total) registered")
         
         self.tokens.update(common_tokens)
         
@@ -377,9 +406,13 @@ class TokenManager:
     
     async def get_token_info(self, address: str) -> Optional[TokenInfo]:
         """토큰 정보 조회"""
-        address = address.lower()
+        # Try both original address and lowercase
         if address in self.tokens:
             return self.tokens[address]
+        
+        address_lower = address.lower()
+        if address_lower in self.tokens:
+            return self.tokens[address_lower]
         
         # 온체인에서 토큰 정보 조회 시도
         token_info = await self._fetch_token_info_onchain(address)
@@ -662,7 +695,88 @@ class TokenManager:
             ("SUSHI", "AAVE"),
             ("AAVE", "SUSHI"),
             ("COMP", "AAVE"),
-            ("AAVE", "COMP")
+            ("AAVE", "COMP"),
+            
+            # New DeFi Ecosystem tokens pairs (CRV, BAL, YFI)
+            # ETH pairs with DeFi ecosystem tokens
+            ("ETH", "CRV"),
+            ("CRV", "ETH"),
+            ("ETH", "BAL"),
+            ("BAL", "ETH"),
+            ("ETH", "YFI"),
+            ("YFI", "ETH"),
+            
+            # WETH pairs with DeFi ecosystem tokens
+            ("WETH", "CRV"),
+            ("CRV", "WETH"),
+            ("WETH", "BAL"),
+            ("BAL", "WETH"),
+            ("WETH", "YFI"),
+            ("YFI", "WETH"),
+            
+            # DeFi ecosystem tokens with stablecoins
+            ("CRV", "USDC"),
+            ("USDC", "CRV"),
+            ("CRV", "USDT"),
+            ("USDT", "CRV"),
+            ("CRV", "DAI"),
+            ("DAI", "CRV"),
+            
+            ("BAL", "USDC"),
+            ("USDC", "BAL"),
+            ("BAL", "USDT"),
+            ("USDT", "BAL"),
+            ("BAL", "DAI"),
+            ("DAI", "BAL"),
+            
+            ("YFI", "USDC"),
+            ("USDC", "YFI"),
+            ("YFI", "USDT"),
+            ("USDT", "YFI"),
+            ("YFI", "DAI"),
+            ("DAI", "YFI"),
+            
+            # DeFi ecosystem tokens with major tokens
+            ("CRV", "WBTC"),
+            ("WBTC", "CRV"),
+            ("CRV", "UNI"),
+            ("UNI", "CRV"),
+            ("CRV", "SUSHI"),
+            ("SUSHI", "CRV"),
+            ("CRV", "COMP"),
+            ("COMP", "CRV"),
+            ("CRV", "AAVE"),
+            ("AAVE", "CRV"),
+            
+            ("BAL", "WBTC"),
+            ("WBTC", "BAL"),
+            ("BAL", "UNI"),
+            ("UNI", "BAL"),
+            ("BAL", "SUSHI"),
+            ("SUSHI", "BAL"),
+            ("BAL", "COMP"),
+            ("COMP", "BAL"),
+            ("BAL", "AAVE"),
+            ("AAVE", "BAL"),
+            
+            ("YFI", "WBTC"),
+            ("WBTC", "YFI"),
+            ("YFI", "UNI"),
+            ("UNI", "YFI"),
+            ("YFI", "SUSHI"),
+            ("SUSHI", "YFI"),
+            ("YFI", "COMP"),
+            ("COMP", "YFI"),
+            ("YFI", "AAVE"),
+            ("AAVE", "YFI"),
+            
+            # Cross DeFi ecosystem token pairs
+            ("CRV", "BAL"),
+            ("BAL", "CRV"),
+            ("CRV", "YFI"),
+            ("YFI", "CRV"),
+            ("BAL", "YFI"),
+            ("YFI", "BAL")
         ]
         
         # 주소로 변환

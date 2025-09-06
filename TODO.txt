@@ -43,7 +43,7 @@
 - [x] ETH, WETH (native and wrapped Ether)
 - [x] Stablecoins: USDC, USDT, DAI (현재 있음, 확장 필요)  
 - [x] Major tokens: WBTC, UNI, SUSHI, COMP, AAVE
-- [ ] DeFi ecosystem tokens: CRV, BAL, YFI, MKR
+- [x] DeFi ecosystem tokens: CRV, BAL, YFI, MKR
 - [ ] Lending protocol tokens: cETH, cUSDC, aETH, aUSDC
 - [ ] LP tokens: UNI-V2 pairs, Curve LP tokens
 - [ ] Synthetic assets: sUSD, sETH (Synthetix)
