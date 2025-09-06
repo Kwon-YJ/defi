@@ -631,15 +631,91 @@ class TokenManager:
                 name="Synth sETH",
                 decimals=18,
                 coingecko_id="seth"
+            ),
+            
+            # Additional ERC-20 tokens to reach 70 total (TODO requirement completion)
+            # High-volume DeFi protocol tokens
+            
+            # LINK - Chainlink Token
+            "0x514910771AF9Ca656af840dff83E8264EcF986CA": TokenInfo(
+                address="0x514910771AF9Ca656af840dff83E8264EcF986CA",
+                symbol="LINK",
+                name="ChainLink Token",
+                decimals=18,
+                coingecko_id="chainlink"
+            ),
+            
+            # LDO - Lido DAO Token (major staking protocol)
+            "0x5A98FcBEA516Cf06857215779Fd812CA3beF1B32": TokenInfo(
+                address="0x5A98FcBEA516Cf06857215779Fd812CA3beF1B32",
+                symbol="LDO",
+                name="Lido DAO Token",
+                decimals=18,
+                coingecko_id="lido-dao"
+            ),
+            
+            # 1INCH - 1inch Network (DEX aggregator)
+            "0x111111111117dC0aa78b770fA6A738034120C302": TokenInfo(
+                address="0x111111111117dC0aa78b770fA6A738034120C302",
+                symbol="1INCH",
+                name="1INCH Token",
+                decimals=18,
+                coingecko_id="1inch"
+            ),
+            
+            # FTT - FTX Token (was major before collapse)
+            "0x50D1c9771902476076eCFc8B2A83Ad6b9355a4c9": TokenInfo(
+                address="0x50D1c9771902476076eCFc8B2A83Ad6b9355a4c9",
+                symbol="FTT",
+                name="FTX Token",
+                decimals=18,
+                coingecko_id="ftx-token"
+            ),
+            
+            # MATIC - Polygon (was important L2 solution)
+            "0x7D1AfA7B718fb893dB30A3aBc0Cfc608AaCfeBB0": TokenInfo(
+                address="0x7D1AfA7B718fb893dB30A3aBc0Cfc608AaCfeBB0",
+                symbol="MATIC",
+                name="Matic Token",
+                decimals=18,
+                coingecko_id="polygon"
+            ),
+            
+            # SNX - Synthetix Network Token
+            "0xC011a73ee8576Fb46F5E1c5751cA3B9Fe0af2a6F": TokenInfo(
+                address="0xC011a73ee8576Fb46F5E1c5751cA3B9Fe0af2a6F",
+                symbol="SNX",
+                name="Synthetix Network Token",
+                decimals=18,
+                coingecko_id="havven"
+            ),
+            
+            # MEME - Additional volatile tokens for arbitrage opportunities
+            # SHIB - Shiba Inu
+            "0x95aD61b0a150d79219dCF64E1E6Cc01f0B64C4cE": TokenInfo(
+                address="0x95aD61b0a150d79219dCF64E1E6Cc01f0B64C4cE",
+                symbol="SHIB",
+                name="SHIBA INU",
+                decimals=18,
+                coingecko_id="shiba-inu"
+            ),
+            
+            # DOGE - Dogecoin (wrapped version for Ethereum)
+            "0x4206931337dc273a630d328dA6441786BfaD668f": TokenInfo(
+                address="0x4206931337dc273a630d328dA6441786BfaD668f",
+                symbol="DOGE",
+                name="Dogecoin",
+                decimals=8,
+                coingecko_id="dogecoin"
             )
         }
         
-        # **논문 기준 검증**: 25개 assets + WETH + 2 additional stablecoins (USDC, USDT) + 5 major tokens (WBTC, UNI, SUSHI, COMP, AAVE) + 3 DeFi ecosystem tokens (CRV, BAL, YFI) + 4 lending protocol tokens (cETH, cUSDC, aETH, aUSDC) + 20 LP tokens (10 UNI-V2 pairs + 10 Curve LP tokens) + 2 Synthetix assets (sUSD, sETH)
-        expected_count = 62  # 25 + 1 + 2 + 5 + 3 + 4 + 20 + 2
+        # **논문 기준 검증**: 25개 assets + WETH + 2 additional stablecoins (USDC, USDT) + 5 major tokens (WBTC, UNI, SUSHI, COMP, AAVE) + 3 DeFi ecosystem tokens (CRV, BAL, YFI) + 4 lending protocol tokens (cETH, cUSDC, aETH, aUSDC) + 20 LP tokens (10 UNI-V2 pairs + 10 Curve LP tokens) + 2 Synthetix assets (sUSD, sETH) + 8 additional ERC-20 tokens (LINK, LDO, 1INCH, FTT, MATIC, SNX, SHIB, DOGE)
+        expected_count = 70  # 25 + 1 + 2 + 5 + 3 + 4 + 20 + 2 + 8
         if len(common_tokens) != expected_count:
-            logger.warning(f"Asset count mismatch! Expected: {expected_count} (25 paper + WETH + 2 stablecoins + 5 major tokens + 3 DeFi ecosystem + 4 lending protocol + 20 LP tokens + 2 Synthetix assets), Got: {len(common_tokens)}")
+            logger.warning(f"Asset count mismatch! Expected: {expected_count} (25 paper + WETH + 2 stablecoins + 5 major tokens + 3 DeFi ecosystem + 4 lending protocol + 20 LP tokens + 2 Synthetix + 8 additional ERC-20), Got: {len(common_tokens)}")
         else:
-            logger.info("✅ Paper specification enhanced: 25 assets + WETH + 2 stablecoins + 5 major tokens + 3 DeFi ecosystem tokens + 4 lending protocol tokens + 20 LP tokens + 2 Synthetix assets (62 total) registered")
+            logger.info("✅ TODO requirement completed: 70 total tokens registered (25 paper assets + 45 additional tokens for comprehensive DeFi coverage)")
         
         self.tokens.update(common_tokens)
         
@@ -1306,7 +1382,173 @@ class TokenManager:
             ("AAVE-WETH", "SUSHI"),
             ("SUSHI", "AAVE-WETH"),
             ("SUSHI-WETH", "UNI"),
-            ("UNI", "SUSHI-WETH")
+            ("UNI", "SUSHI-WETH"),
+            
+            # Additional ERC-20 token pairs (8 new tokens: LINK, LDO, 1INCH, FTT, MATIC, SNX, SHIB, DOGE)
+            
+            # LINK pairs with major tokens
+            ("ETH", "LINK"),
+            ("LINK", "ETH"),
+            ("WETH", "LINK"),
+            ("LINK", "WETH"),
+            ("LINK", "USDC"),
+            ("USDC", "LINK"),
+            ("LINK", "USDT"),
+            ("USDT", "LINK"),
+            ("LINK", "DAI"),
+            ("DAI", "LINK"),
+            ("LINK", "WBTC"),
+            ("WBTC", "LINK"),
+            
+            # LDO pairs (Lido staking token)
+            ("ETH", "LDO"),
+            ("LDO", "ETH"),
+            ("WETH", "LDO"),
+            ("LDO", "WETH"),
+            ("LDO", "USDC"),
+            ("USDC", "LDO"),
+            ("LDO", "USDT"),
+            ("USDT", "LDO"),
+            ("LDO", "DAI"),
+            ("DAI", "LDO"),
+            
+            # 1INCH pairs (DEX aggregator)
+            ("ETH", "1INCH"),
+            ("1INCH", "ETH"),
+            ("WETH", "1INCH"),
+            ("1INCH", "WETH"),
+            ("1INCH", "USDC"),
+            ("USDC", "1INCH"),
+            ("1INCH", "USDT"),
+            ("USDT", "1INCH"),
+            ("1INCH", "DAI"),
+            ("DAI", "1INCH"),
+            
+            # FTT pairs (FTX Token)
+            ("ETH", "FTT"),
+            ("FTT", "ETH"),
+            ("WETH", "FTT"),
+            ("FTT", "WETH"),
+            ("FTT", "USDC"),
+            ("USDC", "FTT"),
+            ("FTT", "USDT"),
+            ("USDT", "FTT"),
+            ("FTT", "DAI"),
+            ("DAI", "FTT"),
+            
+            # MATIC pairs (Polygon)
+            ("ETH", "MATIC"),
+            ("MATIC", "ETH"),
+            ("WETH", "MATIC"),
+            ("MATIC", "WETH"),
+            ("MATIC", "USDC"),
+            ("USDC", "MATIC"),
+            ("MATIC", "USDT"),
+            ("USDT", "MATIC"),
+            ("MATIC", "DAI"),
+            ("DAI", "MATIC"),
+            
+            # SNX pairs (Synthetix Network)
+            ("ETH", "SNX"),
+            ("SNX", "ETH"),
+            ("WETH", "SNX"),
+            ("SNX", "WETH"),
+            ("SNX", "USDC"),
+            ("USDC", "SNX"),
+            ("SNX", "USDT"),
+            ("USDT", "SNX"),
+            ("SNX", "DAI"),
+            ("DAI", "SNX"),
+            ("SNX", "sUSD"),
+            ("sUSD", "SNX"),
+            ("SNX", "sETH"),
+            ("sETH", "SNX"),
+            
+            # SHIB pairs (meme token with high volatility)
+            ("ETH", "SHIB"),
+            ("SHIB", "ETH"),
+            ("WETH", "SHIB"),
+            ("SHIB", "WETH"),
+            ("SHIB", "USDC"),
+            ("USDC", "SHIB"),
+            ("SHIB", "USDT"),
+            ("USDT", "SHIB"),
+            
+            # DOGE pairs (wrapped Dogecoin)
+            ("ETH", "DOGE"),
+            ("DOGE", "ETH"),
+            ("WETH", "DOGE"),
+            ("DOGE", "WETH"),
+            ("DOGE", "USDC"),
+            ("USDC", "DOGE"),
+            ("DOGE", "USDT"),
+            ("USDT", "DOGE"),
+            ("DOGE", "WBTC"),
+            ("WBTC", "DOGE"),
+            
+            # Cross pairs between new tokens (additional arbitrage opportunities)
+            ("LINK", "LDO"),
+            ("LDO", "LINK"),
+            ("LINK", "1INCH"),
+            ("1INCH", "LINK"),
+            ("LINK", "MATIC"),
+            ("MATIC", "LINK"),
+            ("LINK", "SNX"),
+            ("SNX", "LINK"),
+            ("LDO", "1INCH"),
+            ("1INCH", "LDO"),
+            ("LDO", "MATIC"),
+            ("MATIC", "LDO"),
+            ("LDO", "SNX"),
+            ("SNX", "LDO"),
+            ("1INCH", "MATIC"),
+            ("MATIC", "1INCH"),
+            ("1INCH", "SNX"),
+            ("SNX", "1INCH"),
+            ("MATIC", "SNX"),
+            ("SNX", "MATIC"),
+            ("SHIB", "DOGE"),
+            ("DOGE", "SHIB"),
+            
+            # New tokens with existing major DeFi tokens (for governance arbitrage)
+            ("LINK", "UNI"),
+            ("UNI", "LINK"),
+            ("LINK", "COMP"),
+            ("COMP", "LINK"),
+            ("LINK", "AAVE"),
+            ("AAVE", "LINK"),
+            ("LINK", "CRV"),
+            ("CRV", "LINK"),
+            ("LINK", "BAL"),
+            ("BAL", "LINK"),
+            ("LINK", "YFI"),
+            ("YFI", "LINK"),
+            
+            ("LDO", "UNI"),
+            ("UNI", "LDO"),
+            ("LDO", "COMP"),
+            ("COMP", "LDO"),
+            ("LDO", "AAVE"),
+            ("AAVE", "LDO"),
+            
+            ("1INCH", "UNI"),
+            ("UNI", "1INCH"),
+            ("1INCH", "SUSHI"),
+            ("SUSHI", "1INCH"),
+            
+            ("MATIC", "UNI"),
+            ("UNI", "MATIC"),
+            ("MATIC", "COMP"),
+            ("COMP", "MATIC"),
+            ("MATIC", "AAVE"),
+            ("AAVE", "MATIC"),
+            
+            ("SNX", "UNI"),
+            ("UNI", "SNX"),
+            ("SNX", "COMP"),
+            ("COMP", "SNX"),
+            ("SNX", "AAVE"),
+            ("AAVE", "SNX")
         ]
         
         # 주소로 변환
