@@ -33,7 +33,7 @@
 - [x] Curve Finance (stableswap actions)
 - [x] Balancer (weighted pool actions)
 - [x] MakerDAO (CDP, DAI minting actions)
-- [ ] Synthetix (synthetic asset actions)
+- [x] Synthetix (synthetic asset actions)
 - [ ] Yearn Finance (yield strategy actions)
 - [ ] dYdX (margin trading actions)
 - [ ] 각 protocol의 모든 주요 functions (mint, burn, swap, lend, borrow, etc.)
