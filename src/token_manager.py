@@ -388,15 +388,54 @@ class TokenManager:
                 name="yearn.finance",
                 decimals=18,
                 coingecko_id="yearn-finance"
+            ),
+            
+            # Lending protocol tokens (TODO requirement completion)
+            # Compound Protocol - Interest Bearing Tokens
+            # cETH - Compound Ether
+            "0x4Ddc2D193948926D02f9B1fE9e1daa0718270ED5": TokenInfo(
+                address="0x4Ddc2D193948926D02f9B1fE9e1daa0718270ED5",
+                symbol="cETH",
+                name="Compound Ether",
+                decimals=8,
+                coingecko_id="compound-ether"
+            ),
+            
+            # cUSDC - Compound USD Coin
+            "0x39AA39c021dfbaE8faC545936693aC917d5E7563": TokenInfo(
+                address="0x39AA39c021dfbaE8faC545936693aC917d5E7563",
+                symbol="cUSDC",
+                name="Compound USD Coin",
+                decimals=8,
+                coingecko_id="compound-usd-coin"
+            ),
+            
+            # Aave Protocol - Interest Bearing Tokens (aTokens)
+            # aETH - Aave interest bearing ETH
+            "0x030bA81f1c18d280636F32af80b9AAd02Cf0854e": TokenInfo(
+                address="0x030bA81f1c18d280636F32af80b9AAd02Cf0854e",
+                symbol="aETH",
+                name="Aave interest bearing ETH",
+                decimals=18,
+                coingecko_id="aave-eth"
+            ),
+            
+            # aUSDC - Aave interest bearing USDC
+            "0xBcca60bB61934080951369a648Fb03DF4F96263C": TokenInfo(
+                address="0xBcca60bB61934080951369a648Fb03DF4F96263C",
+                symbol="aUSDC",
+                name="Aave interest bearing USDC",
+                decimals=6,
+                coingecko_id="aave-usdc"
             )
         }
         
-        # **논문 기준 검증**: 25개 assets + WETH + 2 additional stablecoins (USDC, USDT) + 5 major tokens (WBTC, UNI, SUSHI, COMP, AAVE) + 3 DeFi ecosystem tokens (CRV, BAL, YFI)
-        expected_count = 36  # 25 + 1 + 2 + 5 + 3
+        # **논문 기준 검증**: 25개 assets + WETH + 2 additional stablecoins (USDC, USDT) + 5 major tokens (WBTC, UNI, SUSHI, COMP, AAVE) + 3 DeFi ecosystem tokens (CRV, BAL, YFI) + 4 lending protocol tokens (cETH, cUSDC, aETH, aUSDC)
+        expected_count = 40  # 25 + 1 + 2 + 5 + 3 + 4
         if len(common_tokens) != expected_count:
-            logger.warning(f"Asset count mismatch! Expected: {expected_count} (25 paper + WETH + 2 stablecoins + 5 major tokens + 3 DeFi ecosystem), Got: {len(common_tokens)}")
+            logger.warning(f"Asset count mismatch! Expected: {expected_count} (25 paper + WETH + 2 stablecoins + 5 major tokens + 3 DeFi ecosystem + 4 lending protocol), Got: {len(common_tokens)}")
         else:
-            logger.info("✅ Paper specification enhanced: 25 assets + WETH + 2 stablecoins + 5 major tokens + 3 DeFi ecosystem tokens (36 total) registered")
+            logger.info("✅ Paper specification enhanced: 25 assets + WETH + 2 stablecoins + 5 major tokens + 3 DeFi ecosystem tokens + 4 lending protocol tokens (40 total) registered")
         
         self.tokens.update(common_tokens)
         
@@ -424,6 +463,10 @@ class TokenManager:
     
     def get_address_by_symbol(self, symbol: str) -> Optional[str]:
         """심볼로 주소 조회"""
+        # Try exact match first
+        if symbol in self.symbol_to_address:
+            return self.symbol_to_address[symbol]
+        # Try uppercase for backward compatibility
         return self.symbol_to_address.get(symbol.upper())
     
     async def update_prices(self):
@@ -776,7 +819,86 @@ class TokenManager:
             ("CRV", "YFI"),
             ("YFI", "CRV"),
             ("BAL", "YFI"),
-            ("YFI", "BAL")
+            ("YFI", "BAL"),
+            
+            # Lending protocol tokens pairs (TODO requirement completion)
+            # Compound tokens with base assets
+            ("ETH", "cETH"),
+            ("cETH", "ETH"),
+            ("WETH", "cETH"), 
+            ("cETH", "WETH"),
+            ("USDC", "cUSDC"),
+            ("cUSDC", "USDC"),
+            
+            # Aave tokens with base assets  
+            ("ETH", "aETH"),
+            ("aETH", "ETH"),
+            ("WETH", "aETH"),
+            ("aETH", "WETH"),
+            ("USDC", "aUSDC"),
+            ("aUSDC", "USDC"),
+            
+            # Cross lending protocol pairs (Compound vs Aave arbitrage)
+            ("cETH", "aETH"),
+            ("aETH", "cETH"),
+            ("cUSDC", "aUSDC"),
+            ("aUSDC", "cUSDC"),
+            
+            # Lending tokens with stablecoins (for yield arbitrage)
+            ("cETH", "DAI"),
+            ("DAI", "cETH"),
+            ("cETH", "USDT"),
+            ("USDT", "cETH"),
+            ("cUSDC", "DAI"),
+            ("DAI", "cUSDC"),
+            ("cUSDC", "USDT"),
+            ("USDT", "cUSDC"),
+            
+            ("aETH", "DAI"),
+            ("DAI", "aETH"),
+            ("aETH", "USDT"),
+            ("USDT", "aETH"),
+            ("aUSDC", "DAI"),
+            ("DAI", "aUSDC"),
+            ("aUSDC", "USDT"),
+            ("USDT", "aUSDC"),
+            
+            # Lending tokens with major DeFi tokens
+            ("cETH", "WBTC"),
+            ("WBTC", "cETH"),
+            ("cETH", "UNI"),
+            ("UNI", "cETH"),
+            ("cETH", "COMP"),
+            ("COMP", "cETH"),
+            ("cETH", "AAVE"),
+            ("AAVE", "cETH"),
+            
+            ("aETH", "WBTC"),
+            ("WBTC", "aETH"),
+            ("aETH", "UNI"),
+            ("UNI", "aETH"),
+            ("aETH", "COMP"),
+            ("COMP", "aETH"),
+            ("aETH", "AAVE"),
+            ("AAVE", "aETH"),
+            
+            ("cUSDC", "WBTC"),
+            ("WBTC", "cUSDC"),
+            ("cUSDC", "UNI"),
+            ("UNI", "cUSDC"),
+            ("cUSDC", "COMP"),
+            ("COMP", "cUSDC"),
+            ("cUSDC", "AAVE"),
+            ("AAVE", "cUSDC"),
+            
+            ("aUSDC", "WBTC"),
+            ("WBTC", "aUSDC"),
+            ("aUSDC", "UNI"),
+            ("UNI", "aUSDC"),
+            ("aUSDC", "COMP"),
+            ("COMP", "aUSDC"),
+            ("aUSDC", "AAVE"),
+            ("AAVE", "aUSDC")
         ]
         
         # 주소로 변환

@@ -44,7 +44,7 @@
 - [x] Stablecoins: USDC, USDT, DAI (현재 있음, 확장 필요)  
 - [x] Major tokens: WBTC, UNI, SUSHI, COMP, AAVE
 - [x] DeFi ecosystem tokens: CRV, BAL, YFI, MKR
-- [ ] Lending protocol tokens: cETH, cUSDC, aETH, aUSDC
+- [x] Lending protocol tokens: cETH, cUSDC, aETH, aUSDC
 - [ ] LP tokens: UNI-V2 pairs, Curve LP tokens
 - [ ] Synthetic assets: sUSD, sETH (Synthetix)
 - [ ] 추가 주요 ERC-20 tokens (총 25개까지)
