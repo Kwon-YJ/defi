@@ -59,35 +59,40 @@ class DeFiMarketGraph:
             return
         
         # token0 -> token1 엣지
-        exchange_rate_01 = (reserve1 / reserve0) * (1 - fee)
-        weight_01 = -math.log(exchange_rate_01) if exchange_rate_01 > 0 else float('inf')
+        # 논문의 정확한 공식: w_{i,j} = -log(p^{spot}_{i,j})
+        # spot price는 순수한 환율, fee는 별도로 처리
+        spot_price_01 = reserve1 / reserve0
+        effective_rate_01 = spot_price_01 * (1 - fee)  # fee 적용된 실제 환율
+        weight_01 = self._calculate_edge_weight(spot_price_01)  # 논문 공식 사용
         
         edge_01 = TradingEdge(
             from_token=token0,
             to_token=token1,
             dex=dex,
             pool_address=pool_address,
-            exchange_rate=exchange_rate_01,
+            exchange_rate=effective_rate_01,  # 실제 거래에서 받을 수 있는 환율
             liquidity=min(reserve0, reserve1),
             fee=fee,
             gas_cost=self._estimate_gas_cost(dex),
-            weight=weight_01
+            weight=weight_01  # 순수 spot price의 -log 값
         )
         
         # token1 -> token0 엣지
-        exchange_rate_10 = (reserve0 / reserve1) * (1 - fee)
-        weight_10 = -math.log(exchange_rate_10) if exchange_rate_10 > 0 else float('inf')
+        # 논문의 정확한 공식: w_{i,j} = -log(p^{spot}_{i,j})
+        spot_price_10 = reserve0 / reserve1
+        effective_rate_10 = spot_price_10 * (1 - fee)  # fee 적용된 실제 환율
+        weight_10 = self._calculate_edge_weight(spot_price_10)  # 논문 공식 사용
         
         edge_10 = TradingEdge(
             from_token=token1,
             to_token=token0,
             dex=dex,
             pool_address=pool_address,
-            exchange_rate=exchange_rate_10,
+            exchange_rate=effective_rate_10,  # 실제 거래에서 받을 수 있는 환율
             liquidity=min(reserve0, reserve1),
             fee=fee,
             gas_cost=self._estimate_gas_cost(dex),
-            weight=weight_10
+            weight=weight_10  # 순수 spot price의 -log 값
         )
         
         # 그래프에 엣지 추가
@@ -95,6 +100,35 @@ class DeFiMarketGraph:
         self.graph.add_edge(token1, token0, **edge_10.__dict__)
         
         logger.debug(f"거래 쌍 추가: {dex} {token0}-{token1}")
+    
+    def _calculate_edge_weight(self, spot_price: float) -> float:
+        """
+        논문의 정확한 weight calculation 구현
+        w_{i,j} = -log(p^{spot}_{i,j})
+        
+        Args:
+            spot_price: 순수한 spot price (fee 적용 전)
+        
+        Returns:
+            weight: Bellman-Ford 알고리즘에서 사용할 edge weight
+        
+        Note:
+            - spot_price > 1인 경우: weight < 0 (negative weight)
+            - spot_price < 1인 경우: weight > 0 (positive weight)
+            - spot_price = 1인 경우: weight = 0 (no change)
+            - 이를 통해 수익성 있는 사이클은 negative cycle로 탐지됨
+        """
+        if spot_price <= 0:
+            logger.warning(f"Invalid spot price: {spot_price}")
+            return float('inf')
+        
+        try:
+            weight = -math.log(spot_price)
+            logger.debug(f"Weight calculation: spot_price={spot_price:.6f} -> weight={weight:.6f}")
+            return weight
+        except (ValueError, OverflowError) as e:
+            logger.error(f"Weight calculation error for spot_price={spot_price}: {e}")
+            return float('inf')
     
     def _estimate_gas_cost(self, dex: str) -> float:
         """DEX별 가스 비용 추정"""
@@ -113,19 +147,21 @@ class DeFiMarketGraph:
         return (gas_limit * gas_price * eth_price) / 1e18
     
     def update_pool_data(self, pool_address: str, reserve0: float, reserve1: float):
-        """풀 데이터 업데이트"""
+        """풀 데이터 업데이트 - 논문의 정확한 weight calculation 적용"""
         # 해당 풀과 연관된 엣지들 찾아서 업데이트
         for u, v, data in self.graph.edges(data=True):
             if data.get('pool_address') == pool_address:
-                # 새로운 환율 계산
+                # 새로운 spot price 및 effective rate 계산
                 if data['from_token'] == u:
-                    new_rate = (reserve1 / reserve0) * (1 - data['fee'])
+                    spot_price = reserve1 / reserve0
+                    effective_rate = spot_price * (1 - data['fee'])
                 else:
-                    new_rate = (reserve0 / reserve1) * (1 - data['fee'])
+                    spot_price = reserve0 / reserve1
+                    effective_rate = spot_price * (1 - data['fee'])
                 
-                # 엣지 데이터 업데이트
-                data['exchange_rate'] = new_rate
-                data['weight'] = -math.log(new_rate) if new_rate > 0 else float('inf')
+                # 엣지 데이터 업데이트 (논문의 정확한 공식 적용)
+                data['exchange_rate'] = effective_rate  # 실제 거래 환율
+                data['weight'] = self._calculate_edge_weight(spot_price)  # 논문 공식 사용
                 data['liquidity'] = min(reserve0, reserve1)
     
     def get_graph_stats(self) -> Dict:
