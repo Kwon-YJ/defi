@@ -2,6 +2,7 @@ import math
 from typing import Dict, List, Tuple, Optional
 from collections import defaultdict
 from src.market_graph import DeFiMarketGraph, ArbitrageOpportunity, TradingEdge
+from src.local_search import LocalSearch
 from src.logger import setup_logger
 
 logger = setup_logger(__name__)
@@ -11,6 +12,7 @@ class BellmanFordArbitrage:
         self.graph = market_graph
         self.distances = {}
         self.predecessors = {}
+        self.local_search = LocalSearch()
         
     def find_negative_cycles(self, source_token: str, 
                            max_path_length: int = 4) -> List[ArbitrageOpportunity]:
@@ -28,7 +30,9 @@ class BellmanFordArbitrage:
             for cycle in cycles:
                 opportunity = self._cycle_to_opportunity(cycle)
                 if opportunity and opportunity.net_profit > 0:
-                    opportunities.append(opportunity)
+                    # 4. Local Search를 통한 최적화 (논문의 "perform a local search and repeat" 구현)
+                    optimized_opportunity = self.local_search.multi_start_search(opportunity)
+                    opportunities.append(optimized_opportunity)
         
         return sorted(opportunities, key=lambda x: x.net_profit, reverse=True)
     

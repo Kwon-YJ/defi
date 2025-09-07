@@ -1,9 +1,15 @@
-이 프로젝트는 원래 
+[요구사항]
+[2103.02228] On the Just-In-Time Discovery of Profit-Generating Transactions in DeFi Protocols 폴더의 figures 폴더 내부의 이미지를 모두 확인, text 폴더의 텍스트 파일도 모두 확인
+TODO.txt를 읽고 가장 먼저 해야할 체크박스에 해당되는 업무를 수행 (코드 작성 및 수정, 웹페이지 조사 등 할 수 있는 모든것을 한다)
+이제 임무가 완수되었으므로 체크박스를 체크로 바꾸고
+Make a commit and push your changes.
 
-[2103.02228] On the Just-In-Time Discovery of Profit-Generating Transactions in DeFi Protocols.html
-
-이 논문의 DEFIPOSER-ARB를 재현하는게 목적인데 아직 많이 부족한거 같아
-
-고작 4개만 base token으로 두는 것도 그렇고
-
-너가 TODO.txt 파일을 작성해 줄래? 논문의 DEFIPOSER-ARB를 재현하는데 있어 어떤 점이 추가되어야할지 순서대로 모든 항목을 나열해주는거야.
+[주의사항]
+TODO.txt를 수정할 수 있는 경우는 오직 3개 뿐.
+1. 목표를 달성하고 체크박스를 체크.
+2. 예상과 달리 목표가 달성되지 않아 체크박스를 번복.
+3. 체크박스 하나의 작업량이 너무 많다고 판단되어, 여러개의 작업으로 분할.
+전적으로 rye를 사용하고 있으며 python3 명령이 필요하다면 'source ~/defi/.venv/bin/activate' 실행 후 'cd ~/defi' 로 이동할 것
+pip 대신 rye add {패키지 명} 을 통해 필요한 패키지를 설치할 수 있다. 이 rye 명령 또한 'source ~/defi/.venv/bin/activate' 실행 후 'cd ~/defi' 를 전제로 함
+TODO 작성에 어려움을 겪어 사용자와 상호작용해야 하거나, 부탁할 사항이 발생할 경우 'python3 telegram_send.py --msg {your msg}' 를 입력한 후 pkill로 이 무한루프(claude cli)를 중단하도록 한다.
+환경변수는 참조용으로 example.env에 적어두었으나 보안상 내용은 생략한다.
