@@ -1,0 +1,219 @@
+{
+  "abi": [
+    {
+      "inputs": [],
+      "stateMutability": "nonpayable",
+      "type": "constructor"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {"indexed": true, "name": "initiator", "type": "address"},
+        {"indexed": true, "name": "provider", "type": "uint8"},
+        {"indexed": true, "name": "asset", "type": "address"},
+        {"indexed": false, "name": "flashLoanAmount", "type": "uint256"},
+        {"indexed": false, "name": "profit", "type": "uint256"},
+        {"indexed": false, "name": "gasUsed", "type": "uint256"}
+      ],
+      "name": "ArbitrageExecuted",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {"indexed": true, "name": "initiator", "type": "address"},
+        {"indexed": true, "name": "provider", "type": "uint8"},
+        {"indexed": true, "name": "asset", "type": "address"},
+        {"indexed": false, "name": "flashLoanAmount", "type": "uint256"},
+        {"indexed": false, "name": "reason", "type": "string"}
+      ],
+      "name": "ArbitrageFailed",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {"indexed": true, "name": "provider", "type": "uint8"},
+        {"indexed": false, "name": "contractAddress", "type": "address"},
+        {"indexed": false, "name": "feeRate", "type": "uint256"},
+        {"indexed": false, "name": "isActive", "type": "bool"}
+      ],
+      "name": "ProviderUpdated",
+      "type": "event"
+    },
+    {
+      "inputs": [
+        {
+          "components": [
+            {"name": "tokens", "type": "address[]"},
+            {"name": "exchanges", "type": "address[]"},
+            {"name": "amounts", "type": "uint256[]"},
+            {"name": "flashLoanAmount", "type": "uint256"},
+            {"name": "minProfit", "type": "uint256"},
+            {"name": "provider", "type": "uint8"},
+            {"name": "additionalData", "type": "bytes"}
+          ],
+          "name": "params",
+          "type": "tuple"
+        }
+      ],
+      "name": "executeOptimalArbitrage",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {"name": "assets", "type": "address[]"},
+        {"name": "amounts", "type": "uint256[]"},
+        {"name": "premiums", "type": "uint256[]"},
+        {"name": "initiator", "type": "address"},
+        {"name": "params", "type": "bytes"}
+      ],
+      "name": "executeOperation",
+      "outputs": [{"name": "", "type": "bool"}],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {"name": "sender", "type": "address"},
+        {"name": "accountId", "type": "uint256"},
+        {"name": "data", "type": "bytes"}
+      ],
+      "name": "callFunction",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {"name": "tokens", "type": "address[]"},
+        {"name": "amounts", "type": "uint256[]"},
+        {"name": "feeAmounts", "type": "uint256[]"},
+        {"name": "userData", "type": "bytes"}
+      ],
+      "name": "receiveFlashLoan",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {"name": "provider", "type": "uint8"},
+        {"name": "contractAddress", "type": "address"},
+        {"name": "feeRate", "type": "uint256"},
+        {"name": "isActive", "type": "bool"}
+      ],
+      "name": "updateProvider",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [{"name": "caller", "type": "address"}],
+      "name": "addAuthorizedCaller",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [{"name": "caller", "type": "address"}],
+      "name": "removeAuthorizedCaller",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [{"name": "token", "type": "address"}],
+      "name": "emergencyWithdraw",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "getPerformanceMetrics",
+      "outputs": [
+        {"name": "_totalArbitrages", "type": "uint256"},
+        {"name": "_successfulArbitrages", "type": "uint256"},
+        {"name": "_totalProfit", "type": "uint256"},
+        {"name": "_bestSingleProfit", "type": "uint256"},
+        {"name": "_averageGasUsed", "type": "uint256"}
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "getSuccessRate",
+      "outputs": [{"name": "", "type": "uint256"}],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [{"name": "provider", "type": "uint8"}],
+      "name": "getProviderConfig",
+      "outputs": [
+        {
+          "components": [
+            {"name": "contractAddress", "type": "address"},
+            {"name": "feeRate", "type": "uint256"},
+            {"name": "isActive", "type": "bool"}
+          ],
+          "name": "",
+          "type": "tuple"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [{"name": "", "type": "uint8"}],
+      "name": "providers",
+      "outputs": [
+        {"name": "contractAddress", "type": "address"},
+        {"name": "feeRate", "type": "uint256"},
+        {"name": "isActive", "type": "bool"}
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [{"name": "", "type": "address"}],
+      "name": "authorizedCallers",
+      "outputs": [{"name": "", "type": "bool"}],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "totalArbitrages",
+      "outputs": [{"name": "", "type": "uint256"}],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "successfulArbitrages", 
+      "outputs": [{"name": "", "type": "uint256"}],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "totalProfit",
+      "outputs": [{"name": "", "type": "uint256"}],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "bestSingleProfit",
+      "outputs": [{"name": "", "type": "uint256"}],
+      "stateMutability": "view",
+      "type": "function"
+    }
+  ],
+  "bytecode": "0x608060405234801561001057600080fd5b50600080546001600160a01b03191633179055610001565..."
+}
