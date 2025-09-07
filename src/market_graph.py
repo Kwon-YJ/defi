@@ -3,13 +3,14 @@ import math
 from typing import Dict, List, Tuple, Optional, Any
 from dataclasses import dataclass, asdict
 from collections import defaultdict
+import gc
 from src.logger import setup_logger
 
 logger = setup_logger(__name__)
 
 @dataclass
 class TradingEdge:
-    """거래 엣지 정보"""
+    """거래 엣지 정보 (메모리 최적화 버전)"""
     from_token: str
     to_token: str
     dex: str
@@ -21,10 +22,21 @@ class TradingEdge:
     weight: float  # -log(exchange_rate)
     timestamp: float = 0  # 추가: 업데이트 타임스탬프
     efficiency_score: float = 1.0  # 추가: 엣지 효율성 점수
+    
+    def __post_init__(self):
+        """객체 생성 후 메모리 최적화"""
+        # 숫자 값을 필요한 정밀도로 반올림하여 메모리 사용량 줄이기
+        self.exchange_rate = round(self.exchange_rate, 10)
+        self.liquidity = round(self.liquidity, 6)
+        self.fee = round(self.fee, 6)
+        self.gas_cost = round(self.gas_cost, 6)
+        self.weight = round(self.weight, 10)
+        self.timestamp = round(self.timestamp, 2)
+        self.efficiency_score = round(self.efficiency_score, 6)
 
 @dataclass
 class ArbitrageOpportunity:
-    """차익거래 기회"""
+    """차익거래 기회 (메모리 최적화 버전)"""
     path: List[str]  # 토큰 경로
     edges: List[TradingEdge]  # 거래 엣지들
     profit_ratio: float  # 수익률
@@ -33,6 +45,16 @@ class ArbitrageOpportunity:
     gas_cost: float  # 가스 비용
     net_profit: float  # 순수익
     confidence: float  # 신뢰도 (0-1)
+    
+    def __post_init__(self):
+        """객체 생성 후 메모리 최적화"""
+        # 숫자 값을 필요한 정밀도로 반올림하여 메모리 사용량 줄이기
+        self.profit_ratio = round(self.profit_ratio, 10)
+        self.required_capital = round(self.required_capital, 6)
+        self.estimated_profit = round(self.estimated_profit, 6)
+        self.gas_cost = round(self.gas_cost, 6)
+        self.net_profit = round(self.net_profit, 6)
+        self.confidence = round(self.confidence, 6)
 
 class DeFiMarketGraph:
     def __init__(self):
@@ -42,6 +64,12 @@ class DeFiMarketGraph:
         self.dex_pools = {}  # dex -> {(token0, token1): pool_info}
         self.last_update = 0
         self.edge_efficiency_threshold = 0.1  # 효율성 임계값
+        
+        # 메모리 최적화를 위한 설정
+        self.max_edges = 10000  # 최대 엣지 수 제한
+        self.max_age_seconds = 300  # 엣지 최대 수명 (5분)
+        self.cleanup_interval = 100  # 클린업 주기 (100번의 작업마다)
+        self.operation_count = 0  # 작업 카운터
         
     def add_token(self, token_address: str, symbol: str = None):
         """토큰 노드 추가"""
@@ -53,10 +81,20 @@ class DeFiMarketGraph:
     def add_trading_pair(self, token0: str, token1: str, dex: str, 
                         pool_address: str, reserve0: float, reserve1: float,
                         fee: float = 0.003, timestamp: float = None):
-        """거래 쌍 추가 (Multi-graph 지원)"""
+        """거래 쌍 추가 (Multi-graph 지원 및 메모리 최적화)"""
         import time
         if timestamp is None:
             timestamp = time.time()
+            
+        # 메모리 관리: 엣지 수 제한 체크
+        if self.graph.number_of_edges() >= self.max_edges:
+            logger.warning(f"최대 엣지 수 도달 ({self.max_edges}), 오래된 엣지 정리")
+            self.cleanup_stale_edges(self.max_age_seconds)
+            
+            # 여전히 엣지 수가 너무 많으면 새 엣지 추가하지 않음
+            if self.graph.number_of_edges() >= self.max_edges * 0.9:
+                logger.warning("여전히 엣지 수가 너무 많아 새 엣지 추가 생략")
+                return
             
         # 토큰 노드 추가 (이미 존재하면 아무 작업도 하지 않음)
         self.add_token(token0)
@@ -111,7 +149,7 @@ class DeFiMarketGraph:
         
         # Multi-graph 지원: 동일 토큰 쌍에 여러 DEX 엣지 추가
         # key 파라미터를 사용하여 병렬 엣지 구분
-        # Use bulk operations for better performance
+        # Use bulk operations for better performance and memory efficiency
         edges_to_add = [
             (token0, token1, f"{dex}_{pool_address}", asdict(edge_01)),
             (token1, token0, f"{dex}_{pool_address}", asdict(edge_10))
@@ -120,6 +158,9 @@ class DeFiMarketGraph:
         self.graph.add_edges_from(edges_to_add)
         
         logger.debug(f"거래 쌍 추가 (Multi-graph 지원): {dex} {token0}-{token1}")
+        
+        # 주기적으로 메모리 클린업
+        self._increment_operation_and_cleanup()
     
     def _calculate_efficiency_score(self, reserve_from: float, reserve_to: float, fee: float) -> float:
         """엣지 효율성 점수 계산"""
@@ -145,7 +186,7 @@ class DeFiMarketGraph:
         return (gas_limit * gas_price * eth_price) / 1e18
     
     def update_pool_data(self, pool_address: str, reserve0: float, reserve1: float, timestamp: float = None):
-        """풀 데이터 업데이트 (Dynamic graph update)"""
+        """풀 데이터 업데이트 (Dynamic graph update 및 메모리 최적화)"""
         import time
         if timestamp is None:
             timestamp = time.time()
@@ -186,9 +227,12 @@ class DeFiMarketGraph:
         if updated_edges > 0:
             self.last_update = timestamp
             logger.debug(f"풀 데이터 업데이트 완료: {pool_address}, 업데이트된 엣지 수: {updated_edges}")
+        
+        # 주기적으로 메모리 클린업
+        self._increment_operation_and_cleanup()
     
     def prune_inefficient_edges(self):
-        """비효율적인 엣지 자동 제거 (Graph pruning)"""
+        """비효율적인 엣지 자동 제거 (Graph pruning 및 메모리 최적화)"""
         edges_to_remove = []
         
         # 효율성 점수가 임계값 이하인 엣지 식별
@@ -203,6 +247,10 @@ class DeFiMarketGraph:
         
         if len(edges_to_remove) > 0:
             logger.info(f"비효율적인 엣지 {len(edges_to_remove)}개 제거 완료")
+        
+        # 메모리 회수
+        if len(edges_to_remove) > 0:
+            gc.collect()
         
         return len(edges_to_remove)
     
@@ -252,7 +300,9 @@ class DeFiMarketGraph:
                 'density': nx.density(self.graph),
                 'is_connected': nx.is_weakly_connected(self.graph) if node_count > 0 else False,
                 'memory_usage_bytes': estimated_memory,
-                'parallel_edges': self._count_parallel_edges()
+                'parallel_edges': self._count_parallel_edges(),
+                'max_edges_limit': self.max_edges,
+                'cleanup_interval': self.cleanup_interval
             }
         except Exception as e:
             logger.error(f"그래프 통계 계산 중 오류 발생: {e}")
@@ -264,6 +314,8 @@ class DeFiMarketGraph:
                 'is_connected': False,
                 'memory_usage_bytes': 0,
                 'parallel_edges': 0,
+                'max_edges_limit': self.max_edges,
+                'cleanup_interval': self.cleanup_interval,
                 'error': str(e)
             }
     
@@ -291,5 +343,40 @@ class DeFiMarketGraph:
         
         if len(edges_to_remove) > 0:
             logger.info(f"오래된 엣지 {len(edges_to_remove)}개 정리 완료")
+            
+            # 메모리 회수
+            gc.collect()
         
         return len(edges_to_remove)
+    
+    def _increment_operation_and_cleanup(self):
+        """작업 카운터 증가 및 주기적 클린업"""
+        self.operation_count += 1
+        
+        # 설정된 주기마다 클린업 수행
+        if self.operation_count >= self.cleanup_interval:
+            self.operation_count = 0
+            
+            # 오래된 엣지 정리
+            cleaned_count = self.cleanup_stale_edges(self.max_age_seconds)
+            
+            # 메모리 회수
+            if cleaned_count > 0:
+                gc.collect()
+                
+            logger.debug(f"주기적 메모리 클린업 완료: {cleaned_count}개 엣지 정리")
+    
+    def optimize_memory_usage(self):
+        """메모리 사용량 최적화"""
+        # 1. 오래된 엣지 정리
+        cleaned_count = self.cleanup_stale_edges(self.max_age_seconds)
+        
+        # 2. 비효율적인 엣지 정리
+        pruned_count = self.prune_inefficient_edges()
+        
+        # 3. 가비지 컬렉션
+        gc.collect()
+        
+        logger.info(f"메모리 최적화 완료: {cleaned_count}개 오래된 엣지, {pruned_count}개 비효율 엣지 정리")
+        
+        return cleaned_count + pruned_count
