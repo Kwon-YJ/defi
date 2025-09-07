@@ -112,10 +112,10 @@
 - [x] Alert 및 notification 시스템
 
 ### 6.2 로깅 및 디버깅  
-- [ ] 상세한 거래 로그 시스템
-- [ ] Performance bottleneck 식별
-- [ ] Error tracking 및 debugging
-- [ ] 논문 결과 비교 대시보드
+- [x] 상세한 거래 로그 시스템
+- [x] Performance bottleneck 식별
+- [x] Error tracking 및 debugging
+- [x] 논문 결과 비교 대시보드
 
 ---
 
