@@ -1,0 +1,80 @@
+{
+  "test_summary": {
+    "test_id": "quick_25_assets_1757221617",
+    "total_cycles": 60,
+    "target_assets": 25,
+    "paper_assets": [
+      "ETH",
+      "WETH",
+      "SAI",
+      "BNT",
+      "DAI",
+      "BAT",
+      "ENJ",
+      "SNT",
+      "KNC",
+      "MKR",
+      "DATA",
+      "MANA",
+      "ANT",
+      "RLC",
+      "RCN",
+      "UBT",
+      "GNO",
+      "RDN",
+      "TKN",
+      "TRST",
+      "AMN",
+      "FXC",
+      "SAN",
+      "AMPL",
+      "HEDG"
+    ],
+    "total_asset_processing_attempts": 1500,
+    "total_successful_feeds": 1500,
+    "overall_success_rate_percent": 100.0
+  },
+  "performance_metrics": {
+    "cpu_load_percent": {
+      "avg": 6.570638020833333,
+      "max": 10.83984375,
+      "min": 3.076171875
+    },
+    "memory_usage_mb": {
+      "avg": 60.078125,
+      "max": 60.078125,
+      "min": 60.078125
+    },
+    "processing_time_seconds": {
+      "avg": 0.011532318592071534,
+      "max": 0.012712955474853516,
+      "min": 0.011007547378540039
+    },
+    "success_rate_per_cycle": {
+      "avg": 100.0,
+      "max": 100.0,
+      "min": 100.0
+    }
+  },
+  "stability_analysis": {
+    "total_errors": 0,
+    "error_rate_percent": 0.0,
+    "consistent_performance": true,
+    "stable_memory_usage": true
+  },
+  "paper_compliance_check": {
+    "target_assets_supported": 25,
+    "actual_assets_processed": 25,
+    "compliance_rate": 100.0,
+    "avg_processing_time_under_6_43_seconds": true,
+    "all_cycles_under_6_43_seconds": true,
+    "paper_requirement_met": true
+  },
+  "recommendations": [
+    "\u2705 Excellent processing speed: Average processing time under 0.1 seconds",
+    "\u2705 Excellent success rate: 99%+ asset processing success",
+    "\u2705 Stable performance: Low variance in processing times",
+    "\u2705 Efficient memory usage: Under 100MB",
+    "\u2705 PAPER COMPLIANT: All processing meets 6.43 second requirement"
+  ]
+}
