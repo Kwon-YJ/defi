@@ -9,6 +9,9 @@ class TokenManager:
         # Define the 25 assets as specified in the paper
         self.assets = self._define_paper_assets()
         self.supported_tokens: Set[str] = set()
+        # Add LP tokens and synthetic assets
+        self.lp_tokens = self._define_lp_tokens()
+        self.synthetic_assets = self._define_synthetic_assets()
         
     def _define_paper_assets(self) -> Dict[str, str]:
         """
@@ -58,21 +61,70 @@ class TokenManager:
         }
         return assets
     
+    def _define_lp_tokens(self) -> Dict[str, str]:
+        """Define LP tokens for UNI-V2 pairs and Curve LP tokens."""
+        lp_tokens = {
+            # Uniswap V2 LP tokens
+            'UNI-V2-ETH-USDC': '0xB4e16d0168e52d35CaCD2c6185b44281Ec28C9Dc',
+            'UNI-V2-ETH-DAI': '0xA478c2975Ab1Ea89e8196811F51A7B7Ade33eB11',
+            'UNI-V2-ETH-USDT': '0x0d4a11d5EEaaC28EC3F61d100daF4d40471f1852',
+            'UNI-V2-ETH-WBTC': '0xBb2b8038a1640196FbE3e38816F3e67Cba72D940',
+            'UNI-V2-ETH-UNI': '0xd3d2E2692501A5c9Ca623199D38826e513033a17',
+            
+            # Curve LP tokens
+            'CRV-3POOL': '0x6c3F90f043a72FA612cbac8115EE7e52BDe6E490',
+            'CRV-YPOOL': '0xdF5e0e81Dff6FAF3A7e52BA697820c5e32D806A8',
+            'CRV-COMP': '0x845838DF265Dcd2c412A1Dc9e959c7d08537f8a2',
+            'CRV-USDT': '0x9fC689CCaDa600B6DF723D9E47D84d76664a1F23',
+            'CRV-BUSD': '0x4807862AA8b2bF68830e4C8dc86D0e9A998e085a',
+            'CRV-SUSD': '0xC25a3A3b969415c80451098fa907EC722572917F'
+        }
+        return lp_tokens
+    
+    def _define_synthetic_assets(self) -> Dict[str, str]:
+        """Define synthetic assets from Synthetix."""
+        synthetic_assets = {
+            'sUSD': '0x57Ab1ec28D129707052df4dF418D58a2D46d5f51',
+            'sETH': '0x5e74C9036fb86BD7eCdcb084a0673EFc32eA31cb',
+            'sBTC': '0xfE18be6b3Bd88A2D2A7f928d00292E7a9963CfC6',
+            'sLINK': '0xbBC455cb4F1B9e4b202482739278DeB90D333C14',
+            'sDEFI': '0xe1aFe1Fd76Fd88f3f4d047f64f24601358108369',
+            'sXAU': '0x261EfCdD24CeA98652B9700800a13DfBca4103fF',
+            'sXAG': '0x6A2259D2551E648B1a53020D0181856471A50928'
+        }
+        return synthetic_assets
+    
     def get_all_asset_symbols(self) -> List[str]:
         """Get all asset symbols."""
-        return list(self.assets.keys())
+        all_assets = list(self.assets.keys())
+        all_assets.extend(list(self.lp_tokens.keys()))
+        all_assets.extend(list(self.synthetic_assets.keys()))
+        return all_assets
     
     def get_asset_address(self, symbol: str) -> str:
         """Get the address for a given asset symbol."""
-        return self.assets.get(symbol, None)
+        # Check in main assets
+        if symbol in self.assets:
+            return self.assets[symbol]
+        # Check in LP tokens
+        if symbol in self.lp_tokens:
+            return self.lp_tokens[symbol]
+        # Check in synthetic assets
+        if symbol in self.synthetic_assets:
+            return self.synthetic_assets[symbol]
+        return None
     
     def get_all_asset_addresses(self) -> Dict[str, str]:
         """Get all asset symbols and their addresses."""
-        return self.assets.copy()
+        all_assets = {}
+        all_assets.update(self.assets)
+        all_assets.update(self.lp_tokens)
+        all_assets.update(self.synthetic_assets)
+        return all_assets
     
     def add_supported_token(self, token_symbol: str):
         """Add a token to the supported tokens set."""
-        if token_symbol in self.assets:
+        if token_symbol in self.assets or token_symbol in self.lp_tokens or token_symbol in self.synthetic_assets:
             self.supported_tokens.add(token_symbol)
             logger.debug(f"Added {token_symbol} to supported tokens")
         else:
@@ -89,6 +141,17 @@ class TokenManager:
     def get_token_count(self) -> int:
         """Get the number of supported tokens."""
         return len(self.supported_tokens)
+    
+    def get_asset_category(self, symbol: str) -> str:
+        """Get the category of an asset."""
+        if symbol in self.assets:
+            return "main"
+        elif symbol in self.lp_tokens:
+            return "lp"
+        elif symbol in self.synthetic_assets:
+            return "synthetic"
+        else:
+            return "unknown"
 
 # Example usage:
 # token_manager = TokenManager()
