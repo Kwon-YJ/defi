@@ -7,6 +7,7 @@ from src.logger import setup_logger
 from src.data_storage import DataStorage
 from src.real_time_price_feeds import RealTimePriceFeeds
 from src.data_validator import DataValidator
+from src.historical_data_backfiller import HistoricalDataBackfiller
 from config.config import config
 
 logger = setup_logger(__name__)
@@ -28,6 +29,7 @@ class RealTimeDataCollector:
         
         self.storage = DataStorage()
         self.data_validator = DataValidator(self.storage)
+        self.historical_backfiller = HistoricalDataBackfiller(self.w3, self.storage)
         self.price_feeds = RealTimePriceFeeds()
         self.subscribers: Dict[str, List[Callable]] = {}
         self.running = False
@@ -313,6 +315,26 @@ class RealTimeDataCollector:
         """데이터 수집 중지"""
         self.running = False
         logger.info("실시간 데이터 수집 중지")
+    
+    async def trigger_historical_backfill(self, days: int = 30):
+        """
+        히스토리컬 데이터 백필 트리거
+        
+        Args:
+            days: 백필할 일수
+        """
+        try:
+            logger.info(f"히스토리컬 데이터 백필 트리거: {days}일간 데이터")
+            
+            # 백필 작업 실행
+            results = await self.historical_backfiller.backfill_all_data(days)
+            
+            logger.info(f"히스토리컬 데이터 백필 완료: {results}")
+            return results
+            
+        except Exception as e:
+            logger.error(f"히스토리컬 데이터 백필 중 오류 발생: {e}")
+            return {}
 
 # 사용 예시
 async def main():
