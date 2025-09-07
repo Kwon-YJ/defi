@@ -99,7 +99,7 @@
 
 ### 5.2 복합 거래 전략 (Beyond Simple Arbitrage)
 - [x] Lending/borrowing + swap 조합 거래
-- [ ] Multi-hop arbitrage (3+ protocols)
+- [x] Multi-hop arbitrage (3+ protocols)
 - [ ] Economic state exploitation 기능
 - [ ] MEV (Maximal Extractable Value) 최적화
 
