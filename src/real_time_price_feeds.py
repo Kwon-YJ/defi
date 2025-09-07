@@ -10,6 +10,7 @@ from src.logger import setup_logger
 from src.token_manager import TokenManager
 from src.data_storage import DataStorage
 from src.data_validator import DataValidator
+from src.rate_limiter import RateLimiter, APIQuotaManager
 
 logger = setup_logger(__name__)
 
@@ -29,6 +30,8 @@ class RealTimePriceFeeds:
         self.token_manager = TokenManager()
         self.data_storage = DataStorage()
         self.data_validator = DataValidator(self.data_storage)
+        self.rate_limiter = RateLimiter()
+        self.quota_manager = APIQuotaManager()
         self.price_feeds: Dict[str, PriceFeed] = {}
         self.subscribers: List[Callable] = []
         self.running = False
@@ -239,11 +242,33 @@ class RealTimePriceFeeds:
             
             logger.info(f"총 {updated_count}개 토큰의 가격 업데이트 완료 (다중 소스 사용)")
             
+            # 속도 제한 통계 로깅
+            self._log_rate_limiting_stats()
+            
             # 구독자들에게 알림
             await self._notify_subscribers()
             
         except Exception as e:
             logger.error(f"모든 토큰 가격 업데이트 중 오류 발생: {e}")
+    
+    def _log_rate_limiting_stats(self):
+        """속도 제한 통계 로깅"""
+        try:
+            for source in self.price_sources:
+                source_name = source['name']
+                if source_name in ['coingecko', 'coinpaprika', 'cryptocompare']:
+                    stats = self.rate_limiter.get_usage_stats(source_name)
+                    quota_usage = self.quota_manager.get_quota_usage(source_name)
+                    
+                    if stats:
+                        logger.debug(f"{source_name} API 사용률 - 분당: {stats['minute_usage_percent']:.1f}%, "
+                                   f"초당: {stats['second_usage_percent']:.1f}%")
+                    
+                    if quota_usage:
+                        logger.debug(f"{source_name} API 할당량 - 일일: {quota_usage['daily_percent']:.1f}%, "
+                                   f"월간: {quota_usage['monthly_percent']:.1f}%")
+        except Exception as e:
+            logger.error(f"속도 제한 통계 로깅 중 오류 발생: {e}")
     
     def _select_best_price_data(self, symbol: str, price_data_by_source: Dict[str, Dict]) -> Optional[Dict]:
         """여러 소스의 가격 데이터 중 최선의 것을 선택"""
@@ -283,6 +308,16 @@ class RealTimePriceFeeds:
             if not self.session:
                 await self.initialize()
             
+            # 속도 제한 확인
+            if not self.rate_limiter.is_allowed('coingecko'):
+                logger.warning("CoinGecko API 속도 제한 도달, 대기 중...")
+                await self.rate_limiter.wait_if_needed('coingecko')
+            
+            # 할당량 확인
+            if not self.quota_manager.is_quota_available('coingecko'):
+                logger.warning("CoinGecko API 할당량 초과")
+                return None
+            
             # CoinGecko ID가 있는 토큰 필터링
             tokens_with_ids = {
                 symbol: self.token_source_ids[symbol]['coingecko'] 
@@ -292,6 +327,10 @@ class RealTimePriceFeeds:
             
             if not tokens_with_ids:
                 return None
+            
+            # 요청 기록
+            self.rate_limiter.record_request('coingecko')
+            self.quota_manager.record_api_call('coingecko')
             
             # 최대 250개의 코인 ID를 한 번에 요청 가능
             ids_param = ','.join(tokens_with_ids.values())
@@ -306,6 +345,11 @@ class RealTimePriceFeeds:
                         if cg_id in data and 'usd' in data[cg_id]:
                             result[symbol] = data[cg_id]['usd']
                     return result
+                elif response.status == 429:
+                    # 속도 제한 오류 처리
+                    logger.warning("CoinGecko API 속도 제한 오류 (429)")
+                    await self.quota_manager.handle_rate_limit_error('coingecko')
+                    return None
                 else:
                     logger.error(f"CoinGecko API 요청 실패: {response.status}")
                     return None
@@ -333,12 +377,31 @@ class RealTimePriceFeeds:
             result = {}
             for symbol, cp_id in tokens_with_ids.items():
                 try:
+                    # 속도 제한 확인
+                    if not self.rate_limiter.is_allowed('coinpaprika'):
+                        logger.warning("Coinpaprika API 속도 제한 도달, 대기 중...")
+                        await self.rate_limiter.wait_if_needed('coinpaprika')
+                    
+                    # 할당량 확인
+                    if not self.quota_manager.is_quota_available('coinpaprika'):
+                        logger.warning("Coinpaprika API 할당량 초과")
+                        return result if result else None
+                    
+                    # 요청 기록
+                    self.rate_limiter.record_request('coinpaprika')
+                    self.quota_manager.record_api_call('coinpaprika')
+                    
                     url = f"https://api.coinpaprika.com/v1/tickers/{cp_id}"
                     async with self.session.get(url) as response:
                         if response.status == 200:
                             data = await response.json()
                             if 'quotes' in data and 'USD' in data['quotes']:
                                 result[symbol] = data['quotes']['USD']['price']
+                        elif response.status == 429:
+                            # 속도 제한 오류 처리
+                            logger.warning(f"Coinpaprika API 속도 제한 오류 (429) for {symbol}")
+                            await self.quota_manager.handle_rate_limit_error('coinpaprika')
+                            break  # 루프 중단
                         else:
                             logger.debug(f"Coinpaprika API 요청 실패 ({symbol}): {response.status}")
                 except Exception as e:
@@ -356,6 +419,16 @@ class RealTimePriceFeeds:
             if not self.session:
                 await self.initialize()
             
+            # 속도 제한 확인
+            if not self.rate_limiter.is_allowed('cryptocompare'):
+                logger.warning("CryptoCompare API 속도 제한 도달, 대기 중...")
+                await self.rate_limiter.wait_if_needed('cryptocompare')
+            
+            # 할당량 확인
+            if not self.quota_manager.is_quota_available('cryptocompare'):
+                logger.warning("CryptoCompare API 할당량 초과")
+                return None
+            
             # CryptoCompare에서 지원하는 토큰 필터링
             supported_symbols = {
                 symbol: self.token_source_ids[symbol]['cryptocompare'] 
@@ -365,6 +438,10 @@ class RealTimePriceFeeds:
             
             if not supported_symbols:
                 return None
+            
+            # 요청 기록
+            self.rate_limiter.record_request('cryptocompare')
+            self.quota_manager.record_api_call('cryptocompare')
             
             # 여러 토큰의 가격을 한 번에 요청
             fsyms = ','.join(supported_symbols.values())
@@ -379,6 +456,11 @@ class RealTimePriceFeeds:
                         if cc_symbol in data and 'USD' in data[cc_symbol]:
                             result[symbol] = data[cc_symbol]['USD']
                     return result
+                elif response.status == 429:
+                    # 속도 제한 오류 처리
+                    logger.warning("CryptoCompare API 속도 제한 오류 (429)")
+                    await self.quota_manager.handle_rate_limit_error('cryptocompare')
+                    return None
                 else:
                     logger.error(f"CryptoCompare API 요청 실패: {response.status}")
                     return None
