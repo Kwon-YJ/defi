@@ -1,256 +1,96 @@
-import json
-import aiohttp
-from typing import Dict, Optional, List
-from dataclasses import dataclass
-from web3 import Web3
+import asyncio
+from typing import Dict, List, Set
 from src.logger import setup_logger
-from config.config import config
 
 logger = setup_logger(__name__)
 
-@dataclass
-class TokenInfo:
-    address: str
-    symbol: str
-    name: str
-    decimals: int
-    price_usd: float = 0.0
-    market_cap: float = 0.0
-    volume_24h: float = 0.0
-    coingecko_id: str = ""
-
 class TokenManager:
-    def __init__(self, web3_provider_url: Optional[str] = None):
-        self.tokens: Dict[str, TokenInfo] = {}
-        self.symbol_to_address: Dict[str, str] = {}
-        self.coingecko_api = "https://api.coingecko.com/api/v3"
+    def __init__(self):
+        # Define the 25 assets as specified in the paper
+        self.assets = self._define_paper_assets()
+        self.supported_tokens: Set[str] = set()
         
-        # RPC URL 설정 - 파라미터가 없으면 config에서 가져옴
-        rpc_url = web3_provider_url or config.ethereum_mainnet_rpc
-        self.w3 = Web3(Web3.HTTPProvider(rpc_url)) if rpc_url else None
-        self.erc20_abi = [
-            {
-                "constant": True,
-                "inputs": [],
-                "name": "name",
-                "outputs": [{"name": "", "type": "string"}],
-                "type": "function"
-            },
-            {
-                "constant": True,
-                "inputs": [],
-                "name": "symbol", 
-                "outputs": [{"name": "", "type": "string"}],
-                "type": "function"
-            },
-            {
-                "constant": True,
-                "inputs": [],
-                "name": "decimals",
-                "outputs": [{"name": "", "type": "uint8"}],
-                "type": "function"
-            }
-        ]
-        self._load_common_tokens()
-    
-    def _load_common_tokens(self):
-        """주요 토큰 정보 로드 - 실제 주소로 업데이트 필요"""
-        common_tokens = {
-            # 메인 토큰들
-            "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2": TokenInfo(
-                address="0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
-                symbol="WETH",
-                name="Wrapped Ether", 
-                decimals=18,
-                coingecko_id="weth"
-            ),
-            "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48": TokenInfo(
-                address="0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
-                symbol="USDC",
-                name="USD Coin",
-                decimals=6,
-                coingecko_id="usd-coin"
-            ),
-            "0x6B175474E89094C44Da98b954EedeAC495271d0F": TokenInfo(
-                address="0x6B175474E89094C44Da98b954EedeAC495271d0F",
-                symbol="DAI",
-                name="Dai Stablecoin",
-                decimals=18,
-                coingecko_id="dai"
-            ),
-            "0xdAC17F958D2ee523a2206206994597C13D831ec7": TokenInfo(
-                address="0xdAC17F958D2ee523a2206206994597C13D831ec7",
-                symbol="USDT",
-                name="Tether USD",
-                decimals=6,
-                coingecko_id="tether"
-            ),
-            # DeFi 토큰들
-            "0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984": TokenInfo(
-                address="0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984",
-                symbol="UNI",
-                name="Uniswap",
-                decimals=18,
-                coingecko_id="uniswap"
-            ),
-            "0x7Fc66500c84A76Ad7e9c93437bFc5Ac33E2DDaE9": TokenInfo(
-                address="0x7Fc66500c84A76Ad7e9c93437bFc5Ac33E2DDaE9",
-                symbol="AAVE",
-                name="Aave Token",
-                decimals=18,
-                coingecko_id="aave"
-            ),
-            "0x6B3595068778DD592e39A122f4f5a5cF09C90fE2": TokenInfo(
-                address="0x6B3595068778DD592e39A122f4f5a5cF09C90fE2",
-                symbol="SUSHI",
-                name="SushiToken",
-                decimals=18,
-                coingecko_id="sushi"
-            ),
-            "0xC011a73ee8576Fb46F5E1c5751cA3B9Fe0af2a6F": TokenInfo(
-                address="0xC011a73ee8576Fb46F5E1c5751cA3B9Fe0af2a6F",
-                symbol="SNX",
-                name="Synthetix Network Token",
-                decimals=18,
-                coingecko_id="havven"
-            ),
-            # 스테이블코인들
-            "0x4Fabb145d64652a948d72533023f6E7A623C7C53": TokenInfo(
-                address="0x4Fabb145d64652a948d72533023f6E7A623C7C53",
-                symbol="BUSD",
-                name="Binance USD",
-                decimals=18,
-                coingecko_id="binance-usd"
-            ),
-            "0x853d955aCEf822Db058eb8505911ED77F175b99e": TokenInfo(
-                address="0x853d955aCEf822Db058eb8505911ED77F175b99e",
-                symbol="FRAX",
-                name="Frax",
-                decimals=18,
-                coingecko_id="frax"
-            )
+    def _define_paper_assets(self) -> Dict[str, str]:
+        """
+        Define the 25 assets as specified in the paper.
+        Returns a dictionary of token_symbol -> token_address
+        """
+        assets = {
+            # Native and wrapped Ether
+            'ETH': '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE',
+            'WETH': '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
+            
+            # Stablecoins (mentioned in current implementation)
+            'USDC': '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
+            'USDT': '0xdAC17F958D2ee523a2206206994597C13D831ec7',
+            'DAI': '0x6B175474E89094C44Da98b954EedeAC495271d0F',
+            
+            # Major tokens
+            'WBTC': '0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599',
+            'UNI': '0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984',
+            'SUSHI': '0x6B3595068778DD592e39A122f4f5a5cF0d74de3C',
+            'COMP': '0xc00e94Cb662C3520282E6f5717214004A7f26888',
+            'AAVE': '0x7Fc66500c84A76Ad7e9c93437bFc5Ac33E2DDaE9',
+            
+            # DeFi ecosystem tokens
+            'CRV': '0xD533a949740bb3306d119CC777fa900bA034cd52',
+            'BAL': '0xba100000625a3754423978a60c9317c58a424e3D',
+            'YFI': '0x0bc529c00C6401aEF6D220BE8C6Ea1667F6Ad93e',
+            'MKR': '0x9f8F72aA9304c8B593d555F12eF6589cC3A579A2',
+            
+            # Lending protocol tokens
+            'cETH': '0x4Ddc2D193948926D02f9B1fE9e1daa0718270ED5',  # Compound ETH
+            'cUSDC': '0x39AA39c021dfbaE8faC545936693aC917d5E7563',  # Compound USDC
+            'aETH': '0xE95A203B1a91a908F9B9CE46459d101078c2c3cb',  # Aave ETH
+            'aUSDC': '0x9bA00D6856a4eDF4665BcA2C2309936572473B7E',  # Aave USDC
+            
+            # Additional tokens from the paper's Uniswap/Bancor lists
+            'BNT': '0x1F573D6Fb3F13d689FF844B4cE37794d79a7FF1C',
+            'BAT': '0x0D8775F648430679A709E98d2b0Cb6250d2887EF',
+            'KNC': '0xdd974D5C2e2928deA02929219732bF4356A500c3',
+            'MANA': '0x0F5D2fB29fb7d3CFeE444a200298f468908cC942',
+            'GNO': '0x6810e776880C02933D47DB1b9fc05908e5386b96',
+            'RLC': '0x607F4C5BB672230e8672085532f7e901544a7375',
+            'UBT': '0x8400D94A5cb0fa0D041a3788e395285d61c9ee5e',
+            
+            # SAI (MakerDAO legacy token)
+            'SAI': '0x89d24A6b4CcB1B6fAA2625fE562bDD9a23260359'
         }
-        
-        self.tokens.update(common_tokens)
-        
-        # 심볼 -> 주소 매핑 생성
-        for address, token_info in common_tokens.items():
-            self.symbol_to_address[token_info.symbol] = address
+        return assets
     
-    async def get_token_info(self, address: str) -> Optional[TokenInfo]:
-        """토큰 정보 조회"""
-        address = address.lower()
-        if address in self.tokens:
-            return self.tokens[address]
-        
-        # 온체인에서 토큰 정보 조회 시도
-        token_info = await self._fetch_token_info_onchain(address)
-        if token_info:
-            self.tokens[address] = token_info
-            return token_info
-        
-        return None
+    def get_all_asset_symbols(self) -> List[str]:
+        """Get all asset symbols."""
+        return list(self.assets.keys())
     
-    def get_address_by_symbol(self, symbol: str) -> Optional[str]:
-        """심볼로 주소 조회"""
-        return self.symbol_to_address.get(symbol.upper())
+    def get_asset_address(self, symbol: str) -> str:
+        """Get the address for a given asset symbol."""
+        return self.assets.get(symbol, None)
     
-    async def update_prices(self):
-        """CoinGecko에서 가격 정보 업데이트"""
-        try:
-            # CoinGecko ID 목록 생성
-            coingecko_ids = [
-                token.coingecko_id for token in self.tokens.values() 
-                if token.coingecko_id
-            ]
-            
-            if not coingecko_ids:
-                return
-            
-            # API 호출
-            ids_str = ",".join(coingecko_ids)
-            url = f"{self.coingecko_api}/simple/price"
-            params = {
-                'ids': ids_str,
-                'vs_currencies': 'usd',
-                'include_market_cap': 'true',
-                'include_24hr_vol': 'true'
-            }
-            
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, params=params) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        
-                        # 가격 정보 업데이트
-                        for token in self.tokens.values():
-                            if token.coingecko_id in data:
-                                price_data = data[token.coingecko_id]
-                                token.price_usd = price_data.get('usd', 0)
-                                token.market_cap = price_data.get('usd_market_cap', 0)
-                                token.volume_24h = price_data.get('usd_24h_vol', 0)
-                        
-                        logger.info(f"{len(data)}개 토큰 가격 정보 업데이트 완료")
-                    else:
-                        logger.error(f"CoinGecko API 오류: {response.status}")
-                        
-        except Exception as e:
-            logger.error(f"가격 정보 업데이트 실패: {e}")
+    def get_all_asset_addresses(self) -> Dict[str, str]:
+        """Get all asset symbols and their addresses."""
+        return self.assets.copy()
     
-    async def _fetch_token_info_onchain(self, address: str) -> Optional[TokenInfo]:
-        """온체인에서 토큰 정보 조회"""
-        if not self.w3 or not self.w3.is_connected():
-            logger.warning("Web3 연결이 설정되지 않았습니다")
-            return None
-            
-        try:
-            # 주소 체크섬 변환
-            checksum_address = self.w3.to_checksum_address(address)
-            
-            # ERC20 컨트랙트 생성
-            contract = self.w3.eth.contract(address=checksum_address, abi=self.erc20_abi)
-            
-            # 토큰 정보 조회
-            symbol = contract.functions.symbol().call()
-            name = contract.functions.name().call()
-            decimals = contract.functions.decimals().call()
-            
-            token_info = TokenInfo(
-                address=checksum_address,
-                symbol=symbol,
-                name=name,
-                decimals=decimals
-            )
-            
-            logger.info(f"온체인 토큰 정보 조회 성공: {symbol} ({name})")
-            return token_info
-            
-        except Exception as e:
-            logger.error(f"온체인 토큰 정보 조회 실패 {address}: {e}")
-            return None
+    def add_supported_token(self, token_symbol: str):
+        """Add a token to the supported tokens set."""
+        if token_symbol in self.assets:
+            self.supported_tokens.add(token_symbol)
+            logger.debug(f"Added {token_symbol} to supported tokens")
+        else:
+            logger.warning(f"Token {token_symbol} not in defined assets list")
     
-    def get_major_trading_pairs(self) -> List[tuple]:
-        """주요 거래 쌍 목록 반환"""
-        major_pairs = [
-            ("WETH", "USDC"),
-            ("WETH", "DAI"),
-            ("WETH", "USDT"),
-            ("USDC", "DAI"),
-            ("USDC", "USDT"),
-            ("DAI", "USDT"),
-            ("WETH", "UNI"),
-            ("WETH", "AAVE"),
-            ("WETH", "SUSHI"),
-            ("USDC", "UNI"),
-            ("USDC", "AAVE")
-        ]
-        
-        # 주소로 변환
-        address_pairs = []
-        for symbol0, symbol1 in major_pairs:
-            addr0 = self.get_address_by_symbol(symbol0)
-            addr1 = self.get_address_by_symbol(symbol1)
-            if addr0 and addr1:
-                address_pairs.append((addr0, addr1))
-        
-        return address_pairs
+    def get_supported_tokens(self) -> List[str]:
+        """Get the list of currently supported tokens."""
+        return list(self.supported_tokens)
+    
+    def is_token_supported(self, token_symbol: str) -> bool:
+        """Check if a token is supported."""
+        return token_symbol in self.supported_tokens
+    
+    def get_token_count(self) -> int:
+        """Get the number of supported tokens."""
+        return len(self.supported_tokens)
+
+# Example usage:
+# token_manager = TokenManager()
+# print(f"Total assets defined: {len(token_manager.get_all_asset_symbols())}")
+# print(f"Asset addresses: {token_manager.get_all_asset_addresses()}")

@@ -10,6 +10,7 @@ from datetime import datetime
 from src.market_graph import DeFiMarketGraph
 from src.bellman_ford_arbitrage import BellmanFordArbitrage
 from src.protocol_actions import ProtocolActionsManager
+from src.token_manager import TokenManager
 from src.data_storage import DataStorage
 from src.logger import setup_logger
 
@@ -20,20 +21,26 @@ class ArbitrageDetector:
         self.market_graph = DeFiMarketGraph()
         self.bellman_ford = BellmanFordArbitrage(self.market_graph)
         self.protocol_manager = ProtocolActionsManager(self.market_graph)
+        self.token_manager = TokenManager()
         self.storage = DataStorage()
         self.running = False
         
-        # 주요 토큰들 (차익거래 시작점)
-        self.base_tokens = [
-            "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",  # WETH
-            "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",  # USDC (수정됨)
-            "0x6B175474E89094C44Da98b954EedeAC495271d0F",  # DAI
-            "0xdAC17F958D2ee523a2206206994597C13D831ec7",  # USDT
-        ]
+        # Initialize supported tokens (expand from 4 to 25 assets as per paper)
+        self._initialize_supported_tokens()
         
-        # Log the number of protocol actions
+        # Get base tokens for arbitrage detection (from the 25 supported assets)
+        self.base_tokens = self.token_manager.get_supported_tokens()
+        
+        # Log the number of protocol actions and supported tokens
         logger.info(f"Initialized with {self.protocol_manager.get_total_action_count()} protocol actions")
+        logger.info(f"Initialized with {self.token_manager.get_token_count()} supported tokens")
         
+    def _initialize_supported_tokens(self):
+        """Initialize the supported tokens to match the paper's 25 assets."""
+        # Add all 25 assets as supported tokens
+        for token_symbol in self.token_manager.get_all_asset_symbols():
+            self.token_manager.add_supported_token(token_symbol)
+    
     async def start_detection(self):
         """차익거래 탐지 시작"""
         self.running = True
