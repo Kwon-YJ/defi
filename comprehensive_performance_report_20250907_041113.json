@@ -1,0 +1,165 @@
+{
+  "report_metadata": {
+    "generated_at": "2025-09-07T04:11:13.369833",
+    "evaluation_period_days": 30,
+    "report_type": "comprehensive_performance_analysis",
+    "system_version": "integrated_v1.0"
+  },
+  "backtest_analysis": {
+    "simulation_period": {
+      "days": 30,
+      "total_trades": 275,
+      "successful_trades": 275,
+      "simulation_date": "2025-09-07T04:11:13.366562"
+    },
+    "revenue_metrics": {
+      "total_revenue_eth": 1011.4517,
+      "weekly_average_eth": 236.0054,
+      "max_single_trade_eth": 24.5787,
+      "average_trade_profit": 3.678,
+      "total_gas_costs": 7.9805
+    },
+    "performance_metrics": {
+      "success_rate_percent": 100.0,
+      "average_execution_time": 7.45,
+      "trades_per_day": 9.17,
+      "profitable_days": 31
+    },
+    "capital_efficiency": {
+      "flash_loan_trades": 180,
+      "non_flash_trades": 95,
+      "avg_capital_flash_loan": 0.5377,
+      "avg_capital_no_flash": 81.5804,
+      "flash_loan_usage_percent": 65.45454545454545
+    },
+    "paper_benchmarks": {
+      "evaluation_period_days": 150,
+      "start_block": 9100000,
+      "end_block": 10050000,
+      "total_revenue_target": 4103.22,
+      "weekly_average_target": 191.48,
+      "max_single_trade": 81.31,
+      "average_execution_time": 6.43,
+      "win_rate_target": 85.0,
+      "max_capital_no_flash": 150.0,
+      "max_capital_with_flash": 1.0,
+      "protocols_count": 96,
+      "assets_count": 25,
+      "block_time_limit": 13.5
+    },
+    "target_achievements": {
+      "total_revenue_achievement": 24.650194989651137,
+      "weekly_revenue_achievement": 123.2532921798716,
+      "max_trade_achievement": 30.228411823916108,
+      "execution_time_efficiency": 86.3378037203483,
+      "success_rate_achievement": 117.64705882352942,
+      "capital_efficiency_flash": true,
+      "capital_efficiency_no_flash": true
+    },
+    "overall_performance": {
+      "achievement_score": 54.87,
+      "performance_grade": "C (Needs Improvement)",
+      "meets_paper_targets": false
+    },
+    "daily_summaries": [
+      {
+        "date": "2025-09-01",
+        "trades_count": 8,
+        "total_revenue": 28.883664631975225,
+        "success_rate": 100.0,
+        "avg_execution_time": 6.265713111096887,
+        "capital_efficiency": 594.7092561099967
+      },
+      {
+        "date": "2025-09-02",
+        "trades_count": 10,
+        "total_revenue": 60.30721810859274,
+        "success_rate": 100.0,
+        "avg_execution_time": 7.60468855973096,
+        "capital_efficiency": 962.0348322198961
+      },
+      {
+        "date": "2025-09-03",
+        "trades_count": 12,
+        "total_revenue": 31.762618153559913,
+        "success_rate": 100.0,
+        "avg_execution_time": 7.240477134173475,
+        "capital_efficiency": 221.0410333350773
+      },
+      {
+        "date": "2025-09-04",
+        "trades_count": 9,
+        "total_revenue": 34.46990582937855,
+        "success_rate": 100.0,
+        "avg_execution_time": 6.25175906195108,
+        "capital_efficiency": 158.0161681533946
+      },
+      {
+        "date": "2025-09-05",
+        "trades_count": 4,
+        "total_revenue": 7.145758917256721,
+        "success_rate": 100.0,
+        "avg_execution_time": 5.717479595262179,
+        "capital_efficiency": 155.85190216156536
+      },
+      {
+        "date": "2025-09-06",
+        "trades_count": 13,
+        "total_revenue": 30.757052186923975,
+        "success_rate": 100.0,
+        "avg_execution_time": 7.574046346186534,
+        "capital_efficiency": 306.54498170643603
+      },
+      {
+        "date": "2025-09-07",
+        "trades_count": 7,
+        "total_revenue": 15.780928399590145,
+        "success_rate": 100.0,
+        "avg_execution_time": 5.584731778675647,
+        "capital_efficiency": 221.16289098251337
+      }
+    ],
+    "recommendations": [
+      "Optimize execution time - consider algorithm improvements or parallel processing",
+      "Scale up operations - increase protocol coverage and asset diversity"
+    ]
+  },
+  "roi_analysis": {
+    "period": {
+      "start_date": "2025-08-08",
+      "end_date": "2025-09-07",
+      "days": 30
+    },
+    "basic_metrics": {
+      "total_trades": 267,
+      "total_revenue": 998.4629,
+      "total_invested": 7541.8565,
+      "average_roi": 605.78,
+      "win_rate": 100.0,
+      "average_execution_time": 7.41,
+      "weekly_average_revenue": 232.9747,
+      "best_trade_revenue": 24.5787,
+      "capital_efficiency": 13.24
+    },
+    "paper_targets": {
+      "weekly_average_revenue": 191.48,
+      "max_single_trade_revenue": 81.31,
+      "average_execution_time": 6.43,
+      "total_evaluation_days": 150,
+      "minimum_roi_threshold": 10.0,
+      "target_win_rate": 85.0
+    },
+    "target_comparison": {
+      "weekly_revenue_achievement": 121.67,
+      "max_trade_achievement": 30.23,
+      "execution_time_efficiency": 86.77,
+      "win_rate_achievement": 117.65
+    },
+    "performance_grade": "B+ (Good Performance)"
+  },
+  "system_health": {
+    "database_status": "active",
+    "tracking_status": "operational",
+    "last_update": "2025-09-07T04:11:13.369841"
+  }
+}

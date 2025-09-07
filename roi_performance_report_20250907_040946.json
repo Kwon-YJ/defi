@@ -1,0 +1,46 @@
+{
+  "period": {
+    "start_date": "2025-04-10",
+    "end_date": "2025-09-07",
+    "days": 150
+  },
+  "basic_metrics": {
+    "total_trades": 2,
+    "total_revenue": 2.6,
+    "total_invested": 11.0,
+    "average_roi": 107.5,
+    "win_rate": 100.0,
+    "average_execution_time": 5.0,
+    "weekly_average_revenue": 0.1213,
+    "best_trade_revenue": 2.1,
+    "capital_efficiency": 23.36
+  },
+  "paper_targets": {
+    "weekly_average_revenue": 191.48,
+    "max_single_trade_revenue": 81.31,
+    "average_execution_time": 6.43,
+    "total_evaluation_days": 150,
+    "minimum_roi_threshold": 10.0,
+    "target_win_rate": 85.0
+  },
+  "target_comparison": {
+    "weekly_revenue_achievement": 0.06,
+    "max_trade_achievement": 2.58,
+    "execution_time_efficiency": 128.6,
+    "win_rate_achievement": 117.65
+  },
+  "performance_grade": "C+ (Below Target)",
+  "weekly_history": [],
+  "daily_history": [
+    {
+      "date": "2025-09-06",
+      "total_trades": 2,
+      "total_revenue": 2.6,
+      "average_roi": 107.5,
+      "win_rate": 100.0,
+      "execution_time_avg": 5.0,
+      "best_trade_revenue": 2.1,
+      "total_gas_cost": 0.03
+    }
+  ]
+}

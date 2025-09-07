@@ -1,0 +1,292 @@
+{
+  "run_id": "backtest_20250907_032045",
+  "report_timestamp": "2025-09-07T03:20:50.087701",
+  "config": {
+    "start_block": 9100000,
+    "end_block": 10050000,
+    "target_days": 150,
+    "target_total_revenue_eth": 4103.22,
+    "target_weekly_avg_eth": 191.48,
+    "target_execution_time": 6.43
+  },
+  "results": {
+    "total_transactions": 756,
+    "total_revenue_eth": 1519.5989367607424,
+    "total_revenue_achievement_rate": 37.03430322431511,
+    "weekly_avg_revenue_eth": 72.36185413146393,
+    "weekly_avg_achievement_rate": 37.79081581964901,
+    "avg_execution_time_seconds": 6.437365216460795,
+    "execution_time_achievement_rate": 99.88558647500749,
+    "highest_transaction_eth": 90.01695495220257,
+    "avg_capital_required": 3.3480902574697273,
+    "flash_loan_usage_rate": 33.2010582010582,
+    "capital_efficiency_rating": "excellent",
+    "days_tested": 150,
+    "blocks_processed": 950000
+  },
+  "weekly_performance": [
+    {
+      "week_number": 1,
+      "week_start_block": 9100000,
+      "week_end_block": 9145238,
+      "transactions_count": 31,
+      "total_revenue_eth": 91.45972568463651,
+      "avg_execution_time": 6.6863310428934035,
+      "target_achievement_rate": 47.76463635086511,
+      "flash_loan_usage_rate": 29.03225806451613,
+      "avg_capital_required": 5.085595113537242
+    },
+    {
+      "week_number": 2,
+      "week_start_block": 9145238,
+      "week_end_block": 9190476,
+      "transactions_count": 45,
+      "total_revenue_eth": 103.1383340109592,
+      "avg_execution_time": 5.99982855981997,
+      "target_achievement_rate": 53.863763323041155,
+      "flash_loan_usage_rate": 37.77777777777778,
+      "avg_capital_required": 5.317935249900646
+    },
+    {
+      "week_number": 3,
+      "week_start_block": 9190476,
+      "week_end_block": 9235714,
+      "transactions_count": 36,
+      "total_revenue_eth": 41.880899587364276,
+      "avg_execution_time": 5.791023291106871,
+      "target_achievement_rate": 21.872205759016232,
+      "flash_loan_usage_rate": 36.11111111111111,
+      "avg_capital_required": 2.2123620313527868
+    },
+    {
+      "week_number": 4,
+      "week_start_block": 9235714,
+      "week_end_block": 9280952,
+      "transactions_count": 39,
+      "total_revenue_eth": 173.31012175869103,
+      "avg_execution_time": 6.374395365247527,
+      "target_achievement_rate": 90.51082189194226,
+      "flash_loan_usage_rate": 43.58974358974359,
+      "avg_capital_required": 3.6521068016384257
+    },
+    {
+      "week_number": 5,
+      "week_start_block": 9280952,
+      "week_end_block": 9326190,
+      "transactions_count": 34,
+      "total_revenue_eth": 38.63122167919274,
+      "avg_execution_time": 6.973841142137075,
+      "target_achievement_rate": 20.175068769162703,
+      "flash_loan_usage_rate": 32.35294117647059,
+      "avg_capital_required": 2.7518435637141074
+    },
+    {
+      "week_number": 6,
+      "week_start_block": 9326190,
+      "week_end_block": 9371428,
+      "transactions_count": 44,
+      "total_revenue_eth": 58.512314017199,
+      "avg_execution_time": 6.19845249883436,
+      "target_achievement_rate": 30.557924596406416,
+      "flash_loan_usage_rate": 31.818181818181817,
+      "avg_capital_required": 2.246888006652229
+    },
+    {
+      "week_number": 7,
+      "week_start_block": 9371428,
+      "week_end_block": 9416666,
+      "transactions_count": 36,
+      "total_revenue_eth": 39.00144502635338,
+      "avg_execution_time": 6.599411927193809,
+      "target_achievement_rate": 20.368417080819608,
+      "flash_loan_usage_rate": 33.33333333333333,
+      "avg_capital_required": 3.2178237289459464
+    },
+    {
+      "week_number": 8,
+      "week_start_block": 9416666,
+      "week_end_block": 9461904,
+      "transactions_count": 32,
+      "total_revenue_eth": 50.75318859563506,
+      "avg_execution_time": 6.242857219825793,
+      "target_achievement_rate": 26.505738769393705,
+      "flash_loan_usage_rate": 28.125,
+      "avg_capital_required": 3.4208255887000774
+    },
+    {
+      "week_number": 9,
+      "week_start_block": 9461904,
+      "week_end_block": 9507142,
+      "transactions_count": 37,
+      "total_revenue_eth": 104.91575614071212,
+      "avg_execution_time": 6.260725837905069,
+      "target_achievement_rate": 54.792018038809346,
+      "flash_loan_usage_rate": 29.72972972972973,
+      "avg_capital_required": 7.182395006859201
+    },
+    {
+      "week_number": 10,
+      "week_start_block": 9507142,
+      "week_end_block": 9552380,
+      "transactions_count": 44,
+      "total_revenue_eth": 131.02182611458247,
+      "avg_execution_time": 6.652294824826172,
+      "target_achievement_rate": 68.42585445716654,
+      "flash_loan_usage_rate": 29.545454545454547,
+      "avg_capital_required": 1.8010803923682972
+    },
+    {
+      "week_number": 11,
+      "week_start_block": 9552380,
+      "week_end_block": 9597618,
+      "transactions_count": 33,
+      "total_revenue_eth": 98.30599628687638,
+      "avg_execution_time": 6.026753678617337,
+      "target_achievement_rate": 51.340085798452264,
+      "flash_loan_usage_rate": 30.303030303030305,
+      "avg_capital_required": 6.267387616989796
+    },
+    {
+      "week_number": 12,
+      "week_start_block": 9597618,
+      "week_end_block": 9642856,
+      "transactions_count": 42,
+      "total_revenue_eth": 58.72831399604938,
+      "avg_execution_time": 6.426582812642015,
+      "target_achievement_rate": 30.670730100297362,
+      "flash_loan_usage_rate": 33.33333333333333,
+      "avg_capital_required": 3.304444056969499
+    },
+    {
+      "week_number": 13,
+      "week_start_block": 9642856,
+      "week_end_block": 9688094,
+      "transactions_count": 32,
+      "total_revenue_eth": 34.60220670027913,
+      "avg_execution_time": 5.560511903159613,
+      "target_achievement_rate": 18.07092474424438,
+      "flash_loan_usage_rate": 28.125,
+      "avg_capital_required": 2.5160988752432596
+    },
+    {
+      "week_number": 14,
+      "week_start_block": 9688094,
+      "week_end_block": 9733332,
+      "transactions_count": 29,
+      "total_revenue_eth": 34.1860448583661,
+      "avg_execution_time": 6.647357915361607,
+      "target_achievement_rate": 17.853585156865524,
+      "flash_loan_usage_rate": 37.93103448275862,
+      "avg_capital_required": 3.373302314610907
+    },
+    {
+      "week_number": 15,
+      "week_start_block": 9733332,
+      "week_end_block": 9778570,
+      "transactions_count": 21,
+      "total_revenue_eth": 56.93618211025103,
+      "avg_execution_time": 7.1669279283323295,
+      "target_achievement_rate": 29.73479324746764,
+      "flash_loan_usage_rate": 47.61904761904761,
+      "avg_capital_required": 2.462207405033548
+    },
+    {
+      "week_number": 16,
+      "week_start_block": 9778570,
+      "week_end_block": 9823808,
+      "transactions_count": 42,
+      "total_revenue_eth": 137.68794280001254,
+      "avg_execution_time": 6.907445274806907,
+      "target_achievement_rate": 71.90721892626517,
+      "flash_loan_usage_rate": 30.952380952380953,
+      "avg_capital_required": 2.872635459192786
+    },
+    {
+      "week_number": 17,
+      "week_start_block": 9823808,
+      "week_end_block": 9869046,
+      "transactions_count": 35,
+      "total_revenue_eth": 45.21304311009284,
+      "avg_execution_time": 6.616190366523611,
+      "target_achievement_rate": 23.612410230881995,
+      "flash_loan_usage_rate": 34.285714285714285,
+      "avg_capital_required": 1.6719635317178392
+    },
+    {
+      "week_number": 18,
+      "week_start_block": 9869046,
+      "week_end_block": 9914284,
+      "transactions_count": 47,
+      "total_revenue_eth": 53.549701576771845,
+      "avg_execution_time": 6.310841946201251,
+      "target_achievement_rate": 27.966211393760105,
+      "flash_loan_usage_rate": 34.04255319148936,
+      "avg_capital_required": 1.6298544236238073
+    },
+    {
+      "week_number": 19,
+      "week_start_block": 9914284,
+      "week_end_block": 9959522,
+      "transactions_count": 32,
+      "total_revenue_eth": 78.3463697026179,
+      "avg_execution_time": 6.235583374709545,
+      "target_achievement_rate": 40.916215637464965,
+      "flash_loan_usage_rate": 43.75,
+      "avg_capital_required": 3.397067784793666
+    },
+    {
+      "week_number": 20,
+      "week_start_block": 9959522,
+      "week_end_block": 10004760,
+      "transactions_count": 31,
+      "total_revenue_eth": 32.48877723830647,
+      "avg_execution_time": 6.905372275777739,
+      "target_achievement_rate": 16.967190953784453,
+      "flash_loan_usage_rate": 29.03225806451613,
+      "avg_capital_required": 2.826358933080289
+    },
+    {
+      "week_number": 21,
+      "week_start_block": 10004760,
+      "week_end_block": 10049998,
+      "transactions_count": 34,
+      "total_revenue_eth": 56.92952576579295,
+      "avg_execution_time": 7.025057648830927,
+      "target_achievement_rate": 29.731316986522327,
+      "flash_loan_usage_rate": 20.588235294117645,
+      "avg_capital_required": 3.577497858702567
+    }
+  ],
+  "paper_comparison": {
+    "total_revenue": {
+      "paper_target": 4103.22,
+      "simulation_result": 1519.5989367607424,
+      "achievement_rate": 37.03430322431511,
+      "gap_eth": 2583.6210632392576,
+      "status": "partial"
+    },
+    "weekly_average": {
+      "paper_target": 191.48,
+      "simulation_result": 72.36185413146393,
+      "achievement_rate": 37.79081581964901,
+      "gap_eth": 119.11814586853606,
+      "status": "partial"
+    },
+    "execution_time": {
+      "paper_target": 6.43,
+      "simulation_result": 6.437365216460795,
+      "achievement_rate": 99.88558647500749,
+      "status": "needs_improvement"
+    },
+    "overall_assessment": "needs_improvement"
+  },
+  "recommendations": [
+    "총 수익 목표 80% 미달 - 알고리즘 최적화 필요",
+    "더 많은 Protocol Actions 구현으로 기회 확대",
+    "Local Search 알고리즘 성능 개선",
+    "주간 평균 수익 목표 미달 - 일관성 있는 성능 필요",
+    "실시간 그래프 업데이트 빈도 증가",
+    "Negative Cycle Detection 최적화",
+    "Flash Loan 활용도 증대로 자본 효율성 개선"
+  ]
+}

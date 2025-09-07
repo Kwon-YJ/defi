@@ -1,0 +1,75 @@
+{
+  "test_suite": "96 Protocol Actions System Stability",
+  "total_tests": 8,
+  "passed_tests": 6,
+  "failed_tests": 2,
+  "success_rate_percent": 75.0,
+  "total_duration_seconds": 63.21163773536682,
+  "protocol_actions_count": 96,
+  "individual_results": [
+    {
+      "test": "Protocol Registry Load Test",
+      "success": true,
+      "duration": 0.0007317066192626953,
+      "memory_mb": 0.0,
+      "actions_processed": 96,
+      "errors": 0
+    },
+    {
+      "test": "Memory Usage Test",
+      "success": false,
+      "duration": 0.31996989250183105,
+      "memory_mb": 0.1875,
+      "actions_processed": 960,
+      "errors": 960
+    },
+    {
+      "test": "Concurrent Action Processing",
+      "success": true,
+      "duration": 0.41623950004577637,
+      "memory_mb": 0.1875,
+      "actions_processed": 96,
+      "errors": 0
+    },
+    {
+      "test": "Stress Test - Continuous Operation",
+      "success": true,
+      "duration": 60.0767297744751,
+      "memory_mb": 0.0,
+      "actions_processed": 26208,
+      "errors": 0
+    },
+    {
+      "test": "Error Handling Test",
+      "success": true,
+      "duration": 0.10170722007751465,
+      "memory_mb": 0.0,
+      "actions_processed": 5,
+      "errors": 0
+    },
+    {
+      "test": "Resource Cleanup Test",
+      "success": false,
+      "duration": 0.004918575286865234,
+      "memory_mb": 0.0,
+      "actions_processed": 0,
+      "errors": 1
+    },
+    {
+      "test": "Performance Degradation Test",
+      "success": true,
+      "duration": 2.2382290363311768,
+      "memory_mb": 0.0,
+      "actions_processed": 1920,
+      "errors": 0
+    },
+    {
+      "test": "Graph Scalability Test",
+      "success": true,
+      "duration": 0.04231429100036621,
+      "memory_mb": 0.5625,
+      "actions_processed": 567,
+      "errors": 0
+    }
+  ]
+}
