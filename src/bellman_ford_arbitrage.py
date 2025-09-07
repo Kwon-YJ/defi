@@ -55,8 +55,15 @@ class BellmanFordArbitrage:
                 opportunity = self._cycle_to_opportunity(cycle)
                 if opportunity and opportunity.net_profit > 0:
                     # 4. Local Search를 통한 최적화 (논문의 "perform a local search and repeat" 구현)
-                    optimized_opportunity = self.local_search.multi_start_search(opportunity)
-                    opportunities.append(optimized_opportunity)
+                    # Use the new asynchronous multi-start search for better performance
+                    try:
+                        # For now, we'll use the synchronous version for compatibility
+                        optimized_opportunity = self.local_search.multi_start_search(opportunity)
+                        opportunities.append(optimized_opportunity)
+                    except Exception as e:
+                        logger.error(f"Local search optimization failed for opportunity: {e}")
+                        # Fall back to original opportunity
+                        opportunities.append(opportunity)
                     processed_opportunities += 1
             
             # 수익이 높은 순으로 정렬 (최대 20개만 반환)

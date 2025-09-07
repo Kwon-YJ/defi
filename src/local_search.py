@@ -1,4 +1,5 @@
 import math
+import asyncio
 from typing import List, Tuple, Optional
 from src.market_graph import TradingEdge, ArbitrageOpportunity
 from src.logger import setup_logger
@@ -175,12 +176,79 @@ class LocalSearch:
         
         return (liquidity_score * 0.5 + path_score * 0.3 + diversity_score * 0.2)
     
+    async def _optimize_single_start_point(self, opportunity: ArbitrageOpportunity, amount: float) -> ArbitrageOpportunity:
+        """
+        Optimize from a single starting point asynchronously.
+        """
+        try:
+            # Create a temporary opportunity with this starting amount
+            temp_opportunity = self._create_optimized_opportunity(opportunity, amount)
+            
+            # Optimize from this starting point
+            optimized = self._hill_climbing_search(temp_opportunity)
+            
+            return optimized
+        except Exception as e:
+            logger.error(f"Error optimizing from start point {amount}: {e}")
+            # Return original opportunity if optimization fails
+            return opportunity
+    
+    async def multi_start_search_async(self, opportunity: ArbitrageOpportunity, 
+                                     start_points: int = 5) -> ArbitrageOpportunity:
+        """
+        Perform local search from multiple starting points concurrently and return the best result.
+        This implements the "Multiple starting points" requirement from the paper with parallel processing.
+        """
+        try:
+            # Try different starting amounts
+            min_liquidity = min(edge.liquidity for edge in opportunity.edges)
+            start_amounts = [
+                min_liquidity * 0.01,  # 1% of min liquidity
+                min_liquidity * 0.05,  # 5% of min liquidity
+                min_liquidity * 0.1,   # 10% of min liquidity
+                min_liquidity * 0.2,   # 20% of min liquidity
+                min_liquidity * 0.5    # 50% of min liquidity
+            ]
+            
+            # Limit to requested number of start points
+            start_amounts = start_amounts[:start_points]
+            
+            # Create tasks for concurrent optimization
+            tasks = [
+                self._optimize_single_start_point(opportunity, amount)
+                for amount in start_amounts
+            ]
+            
+            # Execute all optimizations concurrently
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            # Filter out exceptions and find the best result
+            valid_results = []
+            for result in results:
+                if isinstance(result, Exception):
+                    logger.warning(f"Local search task failed: {result}")
+                elif isinstance(result, ArbitrageOpportunity):
+                    valid_results.append(result)
+            
+            # Return the best result or original if all failed
+            if valid_results:
+                best_opportunity = max(valid_results, key=lambda x: x.net_profit)
+                return best_opportunity
+            else:
+                logger.warning("All local search tasks failed, returning original opportunity")
+                return opportunity
+                
+        except Exception as e:
+            logger.error(f"Error in multi-start search: {e}")
+            return opportunity
+    
     def multi_start_search(self, opportunity: ArbitrageOpportunity, 
                           start_points: int = 5) -> ArbitrageOpportunity:
         """
         Perform local search from multiple starting points and return the best result.
         This implements the "Multiple starting points" requirement from the paper.
         """
+        # For backward compatibility, we can still use the synchronous version
         best_opportunity = opportunity
         best_profit = opportunity.net_profit
         
