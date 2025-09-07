@@ -47,8 +47,11 @@ class BellmanFordArbitrage:
         for i in range(max_iterations):
             updated = False
             
-            # 모든 엣지에 대해 거리 완화 수행
-            for u, v, data in self.graph.graph.edges(data=True):
+            # Multi-graph 지원: 동일 토큰 쌍의 엣지 중 가장 좋은 것만 사용
+            best_edges = self._get_best_edges()
+            
+            # 모든 최고 엣지에 대해 거리 완화 수행
+            for (u, v), data in best_edges.items():
                 weight = data.get('weight', float('inf'))
                 
                 # 무한대가 아닌 경우에만 업데이트
@@ -58,7 +61,7 @@ class BellmanFordArbitrage:
                     # 더 짧은 경로를 찾은 경우 업데이트
                     if new_distance < self.distances[v]:
                         self.distances[v] = new_distance
-                        self.predecessors[v] = u
+                        self.predecessors[v] = (u, data)  # predecessor에 엣지 정보도 저장
                         updated = True
             
             # 업데이트가 없으면 조기 종료
@@ -66,7 +69,8 @@ class BellmanFordArbitrage:
                 break
         
         # 음의 사이클 검사
-        for u, v, data in self.graph.graph.edges(data=True):
+        best_edges = self._get_best_edges()
+        for (u, v), data in best_edges.items():
             weight = data.get('weight', float('inf'))
             
             # 거리 완화가 더 가능하면 음의 사이클 존재
@@ -75,6 +79,21 @@ class BellmanFordArbitrage:
                 return False  # 음의 사이클 존재
         
         return True  # 음의 사이클 없음
+    
+    def _get_best_edges(self) -> Dict[Tuple[str, str], Dict]:
+        """각 토큰 쌍의 최고 엣지 반환 (Multi-graph 지원)"""
+        best_edges = {}
+        
+        # MultiDiGraph의 모든 엣지 처리
+        for u, v, data in self.graph.graph.edges(data=True):
+            edge_key = (u, v)
+            current_weight = data.get('weight', float('inf'))
+            
+            # 동일 토큰 쌍의 엣지 중 가장 가중치가 낮은 것 선택
+            if edge_key not in best_edges or current_weight < best_edges[edge_key].get('weight', float('inf')):
+                best_edges[edge_key] = data
+                
+        return best_edges
     
     def _extract_negative_cycles(self, source: str) -> List[List[str]]:
         """음의 사이클 추출 - 최적화된 구현"""
@@ -114,7 +133,9 @@ class BellmanFordArbitrage:
             
             path.append(current)
             path_set.add(current)
-            current = self.predecessors.get(current)
+            # predecessor가 (node, edge_data) 튜플인 경우 처리
+            pred_info = self.predecessors.get(current)
+            current = pred_info[0] if isinstance(pred_info, tuple) else pred_info
         
         # 방문 처리
         for node in path:
@@ -136,16 +157,15 @@ class BellmanFordArbitrage:
             from_token = cycle[i]
             to_token = cycle[i + 1]
             
-            if not self.graph.graph.has_edge(from_token, to_token):
+            # Multi-graph 지원: 최고 엣지 가져오기
+            best_edge = self.graph.get_best_edge(from_token, to_token)
+            if best_edge is None:
                 logger.warning(f"엣지가 존재하지 않음: {from_token} -> {to_token}")
                 return None
             
-            edge_data = self.graph.graph[from_token][to_token]
-            edge = TradingEdge(**edge_data)
-            edges.append(edge)
-            
-            total_gas_cost += edge.gas_cost
-            total_fee += edge.fee
+            edges.append(best_edge)
+            total_gas_cost += best_edge.gas_cost
+            total_fee += best_edge.fee
         
         # 수익률 계산
         profit_ratio = self._calculate_profit_ratio(edges)
@@ -209,8 +229,10 @@ class BellmanFordArbitrage:
             # 여기서는 간단히 예시로만 구현
             if self.graph.graph.has_edge(edge.from_token, edge.to_token):
                 # 엣지 데이터 업데이트
-                edge_data = self.graph.graph[edge.from_token][edge.to_token]
-                # 유동성 감소 (예시)
-                edge_data['liquidity'] = max(0, edge_data['liquidity'] - executed_opportunity.required_capital)
+                # Note: Multi-graph에서는 모든 병렬 엣지를 업데이트해야 함
+                for u, v, key, data in self.graph.graph.edges(keys=True, data=True):
+                    if (u == edge.from_token and v == edge.to_token and 
+                        data.get('pool_address') == edge.pool_address):
+                        data['liquidity'] = max(0, data['liquidity'] - executed_opportunity.required_capital)
                 
         logger.info(f"Graph state updated after executing opportunity: {executed_opportunity.path}")
