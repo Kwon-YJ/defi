@@ -20,6 +20,7 @@ import json
 from src.market_graph import DeFiMarketGraph
 from src.bellman_ford_arbitrage import BellmanFordArbitrage  
 from src.real_time_collector import RealTimeDataCollector
+from src.transaction_pool_monitor import TransactionPoolMonitor
 from src.data_storage import DataStorage
 from src.logger import setup_logger
 from config.config import config
@@ -40,6 +41,7 @@ class BlockBasedArbitrageDetector:
         self.market_graph = DeFiMarketGraph()
         self.bellman_ford = BellmanFordArbitrage(self.market_graph)
         self.real_time_collector = RealTimeDataCollector()
+        self.transaction_pool_monitor = TransactionPoolMonitor()  # 새로 추가
         self.storage = DataStorage()
         self.w3 = Web3(Web3.HTTPProvider(config.ethereum_mainnet_rpc))
         
@@ -77,8 +79,16 @@ class BlockBasedArbitrageDetector:
             'opportunities_per_block': 0.0,
             'graph_update_time': 0.0,
             'negative_cycle_detection_time': 0.0,
-            'local_search_time': 0.0
+            'local_search_time': 0.0,
+            'blocks_within_target_time': 0,     # 6.43초 이내 처리 블록 수
+            'blocks_exceeding_target_time': 0,  # 6.43초 초과 처리 블록 수
+            'ethereum_block_time_violations': 0  # 13.5초 초과 처리 횟수
         }
+        
+        # 블록 처리 시간 보장 (논문 요구사항)
+        self.target_processing_time = 6.43    # 논문 목표
+        self.ethereum_block_time = 13.5       # Ethereum 평균 블록 시간
+        self.processing_timeout = 12.0        # 처리 타임아웃 (여유 1.5초)
     
     def _initialize_dex_configs(self) -> List[Dict]:
         """
@@ -132,6 +142,16 @@ class BlockBasedArbitrageDetector:
             self.real_time_collector.start_websocket_listener()
         )
         
+        # 트랜잭션 풀 모니터링 시작 (논문 요구사항)
+        txpool_task = asyncio.create_task(
+            self.transaction_pool_monitor.start_monitoring()
+        )
+        
+        # 트랜잭션 풀 모니터의 상태 변화 리스너 연결
+        self.transaction_pool_monitor.register_state_change_listener(
+            self._on_mempool_state_change
+        )
+        
         # 메인 탐지 루프
         try:
             while self.running:
@@ -141,6 +161,7 @@ class BlockBasedArbitrageDetector:
             logger.error(f"탐지 시스템 오류: {e}")
         finally:
             collection_task.cancel()
+            txpool_task.cancel()
             self.executor.shutdown(wait=False)
     
     async def _setup_block_subscriptions(self):
@@ -170,31 +191,65 @@ class BlockBasedArbitrageDetector:
         start_benchmarking(block_number)
         
         try:
-            logger.info(f"=== 블록 {block_number} 처리 시작 (목표: 6.43초) ===")
+            logger.info(f"=== 블록 {block_number} 처리 시작 (목표: {self.target_processing_time}초) ===")
             
-            # 1. 그래프 상태 실시간 업데이트 (논문 요구사항)
-            with time_component("graph_building"):
-                await self._update_graph_state_for_block(block_number)
+            # **논문 요구사항**: 처리 시간 제한 (Ethereum 블록 시간 내 처리 보장)
+            processing_start_time = time.time()
+            
+            # 타임아웃을 적용한 처리
+            try:
+                opportunities_found = 0
+                strategies_executed = 0
+                total_revenue = 0.0
                 
-                # **DYNAMIC GRAPH UPDATE**: 대기 중인 업데이트들 즉시 처리
-                queued_updates = self.market_graph.process_update_queue(max_items=100)
-                if queued_updates > 0:
-                    logger.debug(f"블록 {block_number}: {queued_updates}개 동적 업데이트 처리")
-            
-            # 2. 병렬 차익거래 탐지 (각 base token별)
-            with time_component("negative_cycle_detection"):
-                all_opportunities = await self._parallel_arbitrage_detection()
-            
-            # 3. 기회 처리 및 저장
-            opportunities_found = len(all_opportunities)
-            strategies_executed = 0
-            total_revenue = 0.0
-            
-            if all_opportunities:
-                with time_component("validation"):
-                    strategies_executed, total_revenue = await self._process_block_opportunities(
-                        block_number, block_hash, all_opportunities
+                # 1. 그래프 상태 실시간 업데이트 (논문 요구사항)
+                with time_component("graph_building"):
+                    await asyncio.wait_for(
+                        self._update_graph_state_for_block(block_number),
+                        timeout=4.0  # 그래프 업데이트에 최대 4초
                     )
+                    
+                    # **DYNAMIC GRAPH UPDATE**: 대기 중인 업데이트들 즉시 처리
+                    queued_updates = self.market_graph.process_update_queue(max_items=100)
+                    if queued_updates > 0:
+                        logger.debug(f"블록 {block_number}: {queued_updates}개 동적 업데이트 처리")
+                
+                # 2. 병렬 차익거래 탐지 (각 base token별)
+                with time_component("negative_cycle_detection"):
+                    remaining_time = self.processing_timeout - (time.time() - processing_start_time)
+                    if remaining_time > 2.0:  # 최소 2초는 남아야 함
+                        all_opportunities = await asyncio.wait_for(
+                            self._parallel_arbitrage_detection(),
+                            timeout=remaining_time - 1.0
+                        )
+                        opportunities_found = len(all_opportunities)
+                    else:
+                        logger.warning(f"블록 {block_number}: 시간 부족으로 탐지 스킵")
+                        all_opportunities = []
+                
+                # 3. 기회 처리 및 저장
+                if all_opportunities:
+                    remaining_time = self.processing_timeout - (time.time() - processing_start_time)
+                    if remaining_time > 1.0:
+                        with time_component("validation"):
+                            strategies_executed, total_revenue = await asyncio.wait_for(
+                                self._process_block_opportunities(
+                                    block_number, block_hash, all_opportunities
+                                ),
+                                timeout=remaining_time - 0.5
+                            )
+                    else:
+                        logger.warning(f"블록 {block_number}: 시간 부족으로 처리 스킵")
+                        
+            except asyncio.TimeoutError:
+                processing_time = time.time() - processing_start_time
+                logger.error(
+                    f"🚨 블록 {block_number} 처리 타임아웃 ({processing_time:.2f}s > {self.processing_timeout}s)"
+                )
+                self.metrics['ethereum_block_time_violations'] += 1
+                opportunities_found = 0
+                strategies_executed = 0
+                total_revenue = 0.0
             
             # 성능 벤치마킹 완료
             metrics = end_benchmarking(
@@ -205,14 +260,23 @@ class BlockBasedArbitrageDetector:
             )
             
             # 논문 기준 성능 체크
-            if metrics.total_execution_time > 6.43:
+            if metrics.total_execution_time > self.target_processing_time:
                 logger.warning(
-                    f"⚠️ 실행 시간 초과: {metrics.total_execution_time:.3f}s > 6.43s 목표"
+                    f"⚠️ 실행 시간 초과: {metrics.total_execution_time:.3f}s > {self.target_processing_time}s 목표"
                 )
+                self.metrics['blocks_exceeding_target_time'] += 1
             else:
                 logger.info(
-                    f"✅ 실행 시간 목표 달성: {metrics.total_execution_time:.3f}s < 6.43s"
+                    f"✅ 실행 시간 목표 달성: {metrics.total_execution_time:.3f}s < {self.target_processing_time}s"
                 )
+                self.metrics['blocks_within_target_time'] += 1
+            
+            # Ethereum 블록 시간 체크
+            if metrics.total_execution_time > self.ethereum_block_time:
+                logger.error(
+                    f"🚨 Ethereum 블록 시간 초과: {metrics.total_execution_time:.3f}s > {self.ethereum_block_time}s"
+                )
+                self.metrics['ethereum_block_time_violations'] += 1
             
         except Exception as e:
             logger.error(f"블록 {block_number} 처리 오류: {e}")
@@ -493,14 +557,77 @@ class BlockBasedArbitrageDetector:
             if change_data.get('changed'):
                 logger.info(f"자동 상태 변화 감지: {change_data['previous_hash'][:8]} -> {change_data['current_hash'][:8]}")
     
+    async def _on_mempool_state_change(self, change_data: Dict):
+        """
+        Mempool 상태 변화 리스너 콜백
+        트랜잭션 풀 모니터링에서 감지한 상태 변화 처리
+        """
+        change_type = change_data['type']
+        
+        if change_type == 'new_block':
+            block_number = change_data['block_number']
+            logger.debug(f"Mempool에서 새 블록 감지: {block_number}")
+            
+        elif change_type == 'arbitrage_detected':
+            tx_hash = change_data.get('tx_hash', '')
+            logger.info(f"Mempool에서 차익거래 트랜잭션 감지: {tx_hash[:10]}...")
+            
+            # 즉시 그래프 상태 업데이트 트리거
+            await self._trigger_immediate_graph_update(f"arbitrage_tx_{tx_hash}")
+            
+        elif change_type == 'mev_opportunity':
+            mev_score = change_data.get('mev_score', 0)
+            tx_hash = change_data.get('tx_hash', '')
+            logger.info(f"MEV 기회 감지 (점수: {mev_score:.2f}): {tx_hash[:10]}...")
+            
+            # 높은 MEV 점수면 우선순위 처리
+            if mev_score > 0.8:
+                await self._trigger_priority_processing(change_data)
+    
+    async def _trigger_immediate_graph_update(self, trigger_reason: str):
+        """즉시 그래프 상태 업데이트 트리거"""
+        try:
+            logger.debug(f"즉시 그래프 업데이트 트리거: {trigger_reason}")
+            
+            # 우선순위가 높은 업데이트들 즉시 처리
+            processed_updates = self.market_graph.process_update_queue(
+                max_items=50, 
+                priority_only=True
+            )
+            
+            if processed_updates > 0:
+                logger.info(f"즉시 처리된 그래프 업데이트: {processed_updates}개")
+                
+        except Exception as e:
+            logger.error(f"즉시 그래프 업데이트 실패: {e}")
+    
+    async def _trigger_priority_processing(self, mev_data: Dict):
+        """우선순위 처리 트리거"""
+        try:
+            tx_hash = mev_data.get('tx_hash', '')
+            mev_score = mev_data.get('mev_score', 0)
+            
+            logger.info(f"우선순위 MEV 처리: {tx_hash[:10]}... (점수: {mev_score:.2f})")
+            
+            # 여기서 즉시 차익거래 탐지 실행 가능
+            # 하지만 현재 블록 처리 중이 아닐 때만
+            if not self.processing_block:
+                logger.info("블록 처리 중이 아니므로 즉시 MEV 분석 시작")
+                # 즉시 분석 로직 구현 가능
+                
+        except Exception as e:
+            logger.error(f"우선순위 처리 실패: {e}")
+    
     def stop_detection(self):
         """탐지 중지"""
         self.running = False
         self.real_time_collector.stop()
+        self.transaction_pool_monitor.stop_monitoring()  # 트랜잭션 풀 모니터 중지
         self.executor.shutdown(wait=True)
         
         # 상태 변화 리스너 해제
         self.market_graph.remove_state_change_listener(self._on_graph_state_change)
+        self.transaction_pool_monitor.remove_state_change_listener(self._on_mempool_state_change)
         
         logger.info("블록 기반 차익거래 탐지 중지")
 
