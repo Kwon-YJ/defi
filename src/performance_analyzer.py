@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List
 import pandas as pd
 from src.data_storage import DataStorage
+from src.performance_monitor import PerformanceMonitor
 from src.logger import setup_logger
 
 logger = setup_logger(__name__)
@@ -10,6 +11,7 @@ logger = setup_logger(__name__)
 class PerformanceAnalyzer:
     def __init__(self):
         self.storage = DataStorage()
+        self.performance_monitor = PerformanceMonitor()
         
     async def generate_daily_report(self) -> Dict:
         """일일 성과 보고서 생성"""
@@ -50,6 +52,9 @@ class PerformanceAnalyzer:
             # DEX별 분석
             dex_stats = self._analyze_dex_performance(today_opportunities)
             
+            # 성능 통계 추가
+            performance_stats = self.performance_monitor.get_current_stats()
+            
             return {
                 'date': today.isoformat(),
                 'total_opportunities': total_opportunities,
@@ -59,7 +64,8 @@ class PerformanceAnalyzer:
                 'total_profit': total_profit,
                 'hourly_distribution': hourly_stats,
                 'dex_performance': dex_stats,
-                'best_opportunity': max(today_opportunities, key=lambda x: x.get('net_profit', 0)) if today_opportunities else None
+                'best_opportunity': max(today_opportunities, key=lambda x: x.get('net_profit', 0)) if today_opportunities else None,
+                'performance_stats': performance_stats
             }
             
         except Exception as e:
@@ -111,6 +117,10 @@ class PerformanceAnalyzer:
             total_profit = sum(opp.get('net_profit', 0) for opp in week_opportunities)
             daily_average = total_profit / 7
             
+            # 성능 통계 추가
+            performance_stats = self.performance_monitor.get_current_stats()
+            performance_report = self.performance_monitor.get_performance_report()
+            
             return {
                 'week_start': week_ago.date().isoformat(),
                 'week_end': datetime.now().date().isoformat(),
@@ -118,7 +128,9 @@ class PerformanceAnalyzer:
                 'weekly_profit': total_profit,
                 'daily_average': daily_average,
                 'daily_breakdown': {date.isoformat(): stats for date, stats in daily_stats.items()},
-                'trend_analysis': self._analyze_weekly_trends(daily_stats)
+                'trend_analysis': self._analyze_weekly_trends(daily_stats),
+                'performance_stats': performance_stats,
+                'performance_report': performance_report
             }
             
         except Exception as e:
@@ -155,6 +167,9 @@ class PerformanceAnalyzer:
             # 위험 조정 ROI (보수적 추정)
             conservative_roi = roi_percentage * 0.7  # 30% 할인
             
+            # 성능 통계 추가
+            performance_stats = self.performance_monitor.get_current_stats()
+            
             return {
                 'investment_amount': investment_amount,
                 'monthly_profit': monthly_profit,
@@ -164,7 +179,8 @@ class PerformanceAnalyzer:
                 'payback_months': payback_months,
                 'monthly_opportunities': monthly_opportunities,
                 'annual_opportunities_projection': annual_opportunities,
-                'recommendation': self._generate_investment_recommendation(roi_percentage, payback_months)
+                'recommendation': self._generate_investment_recommendation(roi_percentage, payback_months),
+                'performance_stats': performance_stats
             }
             
         except Exception as e:

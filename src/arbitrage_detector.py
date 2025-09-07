@@ -12,6 +12,7 @@ from src.bellman_ford_arbitrage import BellmanFordArbitrage
 from src.protocol_actions import ProtocolActionsManager
 from src.token_manager import TokenManager
 from src.data_storage import DataStorage
+from src.performance_monitor import PerformanceMonitor
 from src.logger import setup_logger
 
 logger = setup_logger(__name__)
@@ -23,6 +24,7 @@ class ArbitrageDetector:
         self.protocol_manager = ProtocolActionsManager(self.market_graph)
         self.token_manager = TokenManager()
         self.storage = DataStorage()
+        self.performance_monitor = PerformanceMonitor()
         self.running = False
         
         # Initialize supported tokens (expand from 4 to 25 assets as per paper)
@@ -48,8 +50,13 @@ class ArbitrageDetector:
         
         while self.running:
             try:
+                # 성능 모니터링 시작
+                timer = self.performance_monitor.start_monitoring("arbitrage_detection_cycle")
+                
                 # 1. 시장 데이터 업데이트
+                timer.checkpoint("market_data_update_start")
                 await self._update_market_data()
+                timer.checkpoint("market_data_update_end")
                 
                 # 2. 각 기준 토큰에서 차익거래 기회 탐색
                 all_opportunities = []
@@ -62,11 +69,28 @@ class ArbitrageDetector:
                         if opp.net_profit > 0.001:  # 최소 수익 임계값
                             all_opportunities.append(opp)
                 
+                timer.checkpoint("opportunity_search_end")
+                
                 # 4. 기회 저장 및 알림
                 if all_opportunities:
                     await self._process_opportunities(all_opportunities)
                 
-                # 5. 잠시 대기 (너무 자주 실행하지 않도록)
+                timer.checkpoint("opportunity_processing_end")
+                
+                # 5. 성능 모니터링 종료
+                execution_time = self.performance_monitor.stop_monitoring("arbitrage_detection_cycle")
+                
+                # 성능 통계 로깅
+                if execution_time:
+                    stats = self.performance_monitor.get_current_stats()
+                    rating = self.performance_monitor.benchmark.get_performance_rating()
+                    logger.info(f"Detection cycle completed in {execution_time:.4f}s (Rating: {rating})")
+                    
+                    # 목표 시간을 초과한 경우 경고
+                    if execution_time > 6.43:
+                        logger.warning(f"Execution time ({execution_time:.4f}s) exceeds target (6.43s)")
+                
+                # 6. 잠시 대기 (너무 자주 실행하지 않도록)
                 await asyncio.sleep(5)  # 5초 간격
                 
             except Exception as e:
