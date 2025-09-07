@@ -1,0 +1,24 @@
+{
+  "telegram": {
+    "bot_token": "YOUR_TELEGRAM_BOT_TOKEN",
+    "chat_id": "YOUR_CHAT_ID",
+    "enabled": false
+  },
+  "email": {
+    "smtp_server": "smtp.gmail.com",
+    "smtp_port": 587,
+    "username": "your_email@gmail.com",
+    "password": "your_app_password",
+    "to_email": "alerts@yourcompany.com",
+    "enabled": false
+  },
+  "webhook": {
+    "url": "https://your-webhook-url.com/alerts",
+    "enabled": false
+  },
+  "alert_settings": {
+    "min_severity_for_notification": "warning",
+    "rate_limit_minutes": 5,
+    "batch_alerts": true
+  }
+}
