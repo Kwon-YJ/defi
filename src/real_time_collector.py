@@ -6,6 +6,7 @@ from web3 import Web3
 from src.logger import setup_logger
 from src.data_storage import DataStorage
 from src.real_time_price_feeds import RealTimePriceFeeds
+from src.data_validator import DataValidator
 from config.config import config
 
 logger = setup_logger(__name__)
@@ -26,6 +27,7 @@ class RealTimeDataCollector:
         self._connect_to_primary_node()
         
         self.storage = DataStorage()
+        self.data_validator = DataValidator(self.storage)
         self.price_feeds = RealTimePriceFeeds()
         self.subscribers: Dict[str, List[Callable]] = {}
         self.running = False
@@ -283,7 +285,7 @@ class RealTimeDataCollector:
                 reserve0 = int(log_data['topics'][1], 16)
                 reserve1 = int(log_data['topics'][2], 16)
                 
-                # 풀 데이터 저장
+                # 풀 데이터 생성
                 pool_data = {
                     'address': pool_address,
                     'reserve0': reserve0,
@@ -291,9 +293,18 @@ class RealTimeDataCollector:
                     'timestamp': log_data.get('blockNumber', 0)
                 }
                 
+                # 데이터 검증
+                validation_result = self.data_validator.validate_pool_data(pool_address, pool_data)
+                
+                if not validation_result['valid']:
+                    logger.warning(f"풀 데이터 검증 실패 ({pool_address}): {validation_result['reason']}")
+                    if validation_result['severity'] in ['critical', 'error']:
+                        return  # 심각한 오류는 저장하지 않음
+                
+                # 검증을 통과한 데이터만 저장
                 await self.storage.store_pool_data(pool_address, pool_data)
                 
-                logger.debug(f"풀 리저브 업데이트: {pool_address}")
+                logger.debug(f"풀 리저브 업데이트: {pool_address} (검증: {validation_result['severity']})")
                 
         except Exception as e:
             logger.error(f"Sync 이벤트 처리 실패: {e}")

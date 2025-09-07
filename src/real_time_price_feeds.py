@@ -5,9 +5,11 @@ from typing import Dict, List, Optional, Callable
 from dataclasses import dataclass, asdict
 from datetime import datetime
 import logging
+import numpy as np
 from src.logger import setup_logger
 from src.token_manager import TokenManager
 from src.data_storage import DataStorage
+from src.data_validator import DataValidator
 
 logger = setup_logger(__name__)
 
@@ -26,6 +28,7 @@ class RealTimePriceFeeds:
     def __init__(self):
         self.token_manager = TokenManager()
         self.data_storage = DataStorage()
+        self.data_validator = DataValidator(self.data_storage)
         self.price_feeds: Dict[str, PriceFeed] = {}
         self.subscribers: List[Callable] = []
         self.running = False
@@ -386,6 +389,17 @@ class RealTimePriceFeeds:
     async def _store_price_feed(self, price_feed: PriceFeed):
         """가격 피드 데이터 저장"""
         try:
+            # 데이터 검증
+            validation_result = self.data_validator.validate_price_data(
+                price_feed.symbol, price_feed.price_usd, price_feed.timestamp
+            )
+            
+            if not validation_result['valid']:
+                logger.warning(f"가격 데이터 검증 실패 ({price_feed.symbol}): {validation_result['reason']}")
+                if validation_result['severity'] in ['critical', 'error']:
+                    return  # 심각한 오류는 저장하지 않음
+            
+            # 검증을 통과한 데이터만 저장
             # Redis에 현재 가격 저장
             key = f"price:{price_feed.symbol}"
             data = json.dumps(asdict(price_feed), default=str)
@@ -395,6 +409,8 @@ class RealTimePriceFeeds:
             timestamp = datetime.now().isoformat()
             ts_key = f"price_history:{price_feed.symbol}:{timestamp}"
             self.data_storage.redis_client.setex(ts_key, 3600, data)  # 1시간 보관
+            
+            logger.debug(f"가격 피드 저장 완료: {price_feed.symbol} (검증: {validation_result['severity']})")
             
         except Exception as e:
             logger.error(f"가격 피드 데이터 저장 중 오류 발생: {e}")
