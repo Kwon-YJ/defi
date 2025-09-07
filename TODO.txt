@@ -27,7 +27,11 @@
 ## 2. 데이터 확장 - 논문 규모 달성 (Scale to Paper Specifications)
 
 ### 2.1 DeFi Protocol Actions 확장 (현재 ~6개 → 96개)
-- [ ] **CRITICAL**: 논문에서 언급한 96개 protocol actions 식별 및 구현
+- [x] **CRITICAL**: 논문에서 언급한 96개 protocol actions 식별
+- [ ] **CRITICAL**: 96개 protocol actions 구현 - Uniswap actions (48 actions)
+- [ ] **CRITICAL**: 96개 protocol actions 구현 - Bancor actions (46 actions)
+- [ ] **CRITICAL**: 96개 protocol actions 구현 - MakerDAO actions (2 actions)
+- [ ] **CRITICAL**: 실제 블록체인 데이터로 protocol actions 업데이트
 - [ ] Uniswap V2/V3, Sushiswap (swap actions)
 - [ ] Compound, Aave (lending/borrowing actions) 
 - [ ] Curve Finance (stableswap actions)
@@ -123,7 +127,10 @@
 
 ### Phase 1: 핵심 알고리즘 완성 (1-2주)
 1. **Local Search 알고리즘 구현** - 현재 완전히 누락된 핵심 기능 ✅ 완료
-2. **96개 Protocol Actions 식별 및 구현** - 현재 ~6개만 있음
+2. **96개 Protocol Actions 식별 및 구현** - 현재 ~6개만 있음 → 작업 분할 완료
+   - 2.1 Protocol Actions 식별 ✅ 완료
+   - 2.2 Protocol Actions 구현 (Uniswap, Bancor, MakerDAO) 🔧 진행중
+   - 2.3 실제 블록체인 데이터 연동 🔧 대기중
 3. **25개 Assets 지원** - 현재 4개만 있음  
 4. **실행 시간 측정 및 최적화** - 6.43초 목표
 5. **블록 기반 실시간 처리** - 현재 5초 delay 방식
@@ -152,7 +159,7 @@
 
 ## 현재 상태 분석
 - ✅ **Local Search**: 완전히 누락 (논문의 핵심 알고리즘) → 구현 완료
-- ❌ **Protocol Actions**: ~6개만 구현 (목표: 96개)
+- 🔧 **Protocol Actions**: ~6개만 구현 (목표: 96개) → 작업 분할 및 진행중
 - ❌ **Assets**: 4개 base tokens만 (목표: 25개)
 - ❌ **성능 측정**: 실행 시간 미측정 (목표: 6.43초)
 - ❌ **Flash Loans**: 미구현 (논문의 핵심 수익 원천)
