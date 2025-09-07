@@ -28,6 +28,8 @@ from src.performance_benchmarking import (
     start_benchmarking, end_benchmarking, time_component, 
     get_performance_report
 )
+from src.error_handler import SystemErrorHandler, ErrorType, ErrorSeverity, error_handler_decorator, circuit_breaker_decorator
+from src.defi_recovery_manager import DeFiRecoveryManager, DeFiErrorType
 
 logger = setup_logger(__name__)
 
@@ -38,6 +40,10 @@ class BlockBasedArbitrageDetector:
     """
     
     def __init__(self):
+        # Error handling 및 recovery 시스템 초기화
+        self.error_handler = SystemErrorHandler()
+        self.recovery_manager = DeFiRecoveryManager(self.error_handler)
+        
         self.market_graph = DeFiMarketGraph()
         self.bellman_ford = BellmanFordArbitrage(self.market_graph)
         self.real_time_collector = RealTimeDataCollector()
@@ -89,6 +95,81 @@ class BlockBasedArbitrageDetector:
         self.target_processing_time = 6.43    # 논문 목표
         self.ethereum_block_time = 13.5       # Ethereum 평균 블록 시간
         self.processing_timeout = 12.0        # 처리 타임아웃 (여유 1.5초)
+        
+        # Error handling 설정
+        self._setup_error_recovery()
+        
+        logger.info("BlockBasedArbitrageDetector 초기화 완료 (with error handling)")
+    
+    def _setup_error_recovery(self):
+        """에러 핸들링 및 복구 시스템 설정"""
+        # Backup RPC endpoints 추가
+        backup_rpcs = [
+            "https://mainnet.infura.io/v3/backup",
+            "https://eth-mainnet.alchemyapi.io/v2/backup",
+            "https://cloudflare-eth.com"
+        ]
+        for rpc in backup_rpcs:
+            self.recovery_manager.add_backup_rpc_endpoint(rpc)
+        
+        # Fallback data sources for price feeds
+        fallback_sources = {
+            "ETH": "coinbase_api",
+            "USDC": "compound_oracle", 
+            "DAI": "maker_oracle",
+            "USDT": "chainlink_oracle"
+        }
+        for token, source in fallback_sources.items():
+            self.recovery_manager.add_fallback_data_source(token, source)
+        
+        # Alert callback 등록
+        self.error_handler.register_alert_callback(self._handle_system_alert)
+    
+    async def _handle_system_alert(self, error_context, alert_message: str):
+        """시스템 알림 처리"""
+        try:
+            logger.critical(f"SYSTEM ALERT: {alert_message}")
+            
+            # Critical 에러의 경우 graceful degradation 활성화
+            if error_context.severity == ErrorSeverity.CRITICAL:
+                self.error_handler.enable_graceful_degradation(error_context.component)
+                logger.warning(f"Graceful degradation enabled for {error_context.component}")
+            
+            # 시스템 건강도가 너무 낮으면 재시작 권고
+            if self.error_handler.system_health_score < 20:
+                logger.critical("System health critically low - recommending restart")
+                
+                # Telegram으로 알림 전송 (사용자 요구사항)
+                import subprocess
+                try:
+                    subprocess.run([
+                        "python3", "telegram_send.py", 
+                        "--msg", f"DeFi 시스템 위험 상태: Health Score {self.error_handler.system_health_score:.1f}. 재시작 필요."
+                    ], timeout=5)
+                except Exception as telegram_error:
+                    logger.error(f"Telegram 알림 전송 실패: {telegram_error}")
+            
+        except Exception as e:
+            logger.error(f"Alert handler 에러: {e}")
+    
+    def _classify_block_error(self, error: Exception) -> DeFiErrorType:
+        """블록 처리 에러 분류"""
+        error_message = str(error).lower()
+        
+        if any(keyword in error_message for keyword in ['timeout', 'time out']):
+            return DeFiErrorType.ARBITRAGE_OPPORTUNITY_EXPIRED
+        elif any(keyword in error_message for keyword in ['price', 'rate', 'feed']):
+            return DeFiErrorType.PRICE_FEED_ERROR
+        elif any(keyword in error_message for keyword in ['liquidity', 'insufficient']):
+            return DeFiErrorType.LIQUIDITY_ERROR
+        elif any(keyword in error_message for keyword in ['gas', 'transaction']):
+            return DeFiErrorType.TRANSACTION_FAILED
+        elif any(keyword in error_message for keyword in ['graph', 'inconsist']):
+            return DeFiErrorType.GRAPH_INCONSISTENCY
+        elif any(keyword in error_message for keyword in ['protocol', 'unavailable']):
+            return DeFiErrorType.PROTOCOL_UNAVAILABLE
+        else:
+            return DeFiErrorType.GRAPH_INCONSISTENCY  # Default fallback
     
     def _initialize_dex_configs(self) -> List[Dict]:
         """
@@ -158,11 +239,48 @@ class BlockBasedArbitrageDetector:
                 await asyncio.sleep(0.1)  # 짧은 대기로 응답성 유지
                 
         except Exception as e:
+            # 전체 시스템 오류 처리
+            try:
+                await self.recovery_manager.handle_defi_error(
+                    error=e,
+                    component="main_detection_loop",
+                    defi_error_type=DeFiErrorType.GRAPH_INCONSISTENCY,
+                    metadata={'system_state': 'main_loop_failure'}
+                )
+                
+                # Critical system failure의 경우 재시작 권고
+                if self.error_handler.system_health_score < 10:
+                    import subprocess
+                    try:
+                        subprocess.run([
+                            "python3", "telegram_send.py", 
+                            "--msg", "DeFi 시스템 Critical Failure 발생. 즉시 재시작이 필요합니다."
+                        ], timeout=5)
+                        
+                        # pkill로 무한루프 중단 (사용자 요구사항)
+                        logger.critical("Critical failure detected - initiating system shutdown")
+                        subprocess.run(["pkill", "-f", "claude"], timeout=5)
+                        
+                    except Exception as emergency_error:
+                        logger.error(f"Emergency shutdown failed: {emergency_error}")
+                        
+            except Exception as recovery_error:
+                logger.error(f"Main loop recovery handling failed: {recovery_error}")
+            
             logger.error(f"탐지 시스템 오류: {e}")
+            
         finally:
-            collection_task.cancel()
-            txpool_task.cancel()
-            self.executor.shutdown(wait=False)
+            # 리소스 정리
+            try:
+                collection_task.cancel()
+                txpool_task.cancel()
+                self.executor.shutdown(wait=False)
+                
+                # Error handler 종료
+                self.error_handler.shutdown()
+                
+            except Exception as cleanup_error:
+                logger.error(f"Cleanup failed: {cleanup_error}")
     
     async def _setup_block_subscriptions(self):
         """블록 구독 설정"""
@@ -178,14 +296,39 @@ class BlockBasedArbitrageDetector:
         """
         새 블록 처리 - 논문의 핵심 요구사항
         매 블록마다 실시간 그래프 상태 업데이트 및 차익거래 탐지
+        Enhanced with comprehensive error handling and recovery
         """
         if self.processing_block:
             logger.warning("이전 블록 처리 중... 스킵")
             return
         
         self.processing_block = True
-        block_number = int(block_data['number'], 16)
-        block_hash = block_data['hash']
+        block_number = None
+        block_hash = None
+        
+        try:
+            # Block data validation with error handling
+            try:
+                block_number = int(block_data['number'], 16)
+                block_hash = block_data['hash']
+            except (KeyError, ValueError, TypeError) as e:
+                await self.recovery_manager.handle_defi_error(
+                    error=e,
+                    component="block_processor",
+                    defi_error_type=DeFiErrorType.GRAPH_INCONSISTENCY,
+                    metadata={'block_data': str(block_data)}
+                )
+                return
+            
+            # Create system backup before processing
+            try:
+                self.recovery_manager.create_system_backup({
+                    'block_number': block_number,
+                    'processing_state': 'starting',
+                    'graph_state': 'current'
+                })
+            except Exception as e:
+                logger.warning(f"Failed to create system backup: {e}")
         
         # 성능 벤치마킹 시작
         start_benchmarking(block_number)
@@ -279,9 +422,31 @@ class BlockBasedArbitrageDetector:
                 self.metrics['ethereum_block_time_violations'] += 1
             
         except Exception as e:
+            # 블록 처리 에러를 DeFi Recovery Manager로 전달
+            try:
+                await self.recovery_manager.handle_defi_error(
+                    error=e,
+                    component="block_processor",
+                    defi_error_type=self._classify_block_error(e),
+                    affected_tokens=self.base_tokens,
+                    affected_protocols=[dex['name'] for dex in self.dex_configs],
+                    metadata={
+                        'block_number': block_number,
+                        'block_hash': block_hash,
+                        'processing_stage': 'main_processing'
+                    }
+                )
+            except Exception as recovery_error:
+                logger.error(f"Recovery handling failed: {recovery_error}")
+            
             logger.error(f"블록 {block_number} 처리 오류: {e}")
+            
             # 오류 시에도 벤치마킹 완료
-            end_benchmarking(opportunities_found=0, strategies_executed=0)
+            try:
+                end_benchmarking(opportunities_found=0, strategies_executed=0)
+            except Exception as bench_error:
+                logger.error(f"Benchmarking cleanup failed: {bench_error}")
+                
         finally:
             self.processing_block = False
             self.current_block = block_number
@@ -347,6 +512,18 @@ class BlockBasedArbitrageDetector:
                 )
                 
         except Exception as e:
+            # DEX 상태 업데이트 에러를 복구 시스템으로 전달
+            try:
+                await self.recovery_manager.handle_defi_error(
+                    error=e,
+                    component=f"dex_updater_{dex_name}",
+                    defi_error_type=DeFiErrorType.PROTOCOL_UNAVAILABLE,
+                    affected_protocols=[dex_name],
+                    metadata={'block_number': block_number, 'dex_config': dex_config}
+                )
+            except Exception as recovery_error:
+                logger.error(f"DEX recovery handling failed: {recovery_error}")
+            
             logger.error(f"DEX {dex_config['name']} 상태 업데이트 오류: {e}")
     
     async def _add_mock_trading_pair(self, token0_symbol: str, token1_symbol: str, 
@@ -621,15 +798,56 @@ class BlockBasedArbitrageDetector:
     def stop_detection(self):
         """탐지 중지"""
         self.running = False
-        self.real_time_collector.stop()
-        self.transaction_pool_monitor.stop_monitoring()  # 트랜잭션 풀 모니터 중지
-        self.executor.shutdown(wait=True)
+    
+    def get_system_status_with_error_info(self) -> Dict[str, Any]:
+        """에러 핸들링 정보를 포함한 전체 시스템 상태"""
+        base_metrics = {
+            'blocks_processed': self.blocks_processed,
+            'average_execution_time': (
+                sum(self.execution_times) / len(self.execution_times) 
+                if self.execution_times else 0
+            ),
+            'opportunities_found': self.total_opportunities_found,
+            'processing_status': 'running' if self.running else 'stopped',
+            'current_block': self.current_block
+        }
         
-        # 상태 변화 리스너 해제
-        self.market_graph.remove_state_change_listener(self._on_graph_state_change)
-        self.transaction_pool_monitor.remove_state_change_listener(self._on_mempool_state_change)
+        # Error handling 상태 정보 추가
+        error_status = self.error_handler.get_system_status()
+        recovery_stats = self.recovery_manager.get_recovery_stats()
+        protocol_health = self.recovery_manager.get_protocol_health()
         
-        logger.info("블록 기반 차익거래 탐지 중지")
+        return {
+            'basic_metrics': base_metrics,
+            'error_handling': error_status,
+            'recovery_performance': recovery_stats,
+            'protocol_health': protocol_health,
+            'system_recommendations': self._generate_system_recommendations(error_status)
+        }
+    
+    def _generate_system_recommendations(self, error_status: Dict[str, Any]) -> List[str]:
+        """시스템 상태 기반 권고사항 생성"""
+        recommendations = []
+        
+        health_score = error_status.get('health_score', 100)
+        recent_errors = error_status.get('recent_errors', 0)
+        degraded_components = error_status.get('degraded_components', [])
+        
+        if health_score < 20:
+            recommendations.append("CRITICAL: System restart required immediately")
+        elif health_score < 50:
+            recommendations.append("WARNING: System performance degraded - consider restart")
+        
+        if recent_errors > 20:
+            recommendations.append("HIGH: Too many recent errors - check system resources")
+        
+        if len(degraded_components) > 3:
+            recommendations.append("MEDIUM: Multiple components degraded - investigate")
+        
+        if self.metrics['ethereum_block_time_violations'] > 5:
+            recommendations.append("PERFORMANCE: Block processing too slow - optimize")
+            
+        return recommendations
 
 # 사용 예시
 async def main():

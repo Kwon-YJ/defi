@@ -1,0 +1,95 @@
+{
+  "summary": {
+    "total_tests": 12,
+    "passed_tests": 11,
+    "failed_tests": 1,
+    "test_details": [
+      {
+        "test_name": "Basic Error Handling",
+        "status": "PASS",
+        "details": "Basic error handling successful",
+        "timestamp": 1757230810.125406
+      },
+      {
+        "test_name": "Error Classification",
+        "status": "PASS",
+        "details": "Classified 4 error types correctly",
+        "timestamp": 1757230813.7337973
+      },
+      {
+        "test_name": "Severity Determination",
+        "status": "PASS",
+        "details": "Determined 5 severities correctly",
+        "timestamp": 1757230813.7339258
+      },
+      {
+        "test_name": "Recovery Strategies",
+        "status": "PASS",
+        "details": "Recovery strategies working",
+        "timestamp": 1757230814.735101
+      },
+      {
+        "test_name": "Circuit Breaker",
+        "status": "PASS",
+        "details": "Circuit breaker state: CircuitBreakerState.OPEN",
+        "timestamp": 1757230814.738796
+      },
+      {
+        "test_name": "Graceful Degradation",
+        "status": "FAIL",
+        "details": "Failed: ",
+        "timestamp": 1757230814.7389443
+      },
+      {
+        "test_name": "DeFi Error Recovery",
+        "status": "PASS",
+        "details": "Recovery stats: {'total_recoveries': 1, 'successful_recoveries': 1, 'failed_recoveries': 0, 'price_feed_recoveries': 1, 'graph_restorations': 0, 'protocol_failovers': 0, 'success_rate': 100.0, 'recent_recoveries': 1}",
+        "timestamp": 1757230814.8407934
+      },
+      {
+        "test_name": "Price Feed Recovery",
+        "status": "PASS",
+        "details": "Price feed recoveries: 2",
+        "timestamp": 1757230814.9428775
+      },
+      {
+        "test_name": "Graph State Recovery",
+        "status": "PASS",
+        "details": "Graph restorations: 1",
+        "timestamp": 1757230815.0446937
+      },
+      {
+        "test_name": "System Health Monitoring",
+        "status": "PASS",
+        "details": "Health: 60.5 -> 50.5, Status fields: True",
+        "timestamp": 1757230815.0452044
+      },
+      {
+        "test_name": "Alert System",
+        "status": "PASS",
+        "details": "Alerts received: 4",
+        "timestamp": 1757230815.161112
+      },
+      {
+        "test_name": "Error Handling Performance",
+        "status": "PASS",
+        "details": "Processed 100 errors in 0.034s (avg: 0.34ms per error)",
+        "timestamp": 1757230815.1952085
+      }
+    ]
+  },
+  "error_handler_status": {
+    "health_score": 0,
+    "degraded_components": [
+      "test_component",
+      "market_graph",
+      "alert_test",
+      "price_feed",
+      "price_collector",
+      "system"
+    ],
+    "circuit_breaker_states": {
+      "test_circuit": "open"
+    },
+    "error_stats": {
+      
