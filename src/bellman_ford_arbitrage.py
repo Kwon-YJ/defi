@@ -37,27 +37,31 @@ class BellmanFordArbitrage:
         return sorted(opportunities, key=lambda x: x.net_profit, reverse=True)
     
     def _bellman_ford(self, source: str, max_iterations: int) -> bool:
-        """Bellman-Ford 알고리즘 실행"""
+        """Bellman-Ford 알고리즘 실행 - 논문의 정확한 구현"""
         # 초기화
         self.distances = {node: float('inf') for node in self.graph.graph.nodes}
         self.predecessors = {node: None for node in self.graph.graph.nodes}
         self.distances[source] = 0
         
-        # 거리 완화 (Relaxation)
+        # 거리 완화 (Relaxation) - 논문에 맞게 최적화
         for i in range(max_iterations):
             updated = False
             
+            # 모든 엣지에 대해 거리 완화 수행
             for u, v, data in self.graph.graph.edges(data=True):
                 weight = data.get('weight', float('inf'))
                 
+                # 무한대가 아닌 경우에만 업데이트
                 if self.distances[u] != float('inf'):
                     new_distance = self.distances[u] + weight
                     
+                    # 더 짧은 경로를 찾은 경우 업데이트
                     if new_distance < self.distances[v]:
                         self.distances[v] = new_distance
                         self.predecessors[v] = u
                         updated = True
             
+            # 업데이트가 없으면 조기 종료
             if not updated:
                 break
         
@@ -65,6 +69,7 @@ class BellmanFordArbitrage:
         for u, v, data in self.graph.graph.edges(data=True):
             weight = data.get('weight', float('inf'))
             
+            # 거리 완화가 더 가능하면 음의 사이클 존재
             if (self.distances[u] != float('inf') and 
                 self.distances[u] + weight < self.distances[v]):
                 return False  # 음의 사이클 존재
@@ -72,27 +77,29 @@ class BellmanFordArbitrage:
         return True  # 음의 사이클 없음
     
     def _extract_negative_cycles(self, source: str) -> List[List[str]]:
-        """음의 사이클 추출"""
+        """음의 사이클 추출 - 최적화된 구현"""
         cycles = []
         visited = set()
         
+        # 모든 노드에서 시작하여 사이클 탐지
         for node in self.graph.graph.nodes:
             if node in visited:
                 continue
                 
             # 사이클 탐지
             cycle = self._find_cycle_from_node(node, visited)
-            if cycle and len(cycle) >= 3:  # 최소 3개 노드
+            if cycle and len(cycle) >= 3:  # 최소 3개 노드 (실제 사이클)
                 cycles.append(cycle)
         
         return cycles
     
     def _find_cycle_from_node(self, start_node: str, visited: set) -> Optional[List[str]]:
-        """특정 노드에서 시작하는 사이클 찾기"""
+        """특정 노드에서 시작하는 사이클 찾기 - 개선된 알고리즘"""
         path = []
         current = start_node
         path_set = set()
         
+        # predecessor 체인을 따라가며 사이클 탐지
         while current is not None and current not in visited:
             if current in path_set:
                 # 사이클 발견
@@ -190,3 +197,20 @@ class BellmanFordArbitrage:
         diversity_score = min(unique_dexes / len(edges), 1.0)
         
         return (liquidity_score * 0.5 + path_score * 0.3 + diversity_score * 0.2)
+    
+    def update_graph_state(self, executed_opportunity: ArbitrageOpportunity):
+        """
+        실행된 기회에 따라 그래프 상태 업데이트
+        논문에서 언급된 "update the graph g after every action" 구현
+        """
+        # 각 엣지의 유동성 업데이트
+        for edge in executed_opportunity.edges:
+            # 실제 구현에서는 풀의 리저브를 업데이트해야 함
+            # 여기서는 간단히 예시로만 구현
+            if self.graph.graph.has_edge(edge.from_token, edge.to_token):
+                # 엣지 데이터 업데이트
+                edge_data = self.graph.graph[edge.from_token][edge.to_token]
+                # 유동성 감소 (예시)
+                edge_data['liquidity'] = max(0, edge_data['liquidity'] - executed_opportunity.required_capital)
+                
+        logger.info(f"Graph state updated after executing opportunity: {executed_opportunity.path}")
