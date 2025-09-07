@@ -49,14 +49,100 @@ TOKEN_ADDRESSES = {
     'RCN': '0xF970b8E36e23F7fC3FD752EeA86f8Be8D83375A6',
     'RDN': '0x255Aa6DF07540Cb5d3d297f0D0D4D84cb52bc8e6',
     'FXC': '0xc931f61b1534eb21d8c11b24f3f5ab2471d4ab50',
-    'HEDG': '0xf1290473E210b2108A85237fbCd7b6eb42Cc654F'
+    'HEDG': '0xf1290473E210b2108A85237fbCd7b6eb42Cc654F',
+    # Additional tokens for new protocols
+    'WBTC': '0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599',
+    'cETH': '0x4Ddc2D193948926D02f9B1fE9e1daa0718270ED5',
+    'cUSDC': '0x39AA39c021dfbaE8faC545936693aC917d5E7563',
+    'aETH': '0xE95A203B1a91a908F9B9CE46459d101078c2c3cb',
+    'aUSDC': '0x9bA00D6856a4eDF4665BcA2C2309936572473B7E',
+    'sUSD': '0x57Ab1ec28D129707052df4dF418D58a2D46d5f51',
+    'sETH': '0x5e74C9036fb86BD7eCdcb084a0673EFc32eA31cb',
+    'yCRV': '0xdF5e0e81Dff6FAF3A7e52BA697820c5e32D806A8',
+    'yDAI': '0x16de59092dAE5CcF4A1E6439D611fd0653f0Bd01',
+    'yUSDC': '0xd6aD7a6750A7593E092a9B218d66C0A814a3436e',
+    'yUSDT': '0x83f798e925BcD4017Eb265844FDDAbb448f1707D',
+    'yTUSD': '0x73a052500105205d34Daf004eAb301916DA8190f'
 }
 
 # DEX factory addresses (mainnet)
 DEX_FACTORIES = {
     'uniswap_v2': '0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f',
+    'uniswap_v3': '0x1F98431c8aD98523631AE4a59f267346ea31F984',
+    'sushiswap': '0xC0AEe478e3658e2610c5F7A4A2E1777cE9e4f2Ac',
     'bancor': '0xc0a47dFe034B400B47bDaD5FecDa2621de6c4d95',
-    'makerdao': '0x99b016c1c4d777443e97f91099e47271f3f253d3'  # SaiProxyCreateAndExecute
+    'makerdao': '0x99b016c1c4d777443e97f91099e47271f3f253d3',  # SaiProxyCreateAndExecute
+    'curve': '0x90E00ACe148ca3b23Ac1bC8C240C2a7Dd9c2d7f5',
+    'balancer': '0x9424B1412450D0f8Fc2255FAf6046b98213B76Bd',
+    'compound': '0x3d9819210A31b4961b30EF54bE2aeD79B9c9Cd3B',
+    'aave': '0xB53C1a33016B2DC2fF3653530bfF1848a515c807',
+    'synthetix': '0xC011a73ee8576Fb46F5E1c5751cA3B9Fe0af2a6F',
+    'yearn': '0x9cA85572E6A3EbF24dEDd195623F188735A5179f',
+    'dydx': '0x1E0447b19BB6EcFdAe1e4AE1694b0C3659614e4e'
+}
+
+# Protocol-specific configurations
+PROTOCOL_CONFIGS = {
+    'uniswap_v2': {
+        'type': 'amm',
+        'fee': 0.003,  # 0.3%
+        'actions': ['swap']
+    },
+    'uniswap_v3': {
+        'type': 'amm',
+        'fee': 0.003,  # Variable in V3, using average
+        'actions': ['swap']
+    },
+    'sushiswap': {
+        'type': 'amm',
+        'fee': 0.003,  # 0.3%
+        'actions': ['swap']
+    },
+    'bancor': {
+        'type': 'amm',
+        'fee': 0.002,  # 0.2%
+        'actions': ['swap']
+    },
+    'makerdao': {
+        'type': 'cdp',
+        'fee': 0.0,  # No direct fee for CDP actions
+        'actions': ['mint_dai', 'burn_dai', 'deposit_collateral', 'withdraw_collateral']
+    },
+    'curve': {
+        'type': 'stableswap',
+        'fee': 0.0004,  # 0.04% average
+        'actions': ['swap']
+    },
+    'balancer': {
+        'type': 'weighted_pool',
+        'fee': 0.001,  # 0.1% average
+        'actions': ['swap']
+    },
+    'compound': {
+        'type': 'lending',
+        'fee': 0.0,  # No direct fee for lending actions
+        'actions': ['lend', 'borrow', 'redeem', 'repay']
+    },
+    'aave': {
+        'type': 'lending',
+        'fee': 0.0,  # No direct fee for lending actions
+        'actions': ['lend', 'borrow', 'redeem', 'repay']
+    },
+    'synthetix': {
+        'type': 'synthetic',
+        'fee': 0.003,  # 0.3% average
+        'actions': ['mint_synthetic', 'burn_synthetic', 'claim_rewards']
+    },
+    'yearn': {
+        'type': 'yield',
+        'fee': 0.005,  # 0.5% performance fee
+        'actions': ['deposit', 'withdraw', 'claim_rewards']
+    },
+    'dydx': {
+        'type': 'margin',
+        'fee': 0.001,  # 0.1% average
+        'actions': ['margin_trade', 'close_position']
+    }
 }
 
 class ProtocolActionsManager:
@@ -95,14 +181,12 @@ class ProtocolActionsManager:
     
     def _define_protocol_actions(self) -> Dict:
         """
-        Define the 96 protocol actions as specified in the paper:
-        - Uniswap: ETH ↔ 24 tokens (48 actions including reverse)
-        - Bancor: BNT ↔ 23 tokens (46 actions including reverse)
-        - MakerDAO: DAI ↔ SAI (2 actions)
-        Total: 96 actions
+        Define the protocol actions for all supported protocols.
+        The goal is to support the 96 actions mentioned in the paper plus additional protocols.
         """
         actions = {
-            'uniswap': {
+            # Original protocols from the paper
+            'uniswap_v2': {
                 'ETH': ['AMN', 'AMPL', 'ANT', 'BAT', 'BNT', 'DAI', 'DATA', 'ENJ', 
                        'FXC', 'GNO', 'HEDG', 'KNC', 'MANA', 'MKR', 'POA20', 
                        'RCN', 'RDN', 'RLC', 'SAI', 'SAN', 'SNT', 'TKN', 'TRST', 'UBT']
@@ -115,6 +199,71 @@ class ProtocolActionsManager:
             'makerdao': {
                 'DAI': ['SAI'],
                 'SAI': ['DAI']
+            },
+            
+            # Additional protocols to complete the list
+            'uniswap_v3': {
+                'ETH': ['USDC', 'USDT', 'DAI', 'WBTC', 'UNI', 'LINK', 'COMP', 'AAVE', 'YFI', 'SNX', 'SUSHI'],
+                'USDC': ['ETH', 'USDT', 'DAI', 'WBTC'],
+                'USDT': ['ETH', 'USDC', 'DAI'],
+                'DAI': ['ETH', 'USDC', 'USDT'],
+                'WBTC': ['ETH', 'USDC']
+            },
+            'sushiswap': {
+                'ETH': ['USDC', 'USDT', 'DAI', 'WBTC', 'SUSHI', 'YFI', 'UNI'],
+                'USDC': ['ETH', 'USDT', 'DAI'],
+                'USDT': ['ETH', 'USDC', 'DAI'],
+                'DAI': ['ETH', 'USDC', 'USDT'],
+                'SUSHI': ['ETH', 'USDC']
+            },
+            'curve': {
+                'DAI': ['USDC', 'USDT', 'yDAI'],
+                'USDC': ['DAI', 'USDT', 'yUSDC'],
+                'USDT': ['DAI', 'USDC', 'yUSDT'],
+                'yDAI': ['DAI', 'USDC', 'USDT'],
+                'yUSDC': ['DAI', 'USDC', 'USDT'],
+                'yUSDT': ['DAI', 'USDC', 'USDT']
+            },
+            'balancer': {
+                'ETH': ['USDC', 'USDT', 'DAI', 'WBTC', 'BAL', 'YFI'],
+                'USDC': ['ETH', 'USDT', 'DAI'],
+                'USDT': ['ETH', 'USDC', 'DAI'],
+                'DAI': ['ETH', 'USDC', 'USDT'],
+                'BAL': ['ETH', 'USDC'],
+                'WBTC': ['ETH']
+            },
+            'compound': {
+                'ETH': ['cETH'],
+                'cETH': ['ETH'],
+                'USDC': ['cUSDC'],
+                'cUSDC': ['USDC']
+            },
+            'aave': {
+                'ETH': ['aETH'],
+                'aETH': ['ETH'],
+                'USDC': ['aUSDC'],
+                'aUSDC': ['USDC']
+            },
+            'synthetix': {
+                'ETH': ['sETH'],
+                'sETH': ['ETH'],
+                'DAI': ['sUSD'],
+                'sUSD': ['DAI']
+            },
+            'yearn': {
+                'DAI': ['yDAI'],
+                'yDAI': ['DAI'],
+                'USDC': ['yUSDC'],
+                'yUSDC': ['USDC'],
+                'USDT': ['yUSDT'],
+                'yUSDT': ['USDT'],
+                'yCRV': ['CRV'],
+                'CRV': ['yCRV']
+            },
+            'dydx': {
+                'ETH': ['USDC', 'DAI'],
+                'USDC': ['ETH', 'DAI'],
+                'DAI': ['ETH', 'USDC']
             }
         }
         return actions
@@ -122,13 +271,10 @@ class ProtocolActionsManager:
     def get_total_action_count(self) -> int:
         """Calculate the total number of protocol actions."""
         count = 0
-        # Uniswap: ETH ↔ tokens (bidirectional)
-        count += len(self.protocol_actions['uniswap']['ETH']) * 2
-        # Bancor: BNT ↔ tokens (bidirectional) 
-        count += len(self.protocol_actions['bancor']['BNT']) * 2
-        # MakerDAO: DAI ↔ SAI (bidirectional)
-        count += len(self.protocol_actions['makerdao']['DAI']) 
-        count += len(self.protocol_actions['makerdao']['SAI'])
+        # Count all bidirectional actions for each protocol
+        for protocol, token_pairs in self.protocol_actions.items():
+            for from_token, to_tokens in token_pairs.items():
+                count += len(to_tokens)  # Each to_token represents one action
         return count
     
     def get_all_token_pairs(self) -> List[Tuple[str, str, str]]:
@@ -138,34 +284,25 @@ class ProtocolActionsManager:
         """
         pairs = []
         
-        # Uniswap pairs
-        for from_token, to_tokens in self.protocol_actions['uniswap'].items():
-            for to_token in to_tokens:
-                pairs.append((from_token, to_token, 'uniswap'))
-                # Add reverse pair
-                pairs.append((to_token, from_token, 'uniswap'))
-        
-        # Bancor pairs
-        for from_token, to_tokens in self.protocol_actions['bancor'].items():
-            for to_token in to_tokens:
-                pairs.append((from_token, to_token, 'bancor'))
-                # Add reverse pair
-                pairs.append((to_token, from_token, 'bancor'))
-        
-        # MakerDAO pairs
-        for from_token, to_tokens in self.protocol_actions['makerdao'].items():
-            for to_token in to_tokens:
-                pairs.append((from_token, to_token, 'makerdao'))
+        # Add pairs for all protocols
+        for protocol, token_pairs in self.protocol_actions.items():
+            for from_token, to_tokens in token_pairs.items():
+                for to_token in to_tokens:
+                    pairs.append((from_token, to_token, protocol))
         
         return pairs
     
+    def get_protocol_info(self, protocol: str) -> Dict:
+        """Get information about a specific protocol."""
+        return PROTOCOL_CONFIGS.get(protocol, {})
+    
     async def update_all_protocol_pools(self):
         """
-        Update pool data for all 96 protocol actions.
+        Update pool data for all protocol actions.
         This fetches real data from the blockchain when possible.
         """
         pairs = self.get_all_token_pairs()
-        logger.info(f"Updating {len(pairs)} protocol action pairs")
+        logger.info(f"Updating {len(pairs)} protocol action pairs across {len(self.protocol_actions)} protocols")
         
         for from_token, to_token, dex in pairs:
             await self._update_pool_data(from_token, to_token, dex)
@@ -183,6 +320,10 @@ class ProtocolActionsManager:
             logger.warning(f"Token addresses not found for {from_token} or {to_token}")
             return
         
+        # Get protocol config
+        protocol_config = self.get_protocol_info(dex)
+        fee = protocol_config.get('fee', 0.003)  # Default to 0.3%
+        
         # If we don't have a web3 connection, use placeholder data
         if not self.w3 or not self.w3.is_connected():
             await self._update_pool_data_placeholder(from_token, to_token, dex)
@@ -191,7 +332,7 @@ class ProtocolActionsManager:
         try:
             # Fetch actual pool data from the blockchain
             reserve_from, reserve_to, fee = await self._fetch_pool_data(
-                from_token_address, to_token_address, dex
+                from_token_address, to_token_address, dex, fee
             )
             
             # Add trading pair to market graph
@@ -211,10 +352,13 @@ class ProtocolActionsManager:
         """
         Update pool data with placeholder values when blockchain data is not available.
         """
+        # Get protocol config for proper fee
+        protocol_config = self.get_protocol_info(dex)
+        fee = protocol_config.get('fee', 0.003)  # Default to 0.3%
+        
         # These would normally be fetched from the blockchain
         reserve_from = 1000.0  # Placeholder
         reserve_to = 1000.0    # Placeholder
-        fee = 0.003  # 0.3% fee for most DEXes
         
         # Add trading pair to market graph
         pool_address = f"{dex}_{from_token}_{to_token}_pool"
@@ -225,7 +369,7 @@ class ProtocolActionsManager:
         
         logger.debug(f"Updated pool data (placeholder) for {dex}: {from_token} → {to_token}")
     
-    async def _fetch_pool_data(self, from_token_address: str, to_token_address: str, dex: str) -> Tuple[float, float, float]:
+    async def _fetch_pool_data(self, from_token_address: str, to_token_address: str, dex: str, default_fee: float) -> Tuple[float, float, float]:
         """
         Fetch pool data from the blockchain.
         This is a simplified implementation - in a real system, you would need to:
@@ -236,7 +380,7 @@ class ProtocolActionsManager:
         # This is a simplified example - in reality, you would need to:
         # 1. Query the factory contract to get the pair address
         # 2. Call the pair contract to get reserves
-        # 3. Handle different fee structures
+        # 3. Handle different fee structures for different protocols
         
         # For demonstration, we'll return placeholder values
         # In a real implementation, you would do something like:
@@ -246,7 +390,7 @@ class ProtocolActionsManager:
         
         reserve_from = 1000.0
         reserve_to = 1000.0
-        fee = 0.003
+        fee = default_fee
         
         return reserve_from, reserve_to, fee
 
@@ -255,3 +399,4 @@ class ProtocolActionsManager:
 # print(f"Total protocol actions: {protocol_manager.get_total_action_count()}")
 # pairs = protocol_manager.get_all_token_pairs()
 # print(f"Token pairs: {len(pairs)}")
+# print(f"Protocols: {list(protocol_manager.protocol_actions.keys())}")
