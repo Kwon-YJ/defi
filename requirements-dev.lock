@@ -96,6 +96,7 @@ numpy==2.3.2
     # via defi
     # via matplotlib
     # via pandas
+    # via scipy
     # via seaborn
 packaging==25.0
     # via matplotlib
@@ -145,6 +146,8 @@ requests==2.32.5
 rlp==4.1.0
     # via eth-account
     # via eth-rlp
+scipy==1.16.1
+    # via defi
 seaborn==0.13.2
     # via defi
 setuptools==80.9.0

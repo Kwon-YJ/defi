@@ -1,0 +1,151 @@
+{
+  "test_results": {
+    "threshold_tests": {
+      "10_percent_hashrate": {
+        "expected_multiplier": 4.0,
+        "actual_multiplier": 1.037109375,
+        "accuracy": 0.25927734375,
+        "test_passed": false,
+        "threshold_eth": 2.07421875
+      },
+      "1_percent": {
+        "multiplier": 1.037109375,
+        "threshold_eth": 2.07421875
+      },
+      "5_percent": {
+        "multiplier": 1.037109375,
+        "threshold_eth": 2.07421875
+      },
+      "20_percent": {
+        "multiplier": 1.037109375,
+        "threshold_eth": 2.07421875
+      },
+      "30_percent": {
+        "multiplier": 1.037109375,
+        "threshold_eth": 2.07421875
+      }
+    },
+    "mdp_tests": {
+      "mev_2": {
+        "mev_value_eth": 2.0,
+        "block_reward_multiplier": 1.0,
+        "optimal_action": "honest",
+        "expected_reward": 0.0,
+        "fork_probability": 0.09428,
+        "strategy_confidence": 0.0
+      },
+      "mev_4": {
+        "mev_value_eth": 4.0,
+        "block_reward_multiplier": 2.0,
+        "optimal_action": "honest",
+        "expected_reward": 0.0,
+        "fork_probability": 0.09428,
+        "strategy_confidence": 0.0
+      },
+      "mev_8": {
+        "mev_value_eth": 8.0,
+        "block_reward_multiplier": 4.0,
+        "optimal_action": "honest",
+        "expected_reward": 0.0,
+        "fork_probability": 0.09428,
+        "strategy_confidence": 0.0
+      },
+      "mev_20": {
+        "mev_value_eth": 20.0,
+        "block_reward_multiplier": 10.0,
+        "optimal_action": "honest",
+        "expected_reward": 0.0,
+        "fork_probability": 0.09428,
+        "strategy_confidence": 0.0
+      },
+      "mev_1748": {
+        "mev_value_eth": 1748.0,
+        "block_reward_multiplier": 874.0,
+        "optimal_action": "honest",
+        "expected_reward": 0.0,
+        "fork_probability": 0.09428,
+        "strategy_confidence": 0.0
+      }
+    },
+    "detection_tests": {
+      "opportunities_detected": 12,
+      "total_value_eth": 172.64,
+      "detection_time_seconds": 0.00603795051574707,
+      "mev_type_distribution": {
+        "economic_exploit": 8,
+        "liquidation": 4
+      },
+      "best_opportunity_eth": 19.08
+    },
+    "scoring_tests": {
+      "opportunities_scored": 3,
+      "viable_opportunities": 2,
+      "score_distribution": [
+        0.8448798338392023,
+        0.5750574712643678,
+        0.22416666666666665
+      ],
+      "average_score": 0.5480346572567456
+    },
+    "performance_tests": {
+      "average_detection_time": 0.001340484619140625,
+      "average_optimization_time": 0.001410531997680664,
+      "total_average_time": 0.0027510166168212887,
+      "paper_target_seconds": 6.43,
+      "performance_ratio": 0.0004278408424294384,
+      "meets_paper_target": true
+    },
+    "bzx_benchmark": {
+      "bzx_value_eth": 1193.69,
+      "block_reward_multiplier": 596.845,
+      "paper_multiplier": 874.0,
+      "threshold_violation": true,
+      "fork_incentive_risk": true,
+      "optimal_strategy": "honest",
+      "strategy_confidence": 0.0
+    }
+  },
+  "performance_report": {
+    "detection_metrics": {
+      "total_opportunities_detected": 132,
+      "total_mev_value_eth": 1899.04,
+      "largest_opportunity_eth": 19.08,
+      "average_mev_score": 0.8916266112797341
+    },
+    "extraction_metrics": {
+      "successful_extractions": 0,
+      "failed_extractions": 0,
+      "extraction_success_rate": 0.0
+    },
+    "threshold_analysis": {
+      "threshold_violations": 120,
+      "potential_fork_incentives": 120,
+      "current_thresholds": {
+        "1%_hashrate": "2.07 ETH",
+        "5%_hashrate": "2.07 ETH",
+        "10%_hashrate": "2.07 ETH",
+        "20%_hashrate": "2.07 ETH",
+        "30%_hashrate": "2.07 ETH"
+      }
+    },
+    "paper_benchmarks": {
+      "bzx_benchmark_ratio": 0.015984049460077577,
+      "bzx_profit_comparison": {
+        "paper_bzx_profit_eth": 1193.69,
+        "our_largest_eth": 19.08,
+        "ratio_achieved": 0.015984049460077577
+      },
+      "weekly_target_progress": {
+        "target_eth": 191.48,
+        "current_total_eth": 1899.04,
+        "progress_percentage": 991.7693753916858
+      }
+    }
+  },
+  "summary": {
+    "total_tests": 1,
+    "passed_tests": 0,
+    "success_rate": 0.0,
+    "test_timestamp": 1757251048.8999722
+  }
+}

@@ -1,0 +1,101 @@
+{
+  "test_timestamp": 1757192874.7342222,
+  "baseline_performance": {
+    "build_time": 0.03226208686828613,
+    "nodes": 25,
+    "edges": 228,
+    "edges_per_second": 7067.118780345411,
+    "multi_graph_stats": {
+      "total_token_pairs": 170,
+      "multi_dex_pairs": 30,
+      "single_dex_pairs": 140,
+      "max_dex_per_pair": 4,
+      "average_dex_per_pair": 1.2823529411764707,
+      "multi_graph_efficiency": 0.17647058823529413
+    }
+  },
+  "optimized_performance": {
+    "build_time": 0.09975504875183105,
+    "nodes": 25,
+    "edges": 436,
+    "edges_per_second": 2285.5986023044766,
+    "memory_usage_mb": 78.96875,
+    "optimization_gains": {
+      "cache_hit_rate": 0.043859649122807015,
+      "time_saved_seconds": 14.900244951248169,
+      "performance_improvement_percent": 99.33496634165446
+    },
+    "paper_compliance": {
+      "target_time": 6.43,
+      "actual_time": 0.09975504875183105,
+      "target_achieved": true,
+      "performance_ratio": 64.45789040709555
+    },
+    "bottlenecks": {
+      "preparation": 7.82012939453125e-05,
+      "token_addition": 0.0007150173187255859,
+      "edge_addition": 0.0975942611694336,
+      "graph_optimization": 0.0013649463653564453
+    }
+  },
+  "validation_results": {
+    "success": false,
+    "criteria": {
+      "paper_target_achieved": true,
+      "significant_improvement": false,
+      "high_throughput": true,
+      "reasonable_memory": true
+    },
+    "improvements": {
+      "time_saved_seconds": 0,
+      "time_improvement_percent": 0.0,
+      "speed_multiplier": 0.3234130730420193,
+      "paper_compliance": {
+        "target_time": 6.43,
+        "actual_time": 0.09975504875183105,
+        "target_achieved": true,
+        "performance_ratio": 64.45789040709555
+      }
+    },
+    "performance_comparison": {
+      "baseline": {
+        "build_time": 0.03226208686828613,
+        "nodes": 25,
+        "edges": 228,
+        "edges_per_second": 7067.118780345411,
+        "multi_graph_stats": {
+          "total_token_pairs": 170,
+          "multi_dex_pairs": 30,
+          "single_dex_pairs": 140,
+          "max_dex_per_pair": 4,
+          "average_dex_per_pair": 1.2823529411764707,
+          "multi_graph_efficiency": 0.17647058823529413
+        }
+      },
+      "optimized": {
+        "build_time": 0.09975504875183105,
+        "nodes": 25,
+        "edges": 436,
+        "edges_per_second": 2285.5986023044766,
+        "memory_usage_mb": 78.96875,
+        "optimization_gains": {
+          "cache_hit_rate": 0.043859649122807015,
+          "time_saved_seconds": 14.900244951248169,
+          "performance_improvement_percent": 99.33496634165446
+        },
+        "paper_compliance": {
+          "target_time": 6.43,
+          "actual_time": 0.09975504875183105,
+          "target_achieved": true,
+          "performance_ratio": 64.45789040709555
+        },
+        "bottlenecks": {
+          "preparation": 7.82012939453125e-05,
+          "token_addition": 0.0007150173187255859,
+          "edge_addition": 0.0975942611694336,
+          "graph_optimization": 0.0013649463653564453
+        }
+      }
+    }
+  }
+}
