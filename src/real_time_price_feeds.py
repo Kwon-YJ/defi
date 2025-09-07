@@ -31,16 +31,32 @@ class RealTimePriceFeeds:
         self.running = False
         self.session = None
         
-        # CoinGecko API endpoint
-        self.coingecko_api_base = "https://api.coingecko.com/api/v3"
+        # Multiple price feed sources for redundancy
+        self.price_sources = [
+            {
+                'name': 'coingecko',
+                'api_base': 'https://api.coingecko.com/api/v3',
+                'enabled': True
+            },
+            {
+                'name': 'coinpaprika',
+                'api_base': 'https://api.coinpaprika.com/v1',
+                'enabled': True
+            },
+            {
+                'name': 'cryptocompare',
+                'api_base': 'https://min-api.cryptocompare.com/data',
+                'enabled': True
+            }
+        ]
         
-        # 토큰 심볼과 CoinGecko ID 매핑
-        self.token_coingecko_ids = self._build_coingecko_mapping()
+        # 토큰 심볼과 각 소스의 ID 매핑
+        self.token_source_ids = self._build_token_source_mapping()
         
-    def _build_coingecko_mapping(self) -> Dict[str, str]:
-        """토큰 심볼과 CoinGecko ID 매핑 생성"""
-        # 실제 CoinGecko ID 매핑 (주요 토큰들)
-        mapping = {
+    def _build_token_source_mapping(self) -> Dict[str, Dict[str, str]]:
+        """각 소스별 토큰 심볼과 ID 매핑 생성"""
+        # CoinGecko ID 매핑
+        coingecko_mapping = {
             'ETH': 'ethereum',
             'WETH': 'weth',
             'USDC': 'usd-coin',
@@ -75,6 +91,58 @@ class RealTimePriceFeeds:
             'sXAU': 'sxau',
             'sXAG': 'sxag'
         }
+        
+        # Coinpaprika ID 매핑
+        coinpaprika_mapping = {
+            'ETH': 'eth-ethereum',
+            'WETH': 'weth-wrapped-ether',
+            'USDC': 'usdc-usd-coin',
+            'USDT': 'usdt-tether',
+            'DAI': 'dai-dai',
+            'WBTC': 'wbtc-wrapped-bitcoin',
+            'UNI': 'uni-uniswap',
+            'SUSHI': 'sushi-sushi',
+            'COMP': 'comp-compoundd',
+            'AAVE': 'aave-aave',
+            'CRV': 'crv-curve-dao-token',
+            'BAL': 'bal-balancer',
+            'YFI': 'yfi-yearn-finance',
+            'MKR': 'mkr-maker',
+            'BNT': 'bnt-bancor',
+            'BAT': 'bat-basic-attention-token',
+            'KNC': 'knc-kyber-network-crystal',
+            'MANA': 'mana-decentraland',
+            'GNO': 'gno-gnosis',
+            'RLC': 'rlc-iexec-rlc',
+            'UBT': 'ubt-unibright',
+            'SAI': 'sai-single-collateral-dai',
+            'cETH': 'ceth-compound-ether',
+            'cUSDC': 'cusdc-compound-usd-coin',
+            'aETH': 'aeth-aave-eth',
+            'aUSDC': 'ausdc-aave-usdc',
+            'sUSD': 'susd-susd',
+            'sETH': 'seth-seth',
+            'sBTC': 'sbtc-sbtc',
+            'sLINK': 'slink-slink',
+            'sDEFI': 'sdefi-sdefi',
+            'sXAU': 'sxau-sxau',
+            'sXAG': 'sxag-sxag'
+        }
+        
+        # CryptoCompare symbol mapping (same as token symbol for most)
+        cryptocompare_mapping = {
+            symbol: symbol for symbol in coingecko_mapping.keys()
+        }
+        
+        # Combine all mappings
+        mapping = {}
+        for symbol in coingecko_mapping.keys():
+            mapping[symbol] = {
+                'coingecko': coingecko_mapping.get(symbol),
+                'coinpaprika': coinpaprika_mapping.get(symbol),
+                'cryptocompare': cryptocompare_mapping.get(symbol)
+            }
+        
         return mapping
     
     async def initialize(self):
@@ -110,41 +178,53 @@ class RealTimePriceFeeds:
         logger.info("실시간 가격 피드 중지")
     
     async def _update_all_prices(self):
-        """모든 토큰의 가격 업데이트"""
+        """모든 토큰의 가격 업데이트 (여러 소스에서 가져와서 비교)"""
         try:
             # 지원되는 모든 토큰 가져오기
             all_tokens = self.token_manager.get_all_asset_symbols()
             
-            # CoinGecko ID가 있는 토큰 필터링
-            tokens_with_ids = {
-                symbol: self.token_coingecko_ids[symbol] 
-                for symbol in all_tokens 
-                if symbol in self.token_coingecko_ids
-            }
+            # 각 소스별로 가격 데이터 가져오기
+            price_data_by_source = {}
             
-            if not tokens_with_ids:
-                logger.warning("가격 피드를 위한 토큰 ID가 없습니다")
+            for source in self.price_sources:
+                if not source['enabled']:
+                    continue
+                    
+                try:
+                    if source['name'] == 'coingecko':
+                        prices = await self._fetch_coingecko_prices(all_tokens)
+                    elif source['name'] == 'coinpaprika':
+                        prices = await self._fetch_coinpaprika_prices(all_tokens)
+                    elif source['name'] == 'cryptocompare':
+                        prices = await self._fetch_cryptocompare_prices(all_tokens)
+                    else:
+                        continue
+                        
+                    if prices:
+                        price_data_by_source[source['name']] = prices
+                        logger.debug(f"{source['name']}에서 {len(prices)}개 토큰의 가격 데이터 가져옴")
+                except Exception as e:
+                    logger.error(f"{source['name']}에서 가격 데이터 가져오기 실패: {e}")
+            
+            if not price_data_by_source:
+                logger.warning("모든 가격 소스에서 데이터를 가져오지 못했습니다")
                 return
             
-            # CoinGecko API에서 가격 데이터 가져오기
-            prices = await self._fetch_coingecko_prices(list(tokens_with_ids.values()))
-            
-            if not prices:
-                logger.warning("CoinGecko에서 가격 데이터를 가져오지 못했습니다")
-                return
-            
-            # 각 토큰의 가격 업데이트
+            # 각 토큰에 대해 여러 소스의 데이터를 비교하고 최선의 데이터 선택
             updated_count = 0
-            for symbol, cg_id in tokens_with_ids.items():
-                if cg_id in prices and 'usd' in prices[cg_id]:
-                    price_usd = prices[cg_id]['usd']
+            for symbol in all_tokens:
+                best_price_data = self._select_best_price_data(symbol, price_data_by_source)
+                
+                if best_price_data:
+                    price_usd = best_price_data['price']
+                    source = best_price_data['source']
                     token_address = self.token_manager.get_asset_address(symbol)
                     
                     price_feed = PriceFeed(
                         token_address=token_address,
                         symbol=symbol,
                         price_usd=price_usd,
-                        source='coingecko',
+                        source=source,
                         timestamp=datetime.now().timestamp()
                     )
                     
@@ -152,9 +232,9 @@ class RealTimePriceFeeds:
                     await self._store_price_feed(price_feed)
                     updated_count += 1
                     
-                    logger.debug(f"가격 업데이트: {symbol} = ${price_usd}")
+                    logger.debug(f"가격 업데이트: {symbol} = ${price_usd} (소스: {source})")
             
-            logger.info(f"총 {updated_count}개 토큰의 가격 업데이트 완료")
+            logger.info(f"총 {updated_count}개 토큰의 가격 업데이트 완료 (다중 소스 사용)")
             
             # 구독자들에게 알림
             await self._notify_subscribers()
@@ -162,25 +242,145 @@ class RealTimePriceFeeds:
         except Exception as e:
             logger.error(f"모든 토큰 가격 업데이트 중 오류 발생: {e}")
     
-    async def _fetch_coingecko_prices(self, coin_ids: List[str]) -> Optional[Dict]:
+    def _select_best_price_data(self, symbol: str, price_data_by_source: Dict[str, Dict]) -> Optional[Dict]:
+        """여러 소스의 가격 데이터 중 최선의 것을 선택"""
+        available_prices = []
+        
+        # 각 소스에서 해당 토큰의 가격 데이터 수집
+        for source_name, price_data in price_data_by_source.items():
+            if symbol in price_data and price_data[symbol] is not None:
+                available_prices.append({
+                    'source': source_name,
+                    'price': price_data[symbol],
+                    'timestamp': datetime.now().timestamp()
+                })
+        
+        if not available_prices:
+            return None
+        
+        # 여러 소스가 있는 경우, 가장 최근의 데이터 선택
+        # 또는 평균값 계산 (더 정확한 방법)
+        if len(available_prices) == 1:
+            return available_prices[0]
+        else:
+            # 여러 소스의 평균값 사용 (이상치 제거를 위해 중간값 사용)
+            prices = [p['price'] for p in available_prices]
+            prices.sort()
+            median_price = prices[len(prices) // 2]  # 중간값
+            
+            # 중간값에 가장 가까운 소스 선택
+            best_source = min(available_prices, key=lambda x: abs(x['price'] - median_price))
+            best_source['price'] = median_price  # 평균값으로 업데이트
+            
+            return best_source
+    
+    async def _fetch_coingecko_prices(self, symbols: List[str]) -> Optional[Dict[str, float]]:
         """CoinGecko API에서 가격 데이터 가져오기"""
         try:
             if not self.session:
                 await self.initialize()
             
+            # CoinGecko ID가 있는 토큰 필터링
+            tokens_with_ids = {
+                symbol: self.token_source_ids[symbol]['coingecko'] 
+                for symbol in symbols 
+                if symbol in self.token_source_ids and self.token_source_ids[symbol]['coingecko']
+            }
+            
+            if not tokens_with_ids:
+                return None
+            
             # 최대 250개의 코인 ID를 한 번에 요청 가능
-            ids_param = ','.join(coin_ids)
-            url = f"{self.coingecko_api_base}/simple/price?ids={ids_param}&vs_currencies=usd"
+            ids_param = ','.join(tokens_with_ids.values())
+            url = f"https://api.coingecko.com/api/v3/simple/price?ids={ids_param}&vs_currencies=usd"
             
             async with self.session.get(url) as response:
                 if response.status == 200:
                     data = await response.json()
-                    return data
+                    # 토큰 심볼로 변환
+                    result = {}
+                    for symbol, cg_id in tokens_with_ids.items():
+                        if cg_id in data and 'usd' in data[cg_id]:
+                            result[symbol] = data[cg_id]['usd']
+                    return result
                 else:
                     logger.error(f"CoinGecko API 요청 실패: {response.status}")
                     return None
         except Exception as e:
             logger.error(f"CoinGecko API 요청 중 오류 발생: {e}")
+            return None
+    
+    async def _fetch_coinpaprika_prices(self, symbols: List[str]) -> Optional[Dict[str, float]]:
+        """Coinpaprika API에서 가격 데이터 가져오기"""
+        try:
+            if not self.session:
+                await self.initialize()
+            
+            # Coinpaprika ID가 있는 토큰 필터링
+            tokens_with_ids = {
+                symbol: self.token_source_ids[symbol]['coinpaprika'] 
+                for symbol in symbols 
+                if symbol in self.token_source_ids and self.token_source_ids[symbol]['coinpaprika']
+            }
+            
+            if not tokens_with_ids:
+                return None
+            
+            # 각 토큰에 대해 개별 요청
+            result = {}
+            for symbol, cp_id in tokens_with_ids.items():
+                try:
+                    url = f"https://api.coinpaprika.com/v1/tickers/{cp_id}"
+                    async with self.session.get(url) as response:
+                        if response.status == 200:
+                            data = await response.json()
+                            if 'quotes' in data and 'USD' in data['quotes']:
+                                result[symbol] = data['quotes']['USD']['price']
+                        else:
+                            logger.debug(f"Coinpaprika API 요청 실패 ({symbol}): {response.status}")
+                except Exception as e:
+                    logger.debug(f"Coinpaprika API 요청 중 오류 발생 ({symbol}): {e}")
+                    continue
+            
+            return result if result else None
+        except Exception as e:
+            logger.error(f"Coinpaprika API 요청 중 오류 발생: {e}")
+            return None
+    
+    async def _fetch_cryptocompare_prices(self, symbols: List[str]) -> Optional[Dict[str, float]]:
+        """CryptoCompare API에서 가격 데이터 가져오기"""
+        try:
+            if not self.session:
+                await self.initialize()
+            
+            # CryptoCompare에서 지원하는 토큰 필터링
+            supported_symbols = {
+                symbol: self.token_source_ids[symbol]['cryptocompare'] 
+                for symbol in symbols 
+                if symbol in self.token_source_ids and self.token_source_ids[symbol]['cryptocompare']
+            }
+            
+            if not supported_symbols:
+                return None
+            
+            # 여러 토큰의 가격을 한 번에 요청
+            fsyms = ','.join(supported_symbols.values())
+            url = f"https://min-api.cryptocompare.com/data/pricemulti?fsyms={fsyms}&tsyms=USD"
+            
+            async with self.session.get(url) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    # 토큰 심볼로 변환
+                    result = {}
+                    for symbol, cc_symbol in supported_symbols.items():
+                        if cc_symbol in data and 'USD' in data[cc_symbol]:
+                            result[symbol] = data[cc_symbol]['USD']
+                    return result
+                else:
+                    logger.error(f"CryptoCompare API 요청 실패: {response.status}")
+                    return None
+        except Exception as e:
+            logger.error(f"CryptoCompare API 요청 중 오류 발생: {e}")
             return None
     
     async def _store_price_feed(self, price_feed: PriceFeed):

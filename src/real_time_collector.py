@@ -12,19 +12,55 @@ logger = setup_logger(__name__)
 
 class RealTimeDataCollector:
     def __init__(self):
-        self.ws_url = config.ethereum_mainnet_ws
-        self.w3 = Web3(Web3.HTTPProvider(config.ethereum_mainnet_rpc))
+        # Multiple Ethereum node sources for redundancy
+        self.ws_urls = [
+            config.ethereum_mainnet_ws,
+            f"wss://mainnet.infura.io/ws/v3/{config.infura_project_id}" if config.infura_project_id else None,
+            config.quicknode_endpoint.replace("https://", "wss://") if config.quicknode_endpoint else None
+        ]
+        # Filter out None values
+        self.ws_urls = [url for url in self.ws_urls if url]
+        
+        # Try to connect to primary node first, fallback to others if needed
+        self.w3 = None
+        self._connect_to_primary_node()
+        
         self.storage = DataStorage()
         self.price_feeds = RealTimePriceFeeds()
         self.subscribers: Dict[str, List[Callable]] = {}
         self.running = False
         self.websocket = None
+        self.current_ws_url_index = 0  # 현재 사용 중인 WS URL 인덱스
         
         # 모니터링할 이벤트들
         self.monitored_events = {
             'Swap': '0xd78ad95fa46c994b6551d0da85fc275fe613ce37657fb8d5e3d130840159d822',
             'Sync': '0x1c411e9a96e071241c2f21f7726b17ae89e3cab4c78be50e062b03a9fffbbad1'
         }
+        
+    def _connect_to_primary_node(self):
+        """여러 소스 중에서 사용 가능한 노드에 연결"""
+        node_configs = [
+            {"url": config.ethereum_mainnet_rpc, "name": "Alchemy"},
+            {"url": f"https://mainnet.infura.io/v3/{config.infura_project_id}", "name": "Infura"} if config.infura_project_id else None,
+            {"url": config.quicknode_endpoint, "name": "QuickNode"} if config.quicknode_endpoint else None
+        ]
+        # Filter out None values
+        node_configs = [config for config in node_configs if config]
+        
+        for node_config in node_configs:
+            try:
+                w3 = Web3(Web3.HTTPProvider(node_config["url"]))
+                if w3.is_connected():
+                    self.w3 = w3
+                    logger.info(f"Ethereum 노드에 연결됨: {node_config['name']}")
+                    return
+                else:
+                    logger.warning(f"Ethereum 노드 연결 실패: {node_config['name']}")
+            except Exception as e:
+                logger.warning(f"Ethereum 노드 연결 중 오류 발생 ({node_config['name']}): {e}")
+        
+        logger.error("사용 가능한 Ethereum 노드가 없습니다")
         
     async def subscribe_to_blocks(self, callback: Callable):
         """새 블록 구독"""
@@ -45,18 +81,27 @@ class RealTimeDataCollector:
         self.subscribers['logs'].append(callback)
     
     async def start_websocket_listener(self):
-        """WebSocket 리스너 시작"""
+        """WebSocket 리스너 시작 (다중 소스 지원)"""
         self.running = True
-        logger.info("WebSocket 연결 시작")
+        logger.info("WebSocket 연결 시작 (다중 소스 지원)")
         
         # 가격 피드 시작
         await self.price_feeds.initialize()
         price_feed_task = asyncio.create_task(self.price_feeds.start_price_feed())
         
+        # 연결 시도 카운트
+        connection_attempts = 0
+        max_attempts_before_failover = 3
+        
         while self.running:
             try:
-                async with websockets.connect(self.ws_url) as websocket:
+                # 현재 URL로 연결 시도
+                current_ws_url = self.ws_urls[self.current_ws_url_index]
+                logger.info(f"WebSocket에 연결 시도 중: {current_ws_url}")
+                
+                async with websockets.connect(current_ws_url) as websocket:
                     self.websocket = websocket
+                    connection_attempts = 0  # 성공 시 카운트 리셋
                     
                     # 구독 설정
                     await self._setup_subscriptions()
@@ -66,10 +111,26 @@ class RealTimeDataCollector:
                         await self._handle_message(message)
                         
             except websockets.exceptions.ConnectionClosed:
-                logger.warning("WebSocket 연결 끊김, 재연결 시도...")
+                connection_attempts += 1
+                logger.warning(f"WebSocket 연결 끊김, 재연결 시도... (시도 {connection_attempts}/{max_attempts_before_failover})")
+                
+                # 일정 횟수 이상 연결 실패 시 다른 소스로 failover
+                if connection_attempts >= max_attempts_before_failover:
+                    self.current_ws_url_index = (self.current_ws_url_index + 1) % len(self.ws_urls)
+                    logger.info(f"다른 WebSocket 소스로 전환: {self.ws_urls[self.current_ws_url_index]}")
+                    connection_attempts = 0
+                
                 await asyncio.sleep(5)
             except Exception as e:
+                connection_attempts += 1
                 logger.error(f"WebSocket 연결 오류: {e}")
+                
+                # 일정 횟수 이상 연결 실패 시 다른 소스로 failover
+                if connection_attempts >= max_attempts_before_failover:
+                    self.current_ws_url_index = (self.current_ws_url_index + 1) % len(self.ws_urls)
+                    logger.info(f"다른 WebSocket 소스로 전환: {self.ws_urls[self.current_ws_url_index]}")
+                    connection_attempts = 0
+                
                 await asyncio.sleep(10)
         
         # 정리
