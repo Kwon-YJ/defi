@@ -5,6 +5,7 @@ from typing import Dict, List, Callable, Optional
 from web3 import Web3
 from src.logger import setup_logger
 from src.data_storage import DataStorage
+from src.real_time_price_feeds import RealTimePriceFeeds
 from config.config import config
 
 logger = setup_logger(__name__)
@@ -14,6 +15,7 @@ class RealTimeDataCollector:
         self.ws_url = config.ethereum_mainnet_ws
         self.w3 = Web3(Web3.HTTPProvider(config.ethereum_mainnet_rpc))
         self.storage = DataStorage()
+        self.price_feeds = RealTimePriceFeeds()
         self.subscribers: Dict[str, List[Callable]] = {}
         self.running = False
         self.websocket = None
@@ -47,6 +49,10 @@ class RealTimeDataCollector:
         self.running = True
         logger.info("WebSocket 연결 시작")
         
+        # 가격 피드 시작
+        await self.price_feeds.initialize()
+        price_feed_task = asyncio.create_task(self.price_feeds.start_price_feed())
+        
         while self.running:
             try:
                 async with websockets.connect(self.ws_url) as websocket:
@@ -65,6 +71,10 @@ class RealTimeDataCollector:
             except Exception as e:
                 logger.error(f"WebSocket 연결 오류: {e}")
                 await asyncio.sleep(10)
+        
+        # 정리
+        self.price_feeds.stop_price_feed()
+        await self.price_feeds.cleanup()
     
     async def _setup_subscriptions(self):
         """구독 설정"""
