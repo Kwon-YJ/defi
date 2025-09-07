@@ -1,0 +1,67 @@
+{
+  "validation_successful": true,
+  "timestamp": 1757232834.4466598,
+  "results": {
+    "providers_configured": 4,
+    "flash_opportunities_generated": 10,
+    "capital_requirement_compliance": true,
+    "max_capital_required_eth": 0.03,
+    "execution_simulation_successful": true,
+    "cheapest_provider": "balancer",
+    "cheapest_fee_rate": 0.0001
+  },
+  "performance_report": {
+    "total_flash_loans": 1,
+    "successful_arbitrages": 1,
+    "success_rate": 100.0,
+    "total_profit_eth": 49.995,
+    "best_single_profit_eth": 49.995,
+    "average_execution_time": 0.0007619857788085938,
+    "capital_efficiency_ratio": 1666.5,
+    "paper_benchmark_comparison": {
+      "target_weekly_profit": 191.48,
+      "current_weekly_estimate": 349.965,
+      "target_max_profit": 81.31,
+      "current_max_profit": 49.995,
+      "target_execution_time": 6.43,
+      "current_avg_time": 0.0007619857788085938
+    }
+  },
+  "flash_opportunities_sample": [
+    {
+      "provider": "balancer",
+      "loan_amount_eth": 50.0,
+      "net_profit_eth": 49.995,
+      "roi_percentage": 99.99,
+      "fee_cost_eth": 0.005
+    },
+    {
+      "provider": "dydx",
+      "loan_amount_eth": 50.0,
+      "net_profit_eth": 49.99,
+      "roi_percentage": 99.98,
+      "fee_cost_eth": 0.01
+    },
+    {
+      "provider": "aave_v3",
+      "loan_amount_eth": 50.0,
+      "net_profit_eth": 49.975,
+      "roi_percentage": 99.95,
+      "fee_cost_eth": 0.025
+    },
+    {
+      "provider": "aave_v2",
+      "loan_amount_eth": 50.0,
+      "net_profit_eth": 49.955,
+      "roi_percentage": 99.91,
+      "fee_cost_eth": 0.045
+    },
+    {
+      "provider": "balancer",
+      "loan_amount_eth": 25.0,
+      "net_profit_eth": 24.9975,
+      "roi_percentage": 99.99,
+      "fee_cost_eth": 0.0025
+    }
+  ]
+}
