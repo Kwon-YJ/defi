@@ -59,7 +59,7 @@
 - [x] Multiple data sources 동시 처리 (redundancy)
 - [x] Data validation 및 outlier detection
 - [x] Historical data backfilling for analysis
-- [x] Rate limiting 및 API quota 관리
+- [ ] Rate limiting 및 API quota 관리
 
 ## 3. 성능 최적화 - 논문 성능 기준 달성 (Performance to Match Paper)
 

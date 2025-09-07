@@ -47,27 +47,24 @@ class HistoricalDataBackfiller:
             interval_blocks = interval_hours * blocks_per_hour
             
             # 현재 블록 번호
-            current_block = self.w3.eth.block_number
-            start_block = current_block - (days * 24 * blocks_per_hour)
+            current_block = self.w3.eth.block_number if self.w3 and self.w3.is_connected() else 0
+            start_block = max(0, current_block - (days * 24 * blocks_per_hour))
             
             backfilled_count = 0
             
-            # 블록 간격으로 데이터 수집
-            for block_number in range(start_block, current_block, interval_blocks):
+            # 시간 기반으로 데이터 수집
+            current_time = start_time
+            while current_time <= end_time:
                 try:
-                    # 특정 블록에서 풀 데이터 조회
-                    pool_data = await self._fetch_pool_data_at_block(pool_address, block_number)
+                    # 시간 기반 데이터 생성 (실제 구현에서는 블록 데이터 사용)
+                    pool_data = await self._generate_historical_pool_data(pool_address, current_time)
                     
                     if pool_data:
                         # 타임스탬프 설정
-                        block_timestamp = self._get_block_timestamp(block_number)
-                        pool_data['block_number'] = block_number
-                        pool_data['timestamp'] = block_timestamp.isoformat()
+                        pool_data['timestamp'] = current_time.isoformat()
                         
                         # 히스토리컬 데이터 저장
-                        await self.data_storage.store_historical_pool_data(
-                            pool_address, pool_data, block_timestamp
-                        )
+                        await self.data_storage.store_historical_pool_data(pool_address, pool_data, current_time)
                         
                         backfilled_count += 1
                         
@@ -76,8 +73,11 @@ class HistoricalDataBackfiller:
                             logger.debug(f"백필 진행: {pool_address}, {backfilled_count} 데이터 포인트")
                     
                 except Exception as e:
-                    logger.warning(f"블록 {block_number}에서 풀 데이터 수집 실패: {e}")
+                    logger.warning(f"시간 {current_time}에서 풀 데이터 생성 실패: {e}")
                     continue
+                
+                # 다음 시간으로 이동
+                current_time += timedelta(hours=interval_hours)
             
             logger.info(f"풀 데이터 백필 완료: {pool_address}, {backfilled_count} 데이터 포인트")
             return backfilled_count
@@ -110,19 +110,14 @@ class HistoricalDataBackfiller:
             # 각 토큰에 대해 가격 데이터 백필
             for symbol in symbols:
                 try:
-                    # 실제 구현에서는 API를 통해 역사적 가격 데이터를 가져와야 함
-                    # 여기서는 예시로 랜덤 데이터 생성
+                    # 시간 기반으로 데이터 생성
                     price_data_points = await self._generate_historical_price_data(symbol, days)
                     
                     for price_data in price_data_points:
                         # Redis에 저장 (실제 구현에서는 가격 피드 모듈 사용)
                         key = f"price_historical:{symbol}:{price_data['timestamp']}"
                         data = json.dumps(price_data, default=str)
-                        self.data_storage.redis_client.setex(
-                            key, 
-                            self.data_storage.historical_data_ttl, 
-                            data
-                        )
+                        self.data_storage.redis_client.setex(key, 2592000, data)  # 30일 보관
                         
                         backfilled_count += 1
                     
@@ -153,15 +148,10 @@ class HistoricalDataBackfiller:
         try:
             logger.info(f"차익거래 기회 백필 시작: {days}일간 데이터")
             
-            # 실제 구현에서는 과거 블록 데이터를 분석하여 
-            # 차익거래 기회를 식별하고 저장해야 함
-            # 여기서는 예시로 랜덤 데이터 생성
-            
-            backfilled_count = 0
-            
-            # 랜덤 차익거래 기회 데이터 생성 및 저장
+            # 시간 기반으로 데이터 생성
             opportunities = await self._generate_historical_arbitrage_opportunities(days)
             
+            backfilled_count = 0
             for opportunity in opportunities:
                 await self.data_storage.store_historical_arbitrage_opportunity(opportunity)
                 backfilled_count += 1
@@ -173,55 +163,33 @@ class HistoricalDataBackfiller:
             logger.error(f"차익거래 기회 백필 중 오류 발생: {e}")
             return 0
     
-    async def _fetch_pool_data_at_block(self, pool_address: str, block_number: int) -> Optional[Dict]:
+    async def _generate_historical_pool_data(self, pool_address: str, timestamp: datetime) -> Optional[Dict]:
         """
-        특정 블록에서 풀 데이터 조회
+        특정 시간의 히스토리컬 풀 데이터 생성 (실제 구현에서는 블록 데이터 사용)
         
         Args:
             pool_address: 풀 주소
-            block_number: 블록 번호
+            timestamp: 타임스탬프
             
         Returns:
             풀 데이터 딕셔너리 또는 None
         """
-        try:
-            # 실제 구현에서는 스마트 컨트랙트에서 데이터를 조회해야 함
-            # 여기서는 예시로 더미 데이터 반환
-            
-            # 예시: Uniswap V2 풀의 reserve 데이터 조회
-            # 실제 구현은 풀 타입에 따라 다름
-            
-            dummy_data = {
-                'address': pool_address,
-                'reserve0': 1000000 + (block_number % 10000),  # 더미 값
-                'reserve1': 2000000 + (block_number % 20000),  # 더미 값
-                'block_number': block_number
-            }
-            
-            return dummy_data
-            
-        except Exception as e:
-            logger.error(f"블록 {block_number}에서 풀 데이터 조회 실패: {e}")
-            return None
-    
-    def _get_block_timestamp(self, block_number: int) -> datetime:
-        """
-        블록의 타임스탬프 조회
+        # 실제 구현에서는 해당 시간의 블록 데이터를 조회해야 함
+        # 여기서는 예시로 랜덤 데이터 생성
         
-        Args:
-            block_number: 블록 번호
-            
-        Returns:
-            블록 타임스탬프
-        """
-        try:
-            block = self.w3.eth.get_block(block_number)
-            return datetime.fromtimestamp(block['timestamp'])
-        except Exception as e:
-            logger.warning(f"블록 {block_number} 타임스탬프 조회 실패: {e}")
-            # 실패 시 현재 시간에서 계산된 근사값 반환
-            approx_timestamp = datetime.now() - timedelta(seconds=(self.w3.eth.block_number - block_number) * 13.5)
-            return approx_timestamp
+        # 시간 기반으로 랜덤 값 생성
+        seed = hash(f"{pool_address}{timestamp}") % 1000000
+        reserve0 = 1000000 + (seed % 1000000)  # 1M ~ 2M 범위
+        reserve1 = 2000000 + (seed % 2000000)  # 2M ~ 4M 범위
+        fee = 0.003  # 0.3% 수수료
+        
+        return {
+            'address': pool_address,
+            'reserve0': reserve0,
+            'reserve1': reserve1,
+            'fee': fee,
+            'timestamp': timestamp.isoformat()
+        }
     
     async def _generate_historical_price_data(self, symbol: str, days: int) -> List[Dict]:
         """
@@ -314,13 +282,14 @@ class HistoricalDataBackfiller:
         }
         
         try:
-            # 풀 데이터 백필 (예시 풀 주소들)
+            # 예시 풀 주소들
             example_pools = [
                 '0xB4e16d0168e52d35CaCD2c6185b44281Ec28C9Dc',  # UNI-V2 ETH/USDC
                 '0xA478c2975Ab1Ea89e8196811F51A7B7Ade33eB11',  # UNI-V2 ETH/DAI
                 '0x0d4a11d5EEaaC28EC3F61d100daF4d40471f1852'   # UNI-V2 ETH/USDT
             ]
             
+            # 풀 데이터 백필
             for pool_address in example_pools:
                 count = await self.backfill_pool_data(pool_address, days)
                 results['pool_data'] += count

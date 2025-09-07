@@ -1,7 +1,7 @@
 import asyncio
 import time
 from typing import Dict, List, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 from src.logger import setup_logger
 from src.data_storage import DataStorage
 
@@ -80,10 +80,13 @@ class PerformanceBenchmark:
         if len(self.execution_times) > 100:
             self.execution_times = self.execution_times[-100:]
         
-        # Redis에 저장
+        # Redis에 저장 (쿼리 최적화 버전)
         try:
             key = f"performance:execution_time:{datetime.now().isoformat()}"
             self.storage.redis_client.setex(key, 3600, str(execution_time))  # 1시간 보관
+            
+            # 인덱스 업데이트 (성능 최적화를 위한 패턴)
+            self._update_performance_index(datetime.now().isoformat())
         except Exception as e:
             logger.warning(f"Failed to store execution time in Redis: {e}")
         
@@ -92,6 +95,20 @@ class PerformanceBenchmark:
         # 목표 시간을 초과한 경우 경고
         if execution_time > self.target_execution_time:
             logger.warning(f"Execution time exceeds target: {execution_time:.4f}s > {self.target_execution_time:.2f}s")
+    
+    def _update_performance_index(self, timestamp: str):
+        """성능 인덱스 업데이트 (성능 최적화를 위한 패턴)"""
+        try:
+            # 타임스탬프 인덱스 업데이트
+            index_key = "index:performance_times"
+            self.storage.redis_client.zadd(index_key, {timestamp: datetime.fromisoformat(timestamp).timestamp()})
+            
+            # 오래된 인덱스 항목 제거 (메모리 최적화)
+            cutoff_time = (datetime.now() - timedelta(hours=24)).timestamp()
+            self.storage.redis_client.zremrangebyscore(index_key, 0, cutoff_time)
+            
+        except Exception as e:
+            logger.debug(f"성능 인덱스 업데이트 실패 (비크리티컬): {e}")
     
     def get_performance_stats(self) -> Dict:
         """
@@ -163,7 +180,7 @@ class PerformanceBenchmark:
     
     async def get_historical_performance(self, hours: int = 24) -> List[Dict]:
         """
-        과거 성능 데이터 조회
+        과거 성능 데이터 조회 (쿼리 최적화 버전)
         
         Args:
             hours: 조회할 시간 범위 (시간)
@@ -172,25 +189,33 @@ class PerformanceBenchmark:
             과거 성능 데이터 리스트
         """
         try:
-            pattern = "performance:execution_time:*"
-            keys = self.storage.redis_client.keys(pattern)
+            # 시간 기반 인덱스를 사용하여 효율적으로 데이터 조회
+            end_time = datetime.now()
+            start_time = end_time - timedelta(hours=hours)
+            
+            # Redis 인덱스에서 시간 범위 기반으로 키 조회
+            index_key = "index:performance_times"
+            timestamp_strings = self.storage.redis_client.zrangebyscore(
+                index_key, 
+                start_time.timestamp(), 
+                end_time.timestamp(),
+                withscores=False
+            )
             
             history = []
-            cutoff_time = datetime.now() - timedelta(hours=hours)
-            
-            for key in keys:
+            for timestamp_str in timestamp_strings:
                 try:
-                    timestamp_str = key.decode().split(':')[-1]
-                    timestamp = datetime.fromisoformat(timestamp_str)
+                    # 키 패턴 생성
+                    key_pattern = f"performance:execution_time:{timestamp_str.decode()}"
                     
-                    if timestamp >= cutoff_time:
-                        data = self.storage.redis_client.get(key)
-                        if data:
-                            execution_time = float(data.decode())
-                            history.append({
-                                'timestamp': timestamp_str,
-                                'execution_time': execution_time
-                            })
+                    # 데이터 조회
+                    data = self.storage.redis_client.get(key_pattern)
+                    if data:
+                        execution_time = float(data.decode())
+                        history.append({
+                            'timestamp': timestamp_str.decode(),
+                            'execution_time': execution_time
+                        })
                 except (ValueError, UnicodeDecodeError):
                     continue
             
