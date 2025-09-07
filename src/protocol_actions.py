@@ -304,8 +304,19 @@ class ProtocolActionsManager:
         pairs = self.get_all_token_pairs()
         logger.info(f"Updating {len(pairs)} protocol action pairs across {len(self.protocol_actions)} protocols")
         
-        for from_token, to_token, dex in pairs:
-            await self._update_pool_data(from_token, to_token, dex)
+        # Use asyncio.gather to parallelize the updates
+        update_tasks = [
+            self._update_pool_data(from_token, to_token, dex)
+            for from_token, to_token, dex in pairs
+        ]
+        
+        # Process in batches to avoid overwhelming the node
+        batch_size = 20
+        for i in range(0, len(update_tasks), batch_size):
+            batch = update_tasks[i:i + batch_size]
+            await asyncio.gather(*batch, return_exceptions=True)
+            
+        logger.info(f"Completed updating {len(pairs)} protocol action pairs")
     
     async def _update_pool_data(self, from_token: str, to_token: str, dex: str):
         """

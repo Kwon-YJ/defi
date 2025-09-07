@@ -58,7 +58,7 @@ class DeFiMarketGraph:
         if timestamp is None:
             timestamp = time.time()
             
-        # 토큰 노드 추가
+        # 토큰 노드 추가 (이미 존재하면 아무 작업도 하지 않음)
         self.add_token(token0)
         self.add_token(token1)
         
@@ -111,8 +111,13 @@ class DeFiMarketGraph:
         
         # Multi-graph 지원: 동일 토큰 쌍에 여러 DEX 엣지 추가
         # key 파라미터를 사용하여 병렬 엣지 구분
-        self.graph.add_edge(token0, token1, key=f"{dex}_{pool_address}", **asdict(edge_01))
-        self.graph.add_edge(token1, token0, key=f"{dex}_{pool_address}", **asdict(edge_10))
+        # Use bulk operations for better performance
+        edges_to_add = [
+            (token0, token1, f"{dex}_{pool_address}", asdict(edge_01)),
+            (token1, token0, f"{dex}_{pool_address}", asdict(edge_10))
+        ]
+        
+        self.graph.add_edges_from(edges_to_add)
         
         logger.debug(f"거래 쌍 추가 (Multi-graph 지원): {dex} {token0}-{token1}")
     
@@ -147,30 +152,36 @@ class DeFiMarketGraph:
             
         updated_edges = 0
         # 해당 풀과 연관된 모든 엣지들 찾아서 업데이트
+        # Create a list of edges to update to avoid modifying the graph during iteration
+        edges_to_update = []
         for u, v, key, data in self.graph.edges(keys=True, data=True):
             if data.get('pool_address') == pool_address:
-                # 새로운 환율 계산
-                fee = data.get('fee', 0.003)
-                if data['from_token'] == u:
-                    new_rate = (reserve1 / reserve0) * (1 - fee)
-                else:
-                    new_rate = (reserve0 / reserve1) * (1 - fee)
-                
-                # 엣지 데이터 업데이트
-                data['exchange_rate'] = new_rate
-                data['weight'] = -math.log(new_rate) if new_rate > 0 else float('inf')
-                data['liquidity'] = min(reserve0, reserve1)
-                data['timestamp'] = timestamp
-                
-                # 효율성 점수 업데이트
-                from_token = data['from_token']
-                to_token = data['to_token']
-                if from_token == u:
-                    data['efficiency_score'] = self._calculate_efficiency_score(reserve0, reserve1, fee)
-                else:
-                    data['efficiency_score'] = self._calculate_efficiency_score(reserve1, reserve0, fee)
-                
-                updated_edges += 1
+                edges_to_update.append((u, v, key, data))
+        
+        # Batch update all edges
+        for u, v, key, data in edges_to_update:
+            # 새로운 환율 계산
+            fee = data.get('fee', 0.003)
+            if data['from_token'] == u:
+                new_rate = (reserve1 / reserve0) * (1 - fee)
+            else:
+                new_rate = (reserve0 / reserve1) * (1 - fee)
+            
+            # 엣지 데이터 업데이트
+            data['exchange_rate'] = new_rate
+            data['weight'] = -math.log(new_rate) if new_rate > 0 else float('inf')
+            data['liquidity'] = min(reserve0, reserve1)
+            data['timestamp'] = timestamp
+            
+            # 효율성 점수 업데이트
+            from_token = data['from_token']
+            to_token = data['to_token']
+            if from_token == u:
+                data['efficiency_score'] = self._calculate_efficiency_score(reserve0, reserve1, fee)
+            else:
+                data['efficiency_score'] = self._calculate_efficiency_score(reserve1, reserve0, fee)
+            
+            updated_edges += 1
         
         if updated_edges > 0:
             self.last_update = timestamp
@@ -222,20 +233,39 @@ class DeFiMarketGraph:
     
     def get_graph_stats(self) -> Dict:
         """그래프 통계 정보 (메모리 효율성 포함)"""
-        # 메모리 사용량 추정
-        import sys
-        edge_memory = sum(sys.getsizeof(data) for u, v, data in self.graph.edges(data=True))
-        node_memory = sum(sys.getsizeof(data) for node, data in self.graph.nodes(data=True))
-        
-        return {
-            'nodes': len(self.graph.nodes),
-            'edges': len(self.graph.edges),
-            'tokens': len(self.token_nodes),
-            'density': nx.density(self.graph),
-            'is_connected': nx.is_weakly_connected(self.graph) if len(self.graph.nodes) > 0 else False,
-            'memory_usage_bytes': edge_memory + node_memory,
-            'parallel_edges': self._count_parallel_edges()
-        }
+        # 메모리 사용량 추정 (더 효율적인 방법)
+        try:
+            # Use more efficient memory estimation
+            edge_count = self.graph.number_of_edges()
+            node_count = self.graph.number_of_nodes()
+            
+            # Estimate memory usage based on counts rather than individual object sizes
+            # Rough estimation: each edge ~200 bytes, each node ~100 bytes
+            estimated_edge_memory = edge_count * 200
+            estimated_node_memory = node_count * 100
+            estimated_memory = estimated_edge_memory + estimated_node_memory
+            
+            return {
+                'nodes': node_count,
+                'edges': edge_count,
+                'tokens': len(self.token_nodes),
+                'density': nx.density(self.graph),
+                'is_connected': nx.is_weakly_connected(self.graph) if node_count > 0 else False,
+                'memory_usage_bytes': estimated_memory,
+                'parallel_edges': self._count_parallel_edges()
+            }
+        except Exception as e:
+            logger.error(f"그래프 통계 계산 중 오류 발생: {e}")
+            return {
+                'nodes': 0,
+                'edges': 0,
+                'tokens': 0,
+                'density': 0,
+                'is_connected': False,
+                'memory_usage_bytes': 0,
+                'parallel_edges': 0,
+                'error': str(e)
+            }
     
     def _count_parallel_edges(self) -> int:
         """병렬 엣지 수 계산"""

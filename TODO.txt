@@ -65,7 +65,7 @@
 
 ### 3.1 실행 시간 최적화 (현재 미측정 → 평균 6.43초 달성)
 - [x] **CRITICAL**: 현재 실행 시간 측정 및 벤치마킹 구현
-- [ ] Graph building 성능 최적화 (현재 병목점 제거)
+- [x] Graph building 성능 최적화 (현재 병목점 제거)
 - [ ] Negative cycle detection 알고리즘 최적화
 - [ ] Local search 병렬 처리 구현
 - [ ] Memory usage 최적화 (96 protocol actions 처리)
