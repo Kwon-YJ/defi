@@ -51,7 +51,7 @@
   - [x] Aave: supply/withdraw
   - [x] Aave: borrow/repay
   - [x] Compound: mint/redeem (supply/withdraw)
-  - [ ] Compound: borrow/repay
+  - [x] Compound: borrow/repay
   - [x] MakerDAO: CDP (WETH->DAI mint)
   - [x] MakerDAO: PSM (USDC<->DAI)
   - [x] Synthetix: exchange (sETH<->sUSD)

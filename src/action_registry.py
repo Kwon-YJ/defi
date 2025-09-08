@@ -902,16 +902,72 @@ class AaveRepayAction(ProtocolAction):
 
 class CompoundBorrowAction(ProtocolAction):
     name = "compound.borrow"
-    enabled = False
-    async def update_graph(self, *args, **kwargs) -> int:
-        return 0
+    enabled = True
+
+    def __init__(self, w3: Web3):
+        self.collector = CompoundCollector(w3)
+        self.fee = 0.0005  # borrowing cost approximation
+
+    def _debt_token_id(self, underlying: str) -> str:
+        return f"compound_debt:{underlying}"
+
+    async def update_graph(self, graph: DeFiMarketGraph, w3: Web3, tokens: Dict[str, str],
+                           block_number: Optional[int] = None) -> int:
+        updated = 0
+        base_liq = 100.0
+        for sym, underlying in tokens.items():
+            try:
+                if not self.collector.get_ctoken(underlying):
+                    continue
+                debt = self._debt_token_id(underlying)
+                graph.add_trading_pair(
+                    token0=debt,
+                    token1=underlying,
+                    dex='compound_borrow',
+                    pool_address=f"compound_borrow_{underlying[:6]}",
+                    reserve0=base_liq,
+                    reserve1=base_liq * 1.0,
+                    fee=self.fee,
+                )
+                updated += 2
+            except Exception as e:
+                logger.debug(f"Compound borrow update failed {sym}: {e}")
+        return updated
 
 
 class CompoundRepayAction(ProtocolAction):
     name = "compound.repay"
-    enabled = False
-    async def update_graph(self, *args, **kwargs) -> int:
-        return 0
+    enabled = True
+
+    def __init__(self, w3: Web3):
+        self.collector = CompoundCollector(w3)
+        self.fee = 0.0
+
+    def _debt_token_id(self, underlying: str) -> str:
+        return f"compound_debt:{underlying}"
+
+    async def update_graph(self, graph: DeFiMarketGraph, w3: Web3, tokens: Dict[str, str],
+                           block_number: Optional[int] = None) -> int:
+        updated = 0
+        base_liq = 100.0
+        for sym, underlying in tokens.items():
+            try:
+                if not self.collector.get_ctoken(underlying):
+                    continue
+                debt = self._debt_token_id(underlying)
+                graph.add_trading_pair(
+                    token0=underlying,
+                    token1=debt,
+                    dex='compound_repay',
+                    pool_address=f"compound_repay_{underlying[:6]}",
+                    reserve0=base_liq,
+                    reserve1=base_liq * 1.0,
+                    fee=self.fee,
+                )
+                updated += 2
+            except Exception as e:
+                logger.debug(f"Compound repay update failed {sym}: {e}")
+        return updated
 
 
 class SynthetixMintAction(ProtocolAction):
@@ -1105,6 +1161,8 @@ def register_default_actions(w3: Web3) -> ActionRegistry:
     reg.register(AaveBorrowAction(w3))
     reg.register(AaveRepayAction(w3))
     reg.register(CompoundSupplyBorrowAction(w3))
+    reg.register(CompoundBorrowAction(w3))
+    reg.register(CompoundRepayAction(w3))
     reg.register(MakerCdpAction(w3))
     reg.register(MakerPsmSwapAction(w3))
     reg.register(YearnVaultAction(w3))
