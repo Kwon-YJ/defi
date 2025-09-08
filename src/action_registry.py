@@ -294,14 +294,13 @@ class BalancerWeightedSwapAction(ProtocolAction, _SwapPairsMixin):
                 pool = self.collector.find_pool_for_pair(token0, token1)
                 if not pool:
                     continue
-                # read weights, balances and fee
-                wi, wj, bi, bj = self.collector.get_weights_and_balances(pool, token0, token1)
-                price01, fee_frac = self.collector.get_spot_price_and_fee(pool, token0, token1)
-                if price01 <= 0 or wi <= 0 or wj <= 0 or bi <= 0 or bj <= 0:
+                # read weights, balances and fee; compute effective rate at reference trade size
+                eff_rate, fee_frac, wi, wj, bi = self.collector.effective_rate_for_fraction(pool, token0, token1)
+                if eff_rate <= 0 or wi <= 0 or wj <= 0 or bi <= 0:
                     continue
-                # effective reserves so that exchange_rate matches Balancer spot
-                reserve0 = float(bi) / float(wi)
-                reserve1 = float(bj) / float(wj)
+                # set reserves so that exchange_rate ~= effective average price at ref size
+                reserve0 = 150.0
+                reserve1 = reserve0 * float(eff_rate)
                 graph.add_trading_pair(
                     token0=token0,
                     token1=token1,
@@ -314,7 +313,7 @@ class BalancerWeightedSwapAction(ProtocolAction, _SwapPairsMixin):
                 set_edge_meta(
                     graph.graph, token0, token1, dex='balancer', pool_address=pool,
                     fee_tier=None, source='onchain', confidence=0.9,
-                    extra={'w_in': wi, 'w_out': wj, 'b_in': bi, 'b_out': bj}
+                    extra={'w_in': wi, 'w_out': wj, 'b_in': bi, 'ref_fraction': float(getattr(config, 'slippage_trade_fraction', 0.01)), 'eff_rate': float(eff_rate)}
                 )
                 updated += 2
             except Exception as e:
@@ -1188,23 +1187,58 @@ class AaveBorrowAction(ProtocolAction):
         base_liq = 100.0
         for sym, underlying in tokens.items():
             try:
-                # Only consider assets that have an aToken mapping (supported on Aave)
-                if not self.collector.get_atoken(underlying):
+                addrs = self.collector.get_reserve_tokens(underlying)
+                if not addrs:
+                    # fallback to atoken-only support
+                    if not self.collector.get_atoken(underlying):
+                        continue
+                    # variable debt synth fallback
+                    debt_var = debt_aave(underlying)
+                    graph.add_trading_pair(
+                        token0=debt_var,
+                        token1=underlying,
+                        dex='aave_borrow',
+                        pool_address=f"aave_borrow_{underlying[:6]}",
+                        reserve0=base_liq,
+                        reserve1=base_liq * 1.0,
+                        fee=self.fee,
+                    )
+                    set_edge_meta(graph.graph, debt_var, underlying, dex='aave_borrow', pool_address=f"aave_borrow_{underlying[:6]}",
+                                  fee_tier=None, source='approx', confidence=0.75,
+                                  extra={'debt_type': 'variable', 'fallback': True})
+                    updated += 2
                     continue
-                debt = self._debt_token_id(underlying)
-                # Borrow: incur 1 debt unit to receive ~1 underlying
-                graph.add_trading_pair(
-                    token0=debt,
-                    token1=underlying,
-                    dex='aave_borrow',
-                    pool_address=f"aave_borrow_{underlying[:6]}",
-                    reserve0=base_liq,
-                    reserve1=base_liq * 1.0,
-                    fee=self.fee,
-                )
-                set_edge_meta(graph.graph, debt, underlying, dex='aave_borrow', pool_address=f"aave_borrow_{underlying[:6]}",
-                              fee_tier=None, source='approx', confidence=0.8)
-                updated += 2
+                a_token, stable_debt, variable_debt = addrs
+                # Borrow variable
+                if isinstance(variable_debt, str) and int(variable_debt, 16) != 0:
+                    graph.add_trading_pair(
+                        token0=variable_debt,
+                        token1=underlying,
+                        dex='aave_borrow_variable',
+                        pool_address=f"aave_borrow_var_{underlying[:6]}",
+                        reserve0=base_liq,
+                        reserve1=base_liq * 1.0,
+                        fee=self.fee,
+                    )
+                    set_edge_meta(graph.graph, variable_debt, underlying, dex='aave_borrow_variable', pool_address=f"aave_borrow_var_{underlying[:6]}",
+                                  fee_tier=None, source='onchain', confidence=0.9,
+                                  extra={'debt_type': 'variable'})
+                    updated += 2
+                # Borrow stable
+                if isinstance(stable_debt, str) and int(stable_debt, 16) != 0:
+                    graph.add_trading_pair(
+                        token0=stable_debt,
+                        token1=underlying,
+                        dex='aave_borrow_stable',
+                        pool_address=f"aave_borrow_st_{underlying[:6]}",
+                        reserve0=base_liq,
+                        reserve1=base_liq * 1.0,
+                        fee=self.fee,
+                    )
+                    set_edge_meta(graph.graph, stable_debt, underlying, dex='aave_borrow_stable', pool_address=f"aave_borrow_st_{underlying[:6]}",
+                                  fee_tier=None, source='onchain', confidence=0.9,
+                                  extra={'debt_type': 'stable'})
+                    updated += 2
             except Exception as e:
                 logger.debug(f"Aave borrow update failed {sym}: {e}")
         return updated
@@ -1227,22 +1261,56 @@ class AaveRepayAction(ProtocolAction):
         base_liq = 100.0
         for sym, underlying in tokens.items():
             try:
-                if not self.collector.get_atoken(underlying):
+                addrs = self.collector.get_reserve_tokens(underlying)
+                if not addrs:
+                    if not self.collector.get_atoken(underlying):
+                        continue
+                    debt_var = f"aave_vdebt:{underlying}"
+                    graph.add_trading_pair(
+                        token0=underlying,
+                        token1=debt_var,
+                        dex='aave_repay_variable',
+                        pool_address=f"aave_repay_var_{underlying[:6]}",
+                        reserve0=base_liq,
+                        reserve1=base_liq * 1.0,
+                        fee=self.fee,
+                    )
+                    set_edge_meta(graph.graph, underlying, debt_var, dex='aave_repay_variable', pool_address=f"aave_repay_var_{underlying[:6]}",
+                                  fee_tier=None, source='approx', confidence=0.75,
+                                  extra={'debt_type': 'variable', 'fallback': True})
+                    updated += 2
                     continue
-                debt = self._debt_token_id(underlying)
-                # Repay: spend underlying to extinguish 1 debt unit
-                graph.add_trading_pair(
-                    token0=underlying,
-                    token1=debt,
-                    dex='aave_repay',
-                    pool_address=f"aave_repay_{underlying[:6]}",
-                    reserve0=base_liq,
-                    reserve1=base_liq * 1.0,
-                    fee=self.fee,
-                )
-                set_edge_meta(graph.graph, underlying, debt, dex='aave_repay', pool_address=f"aave_repay_{underlying[:6]}",
-                              fee_tier=None, source='approx', confidence=0.8)
-                updated += 2
+                a_token, stable_debt, variable_debt = addrs
+                # Repay variable
+                if isinstance(variable_debt, str) and int(variable_debt, 16) != 0:
+                    graph.add_trading_pair(
+                        token0=underlying,
+                        token1=variable_debt,
+                        dex='aave_repay_variable',
+                        pool_address=f"aave_repay_var_{underlying[:6]}",
+                        reserve0=base_liq,
+                        reserve1=base_liq * 1.0,
+                        fee=self.fee,
+                    )
+                    set_edge_meta(graph.graph, underlying, variable_debt, dex='aave_repay_variable', pool_address=f"aave_repay_var_{underlying[:6]}",
+                                  fee_tier=None, source='onchain', confidence=0.9,
+                                  extra={'debt_type': 'variable'})
+                    updated += 2
+                # Repay stable
+                if isinstance(stable_debt, str) and int(stable_debt, 16) != 0:
+                    graph.add_trading_pair(
+                        token0=underlying,
+                        token1=stable_debt,
+                        dex='aave_repay_stable',
+                        pool_address=f"aave_repay_st_{underlying[:6]}",
+                        reserve0=base_liq,
+                        reserve1=base_liq * 1.0,
+                        fee=self.fee,
+                    )
+                    set_edge_meta(graph.graph, underlying, stable_debt, dex='aave_repay_stable', pool_address=f"aave_repay_st_{underlying[:6]}",
+                                  fee_tier=None, source='onchain', confidence=0.9,
+                                  extra={'debt_type': 'stable'})
+                    updated += 2
             except Exception as e:
                 logger.debug(f"Aave repay update failed {sym}: {e}")
         return updated

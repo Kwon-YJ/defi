@@ -27,6 +27,10 @@ class Config:
     # 모니터링
     log_level: str = os.getenv('LOG_LEVEL', 'INFO')
     redis_url: str = os.getenv('REDIS_URL', 'redis://localhost:6379')
+    # Slippage modeling
+    slippage_trade_fraction: float = float(os.getenv('SLIPPAGE_TRADE_FRACTION', '0.01'))  # 1% reference size
+    # Aave v2 Data Provider (mainnet default)
+    aave_v2_data_provider: str = os.getenv('AAVE_V2_DATA_PROVIDER', '0x057835Ad21a177dbdd3090bB1CAE03EaCF78Fc6d')
     # V3 tier 선택 로직 가중치
     v3_score_weight_ema: float = float(os.getenv('V3_SCORE_W_EMA', '1.0'))
     v3_score_weight_liq: float = float(os.getenv('V3_SCORE_W_LIQ', '0.001'))

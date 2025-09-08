@@ -1,7 +1,8 @@
 import json
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 from web3 import Web3
 from src.logger import setup_logger
+from config.config import config
 
 logger = setup_logger(__name__)
 
@@ -74,11 +75,46 @@ class AaveV2Collector:
 
     def __init__(self, w3: Web3):
         self.w3 = w3
+        # Aave v2 Protocol Data Provider
+        self.data_provider_address = getattr(config, 'aave_v2_data_provider', '')
+        self.data_provider_abi = [
+            {
+                "inputs": [{"internalType": "address", "name": "asset", "type": "address"}],
+                "name": "getReserveTokensAddresses",
+                "outputs": [
+                    {"internalType": "address", "name": "aTokenAddress", "type": "address"},
+                    {"internalType": "address", "name": "stableDebtTokenAddress", "type": "address"},
+                    {"internalType": "address", "name": "variableDebtTokenAddress", "type": "address"}
+                ],
+                "stateMutability": "view",
+                "type": "function"
+            }
+        ]
 
     def get_atoken(self, underlying: str) -> Optional[str]:
+        # Try DataProvider first
+        try:
+            addrs = self.get_reserve_tokens(underlying)
+            if addrs and addrs[0] and int(addrs[0], 16) != 0:
+                return addrs[0]
+        except Exception:
+            pass
         return self.ATOKENS.get(underlying.lower())
 
     def get_deposit_rate_underlying_to_atoken(self, atoken: str) -> float:
         # aToken is 1:1 mapping for deposit/withdraw
         return 1.0
 
+    def get_reserve_tokens(self, underlying: str) -> Optional[Tuple[str, str, str]]:
+        """Return (aToken, stableDebt, variableDebt) using DataProvider; None on failure."""
+        try:
+            if not self.w3 or not self.w3.is_connected():
+                return None
+            if not self.data_provider_address:
+                return None
+            c = self.w3.eth.contract(address=self.data_provider_address, abi=self.data_provider_abi)
+            a, sd, vd = c.functions.getReserveTokensAddresses(underlying).call()
+            return a, sd, vd
+        except Exception as e:
+            logger.debug(f"Aave DataProvider read failed for {underlying[:6]}: {e}")
+            return None

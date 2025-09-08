@@ -1,5 +1,7 @@
 import json
 from typing import Dict, Optional, Tuple
+from src.slippage import amount_out_balancer_weighted
+from config.config import config
 from web3 import Web3
 from src.logger import setup_logger
 
@@ -151,6 +153,26 @@ class BalancerWeightedCollector:
         except Exception as e:
             logger.debug(f"Balancer spot price read failed {pool_addr[:6]}: {e}")
             return 1.0, 0.001
+
+    def effective_rate_for_fraction(self, pool_addr: str, token0: str, token1: str,
+                                    trade_fraction: Optional[float] = None) -> Tuple[float, float, float, float, float]:
+        """Compute effective price for a fractional trade size of token0 reserves.
+
+        Returns: (eff_rate, fee, wi, wj, bi)
+        """
+        wi, wj, bi, bj = self.get_weights_and_balances(pool_addr, token0, token1)
+        price, fee = self.get_spot_price_and_fee(pool_addr, token0, token1)
+        f = trade_fraction if trade_fraction is not None else float(getattr(config, 'slippage_trade_fraction', 0.01))
+        try:
+            f = max(1e-6, min(float(f), 0.5))
+        except Exception:
+            f = 0.01
+        if bi <= 0 or bj <= 0 or wi <= 0 or wj <= 0:
+            return price, fee, wi, wj, bi
+        amount_in = float(bi) * f
+        out = amount_out_balancer_weighted(amount_in, bi, bj, wi, wj, fee)
+        eff = (out / amount_in) if amount_in > 0 and out > 0 else price
+        return eff, fee, wi, wj, bi
 
     # --- Weighted join/exit math (single asset) ---
     def get_bpt_info(self, pool_addr: str) -> Tuple[int, int]:
