@@ -48,7 +48,9 @@ class BellmanFordArbitrage:
             updated = False
             
             for u, v, data in self.graph.graph.edges(data=True):
-                weight = data.get('weight', float('inf'))
+                # 논문 방식: weight = -log(exchange_rate)
+                rate = data.get('exchange_rate', 0.0)
+                weight = -math.log(rate) if rate and rate > 0 else float('inf')
                 
                 if self.distances[u] != float('inf'):
                     new_distance = self.distances[u] + weight
@@ -63,7 +65,8 @@ class BellmanFordArbitrage:
         
         # 음의 사이클 검사
         for u, v, data in self.graph.graph.edges(data=True):
-            weight = data.get('weight', float('inf'))
+            rate = data.get('exchange_rate', 0.0)
+            weight = -math.log(rate) if rate and rate > 0 else float('inf')
             
             if (self.distances[u] != float('inf') and 
                 self.distances[u] + weight < self.distances[v]):
