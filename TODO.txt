@@ -28,7 +28,10 @@
 
 ### 2.1 DeFi Protocol Actions 확장 (현재 ~6개 → 96개)
 - [ ] **CRITICAL**: 논문에서 언급한 96개 protocol actions 식별 및 구현
-- [ ] Uniswap V2/V3, Sushiswap (swap actions)
+- [x] (분할) 96개 protocol actions 후보 카탈로그 작성 (docs/protocol_actions_catalog.md)
+- [x] (분할) ActionRegistry에 96개 스케폴딩/플레이스홀더 등록 (확장 가능 구조)
+- [x] Uniswap V2/Sushiswap (swap actions) 그래프 반영 구현
+- [ ] Uniswap V3 (swap/liquidity) 그래프 반영 구현
 - [ ] Compound, Aave (lending/borrowing actions) 
 - [ ] Curve Finance (stableswap actions)
 - [ ] Balancer (weighted pool actions)
