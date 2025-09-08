@@ -55,7 +55,7 @@
   - [x] MakerDAO: CDP (WETH->DAI mint)
   - [x] MakerDAO: PSM (USDC<->DAI)
   - [x] Synthetix: exchange (sETH<->sUSD)
-  - [ ] Synthetix: mint/burn (SNX staking)
+  - [x] Synthetix: mint/burn (SNX staking)
   - [x] dYdX: margin open/close (가격 근사)
 
 ### 2.2 자산 지원 확장 (현재 4개 base tokens → 논문의 25개 assets)

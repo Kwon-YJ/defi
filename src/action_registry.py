@@ -857,16 +857,66 @@ class CompoundRepayAction(ProtocolAction):
 
 class SynthetixMintAction(ProtocolAction):
     name = "synthetix.mint"
-    enabled = False
-    async def update_graph(self, *args, **kwargs) -> int:
-        return 0
+    enabled = True
+
+    def __init__(self, w3: Web3):
+        self.collector = SynthetixCollector(w3)
+
+    async def update_graph(self, graph: DeFiMarketGraph, w3: Web3, tokens: Dict[str, str],
+                           block_number: Optional[int] = None) -> int:
+        try:
+            synths = self.collector.get_synths()
+            sUSD = synths["sUSD"]
+            SNX = synths["SNX"]
+            rate = self.collector.mintable_susd_per_snx(collateral_ratio=5.0, safety_factor=0.95)
+            if rate <= 0:
+                return 0
+            base_liq = 120.0
+            graph.add_trading_pair(
+                token0=SNX,
+                token1=sUSD,
+                dex='synthetix_mint',
+                pool_address='synthetix_mint_snx_susd',
+                reserve0=base_liq,
+                reserve1=base_liq * rate,
+                fee=0.0,
+            )
+            return 2
+        except Exception as e:
+            logger.debug(f"Synthetix mint update failed: {e}")
+            return 0
 
 
 class SynthetixBurnAction(ProtocolAction):
     name = "synthetix.burn"
-    enabled = False
-    async def update_graph(self, *args, **kwargs) -> int:
-        return 0
+    enabled = True
+
+    def __init__(self, w3: Web3):
+        self.collector = SynthetixCollector(w3)
+
+    async def update_graph(self, graph: DeFiMarketGraph, w3: Web3, tokens: Dict[str, str],
+                           block_number: Optional[int] = None) -> int:
+        try:
+            synths = self.collector.get_synths()
+            sUSD = synths["sUSD"]
+            SNX = synths["SNX"]
+            rate = self.collector.unlockable_snx_per_susd(collateral_ratio=5.0, safety_factor=0.95)
+            if rate <= 0:
+                return 0
+            base_liq = 120.0
+            graph.add_trading_pair(
+                token0=sUSD,
+                token1=SNX,
+                dex='synthetix_burn',
+                pool_address='synthetix_burn_susd_snx',
+                reserve0=base_liq,
+                reserve1=base_liq * rate,
+                fee=0.0,
+            )
+            return 2
+        except Exception as e:
+            logger.debug(f"Synthetix burn update failed: {e}")
+            return 0
 
 
 class DyDxOpenPositionAction(ProtocolAction):
@@ -998,6 +1048,8 @@ def register_default_actions(w3: Web3) -> ActionRegistry:
     reg.register(MakerPsmSwapAction(w3))
     reg.register(YearnVaultAction(w3))
     reg.register(SynthetixExchangeAction(w3))
+    reg.register(SynthetixMintAction(w3))
+    reg.register(SynthetixBurnAction(w3))
     reg.register(DyDxMarginAction(w3))
     # Additional placeholders to reach and organize toward 96 actions
     class KyberSwapAction(ProtocolAction):

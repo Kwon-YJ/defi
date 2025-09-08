@@ -14,8 +14,9 @@ class SynthetixCollector:
     - Uses a typical Synthetix exchange fee of ~0.3%.
     """
 
-    SUSD = "0x57ab1e02fee23774580c119740129eac7081e9d3"  # sUSD Proxy
-    SETH = "0x5e74c9036fb86bd7ecdcb084a0673efc32ea31cb"  # sETH Proxy
+    SUSD = "0x57ab1e02fee23774580c119740129eac7081e9d3"  # sUSD Proxy (18)
+    SETH = "0x5e74c9036fb86bd7ecdcb084a0673efc32ea31cb"  # sETH Proxy (18)
+    SNX  = "0xC011a73ee8576Fb46F5E1c5751cA3B9Fe0af2a6F"  # SNX (18)
     WETH = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
     USDC = "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
 
@@ -47,7 +48,7 @@ class SynthetixCollector:
         self.v2_factory = self.w3.eth.contract(address=self.v2_factory_address, abi=self.v2_factory_abi)
 
     def get_synths(self) -> Dict[str, str]:
-        return {"sUSD": self.SUSD, "sETH": self.SETH}
+        return {"sUSD": self.SUSD, "sETH": self.SETH, "SNX": self.SNX}
 
     def get_exchange_fee(self) -> float:
         return 0.003  # 0.3%
@@ -70,3 +71,55 @@ class SynthetixCollector:
             logger.debug(f"Synthetix price fetch failed; using fallback 2000: {e}")
         return 2000.0
 
+    def _price_tokenB_per_tokenA_v2(self, tokenA: str, tokenB: str, decA: int, decB: int) -> float:
+        """Generic Uniswap V2 price for tokenB per 1 tokenA with known decimals"""
+        try:
+            pair = self.v2_factory.functions.getPair(tokenA, tokenB).call()
+            if pair and pair != "0x0000000000000000000000000000000000000000":
+                c = self.w3.eth.contract(address=pair, abi=self.v2_pair_abi)
+                t0 = c.functions.token0().call()
+                t1 = c.functions.token1().call()
+                r0, r1, _ = c.functions.getReserves().call()
+                if t0.lower() == tokenA.lower() and t1.lower() == tokenB.lower():
+                    return (r1 / (10 ** decB)) / (r0 / (10 ** decA))
+                elif t0.lower() == tokenB.lower() and t1.lower() == tokenA.lower():
+                    return (r0 / (10 ** decB)) / (r1 / (10 ** decA))
+        except Exception as e:
+            logger.debug(f"V2 price fetch failed {tokenA[:6]}->{tokenB[:6]}: {e}")
+        return 0.0
+
+    def price_susd_per_snx(self) -> float:
+        """Estimate sUSD per SNX by chaining SNX/WETH * WETH/USDC."""
+        try:
+            snx_per_weth = self._price_tokenB_per_tokenA_v2(self.WETH, self.SNX, 18, 18)
+            # If we queried WETH->SNX, we need SNX per WETH; above returns SNX per WETH directly.
+            if snx_per_weth <= 0:
+                # Try SNX->WETH
+                weth_per_snx = self._price_tokenB_per_tokenA_v2(self.SNX, self.WETH, 18, 18)
+                snx_per_weth = (1.0 / weth_per_snx) if weth_per_snx > 0 else 0.0
+            usdc_per_weth = self._price_tokenB_per_tokenA_v2(self.WETH, self.USDC, 18, 6)
+            if snx_per_weth > 0 and usdc_per_weth > 0:
+                usdc_per_snx = usdc_per_weth / snx_per_weth
+                return usdc_per_snx  # sUSD ~ USDC
+        except Exception as e:
+            logger.debug(f"SNX price via V2 failed; fallback 2.0: {e}")
+        return 2.0
+
+    def mintable_susd_per_snx(self, collateral_ratio: float = 5.0, safety_factor: float = 0.95) -> float:
+        price = self.price_susd_per_snx()
+        if collateral_ratio <= 0:
+            collateral_ratio = 5.0
+        if safety_factor <= 0 or safety_factor > 1:
+            safety_factor = 0.95
+        return (price / collateral_ratio) * safety_factor
+
+    def unlockable_snx_per_susd(self, collateral_ratio: float = 5.0, safety_factor: float = 0.95) -> float:
+        price = self.price_susd_per_snx()
+        if price <= 0:
+            return 0.0
+        if collateral_ratio <= 0:
+            collateral_ratio = 5.0
+        if safety_factor <= 0 or safety_factor > 1:
+            safety_factor = 0.95
+        # inverse of mintable ratio
+        return (collateral_ratio / (price)) * (1.0 / safety_factor)
