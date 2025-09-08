@@ -6,6 +6,7 @@ from web3 import Web3
 from src.logger import setup_logger
 from src.market_graph import DeFiMarketGraph
 from src.dex_data_collector import UniswapV2Collector, SushiSwapCollector
+from src.action_registry import register_default_actions, ActionRegistry
 from src.real_time_collector import RealTimeDataCollector
 from config.config import config
 
@@ -33,7 +34,7 @@ class BlockGraphUpdater:
         }
         self.dexes = dexes or ['uniswap_v2', 'sushiswap']
 
-        # DEX 수집기 초기화
+        # (역호환) DEX 수집기 초기화 - 유지
         for dex in self.dexes:
             if dex == 'uniswap_v2':
                 self.collectors[dex] = UniswapV2Collector(self.w3)
@@ -46,6 +47,8 @@ class BlockGraphUpdater:
 
         # 블록 수신기
         self.rt = RealTimeDataCollector()
+        # Protocol Action Registry (확장성)
+        self.registry: ActionRegistry = register_default_actions(self.w3)
 
     def _major_pairs(self) -> List[Tuple[str, str]]:
         """모든 토큰 조합에서 페어 생성"""
@@ -61,7 +64,7 @@ class BlockGraphUpdater:
         async def on_new_block(block_data):
             try:
                 block_number = int(block_data['number'], 16)
-                await self.update_all_pairs(block_number)
+                await self.update_via_actions(block_number)
             except Exception as e:
                 logger.error(f"블록 갱신 실패: {e}")
 
@@ -71,7 +74,7 @@ class BlockGraphUpdater:
         asyncio.create_task(self.rt.start_websocket_listener())
 
         # 시작 시 1회 초기 빌드
-        await self.update_all_pairs()
+        await self.update_via_actions()
 
     async def update_all_pairs(self, block_number: Optional[int] = None):
         """등록된 모든 DEX, 주요 페어에 대해 그래프 엣지 갱신"""
@@ -113,3 +116,12 @@ class BlockGraphUpdater:
         self.running = False
         self.rt.stop()
 
+    async def update_via_actions(self, block_number: Optional[int] = None):
+        """Action Registry를 통한 확장형 그래프 갱신 (96개 actions까지 확장 가능)"""
+        updated = await self.registry.update_all(self.graph, self.w3, self.tokens, block_number)
+        msg = (
+            f"블록 {block_number} 그래프 갱신(액션): {updated}개 엣지 업데이트"
+            if block_number is not None
+            else f"그래프 초기 빌드 완료(액션): {updated}개 엣지 추가"
+        )
+        logger.info(msg)
