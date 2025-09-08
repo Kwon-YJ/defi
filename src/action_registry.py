@@ -15,6 +15,7 @@ from src.lending_collectors import CompoundCollector, AaveV2Collector
 from src.synthetix_collectors import SynthetixCollector
 from src.maker_collectors import MakerCollector
 from src.dex_balancer_collector import BalancerWeightedCollector
+from src.yearn_collectors import YearnV2Collector
 
 logger = setup_logger(__name__)
 
@@ -292,9 +293,36 @@ class MakerCdpAction(ProtocolAction):
 
 class YearnVaultAction(ProtocolAction):
     name = "yearn.vault"
-    enabled = False
-    async def update_graph(self, *args, **kwargs) -> int:
-        return 0
+    enabled = True
+
+    def __init__(self, w3: Web3):
+        self.collector = YearnV2Collector(w3)
+
+    async def update_graph(self, graph: DeFiMarketGraph, w3: Web3, tokens: Dict[str, str],
+                           block_number: Optional[int] = None) -> int:
+        updated = 0
+        base_liq = 120.0
+        for sym, underlying in tokens.items():
+            try:
+                yv = self.collector.get_vault(underlying)
+                if not yv:
+                    continue
+                shares_per_underlying = self.collector.get_shares_per_underlying(underlying, yv)
+                reserve0 = base_liq
+                reserve1 = base_liq * shares_per_underlying
+                graph.add_trading_pair(
+                    token0=underlying,
+                    token1=yv,
+                    dex='yearn',
+                    pool_address=yv,
+                    reserve0=reserve0,
+                    reserve1=reserve1,
+                    fee=0.0,
+                )
+                updated += 2
+            except Exception as e:
+                logger.debug(f"Yearn update failed {sym}: {e}")
+        return updated
 
 
 class SynthetixExchangeAction(ProtocolAction):
@@ -408,7 +436,7 @@ def register_default_actions(w3: Web3) -> ActionRegistry:
     reg.register(AaveSupplyBorrowAction(w3))
     reg.register(CompoundSupplyBorrowAction(w3))
     reg.register(MakerCdpAction(w3))
-    reg.register(YearnVaultAction())
+    reg.register(YearnVaultAction(w3))
     reg.register(SynthetixExchangeAction(w3))
     reg.register(DyDxMarginAction())
     # Additional placeholders to reach and organize toward 96 actions
