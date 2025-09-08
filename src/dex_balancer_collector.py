@@ -60,6 +60,7 @@ class BalancerWeightedCollector:
         except FileNotFoundError:
             self.erc20_abi = [
                 {"constant": True, "inputs": [], "name": "decimals", "outputs": [{"name": "", "type": "uint8"}], "type": "function"},
+                {"constant": True, "inputs": [], "name": "totalSupply", "outputs": [{"name": "", "type": "uint256"}], "type": "function"},
                 {"constant": True, "inputs": [], "name": "symbol",   "outputs": [{"name": "", "type": "string"}], "type": "function"},
                 {"constant": True, "inputs": [], "name": "name",     "outputs": [{"name": "", "type": "string"}], "type": "function"}
             ]
@@ -72,6 +73,15 @@ class BalancerWeightedCollector:
             return int(c.functions.decimals().call())
         except Exception:
             return 18
+
+    def _total_supply(self, token: str) -> int:
+        try:
+            if not self.w3 or not self.w3.is_connected():
+                return 0
+            c = self.w3.eth.contract(address=token, abi=self.erc20_abi)
+            return int(c.functions.totalSupply().call())
+        except Exception:
+            return 0
 
     def find_pool_for_pair(self, tokenA: str, tokenB: str) -> Optional[str]:
         a, b = tokenA.lower(), tokenB.lower()
@@ -141,3 +151,45 @@ class BalancerWeightedCollector:
         except Exception as e:
             logger.debug(f"Balancer spot price read failed {pool_addr[:6]}: {e}")
             return 1.0, 0.001
+
+    # --- Weighted join/exit math (single asset) ---
+    def get_bpt_info(self, pool_addr: str) -> Tuple[int, int]:
+        """Return (bpt_decimals, total_supply_raw)."""
+        dec = self._decimals(pool_addr)
+        ts = self._total_supply(pool_addr)
+        return int(dec), int(ts)
+
+    def bpt_out_per_token_in(self, pool_addr: str, token_in: str, amount_in_hu: float) -> float:
+        """Single-asset join: BPT out per amount_in (human units)."""
+        try:
+            wi, _, bi, _ = self.get_weights_and_balances(pool_addr, token_in, token_in)  # hack to get wi, bi ignoring out
+        except Exception:
+            wi, bi = 0.5, 0.0
+        _, fee = self.get_spot_price_and_fee(pool_addr, token_in, token_in)
+        bpt_dec, ts_raw = self.get_bpt_info(pool_addr)
+        ts = float(ts_raw) / float(10 ** bpt_dec) if bpt_dec else float(ts_raw) / 1e18
+        if wi <= 0 or bi <= 0 or ts <= 0:
+            return 0.0
+        # fee applied to non-proportional part: amount_in_after_fee = amount*(1 - fee*(1-wi))
+        amount_after_fee = float(amount_in_hu) * (1.0 - float(fee) * (1.0 - float(wi)))
+        ratio = (1.0 + (amount_after_fee / float(bi))) ** float(wi) - 1.0
+        bpt_out = ts * ratio
+        return max(0.0, float(bpt_out))
+
+    def token_out_per_bpt_in(self, pool_addr: str, token_out: str, bpt_in_hu: float) -> float:
+        """Single-asset exit: token out per BPT in (human units)."""
+        try:
+            wi, _, bi, _ = self.get_weights_and_balances(pool_addr, token_out, token_out)  # wi of token_out
+        except Exception:
+            wi, bi = 0.5, 0.0
+        _, fee = self.get_spot_price_and_fee(pool_addr, token_out, token_out)
+        bpt_dec, ts_raw = self.get_bpt_info(pool_addr)
+        ts = float(ts_raw) / float(10 ** bpt_dec) if bpt_dec else float(ts_raw) / 1e18
+        if wi <= 0 or bi <= 0 or ts <= 0:
+            return 0.0
+        frac = float(bpt_in_hu) / ts
+        if frac <= 0 or frac >= 1:
+            return 0.0
+        gross = float(bi) * (1.0 - (1.0 - frac) ** (1.0 / float(wi)))
+        net = gross * (1.0 - float(fee) * (1.0 - float(wi)))
+        return max(0.0, float(net))

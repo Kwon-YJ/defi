@@ -999,37 +999,40 @@ class BalancerJoinPoolAction(ProtocolAction):
                 pool = self.collector.find_pool_for_pair(token0, token1)
                 if not pool:
                     continue
-                price01, _ = self.collector.get_spot_price_and_fee(pool, token0, token1)
-                if price01 <= 0:
-                    continue
                 lp_token = bpt(pool)
-                # token0 -> LP (unit)
-                graph.add_trading_pair(
-                    token0=token0,
-                    token1=lp_token,
-                    dex='balancer_lp_join',
-                    pool_address=pool,
-                    reserve0=base_liq,
-                    reserve1=base_liq * 1.0,
-                    fee=0.0,
-                )
-                set_edge_meta(graph.graph, token0, lp_token, dex='balancer_lp_join', pool_address=pool,
-                              fee_tier=None, source='approx', confidence=0.85)
-                updated += 2
-                # token1 -> LP (scaled by inverse price)
-                inv = (1.0 / price01) if price01 > 0 else 0.0
-                if inv > 0:
+                # token0 -> LP (1 token0)
+                d0 = self.collector._decimals(token0)
+                bpt_per_t0 = self.collector.bpt_out_per_token_in(pool, token0, 1.0)
+                if bpt_per_t0 > 0:
+                    graph.add_trading_pair(
+                        token0=token0,
+                        token1=lp_token,
+                        dex='balancer_lp_join',
+                        pool_address=pool,
+                        reserve0=base_liq,
+                        reserve1=base_liq * float(bpt_per_t0),
+                        fee=0.0,
+                    )
+                    set_edge_meta(graph.graph, token0, lp_token, dex='balancer_lp_join', pool_address=pool,
+                                  fee_tier=None, source='onchain', confidence=0.88,
+                                  extra={'dec_in': d0})
+                    updated += 2
+                # token1 -> LP (1 token1)
+                d1 = self.collector._decimals(token1)
+                bpt_per_t1 = self.collector.bpt_out_per_token_in(pool, token1, 1.0)
+                if bpt_per_t1 > 0:
                     graph.add_trading_pair(
                         token0=token1,
                         token1=lp_token,
                         dex='balancer_lp_join',
                         pool_address=pool,
                         reserve0=base_liq,
-                        reserve1=base_liq * inv,
+                        reserve1=base_liq * float(bpt_per_t1),
                         fee=0.0,
                     )
                     set_edge_meta(graph.graph, token1, lp_token, dex='balancer_lp_join', pool_address=pool,
-                                  fee_tier=None, source='approx', confidence=0.85)
+                                  fee_tier=None, source='onchain', confidence=0.88,
+                                  extra={'dec_in': d1})
                     updated += 2
             except Exception as e:
                 logger.debug(f"Balancer join_pool update failed: {e}")
@@ -1052,36 +1055,37 @@ class BalancerExitPoolAction(ProtocolAction):
                 pool = self.collector.find_pool_for_pair(token0, token1)
                 if not pool:
                     continue
-                price01, _ = self.collector.get_spot_price_and_fee(pool, token0, token1)
-                if price01 <= 0:
-                    continue
                 lp_token = bpt(pool)
-                # LP -> token0 (unit)
-                graph.add_trading_pair(
-                    token0=lp_token,
-                    token1=token0,
-                    dex='balancer_lp_exit',
-                    pool_address=pool,
-                    reserve0=base_liq,
-                    reserve1=base_liq * 1.0,
-                    fee=0.0,
-                )
-                set_edge_meta(graph.graph, lp_token, token0, dex='balancer_lp_exit', pool_address=pool,
-                              fee_tier=None, source='approx', confidence=0.85)
-                updated += 2
-                # LP -> token1 (scaled by price)
-                graph.add_trading_pair(
-                    token0=lp_token,
-                    token1=token1,
-                    dex='balancer_lp_exit',
-                    pool_address=pool,
-                    reserve0=base_liq,
-                    reserve1=base_liq * price01,
-                    fee=0.0,
-                )
-                set_edge_meta(graph.graph, lp_token, token1, dex='balancer_lp_exit', pool_address=pool,
-                              fee_tier=None, source='approx', confidence=0.85)
-                updated += 2
+                # LP -> token0 (1 BPT)
+                t0_per_bpt = self.collector.token_out_per_bpt_in(pool, token0, 1.0)
+                if t0_per_bpt > 0:
+                    graph.add_trading_pair(
+                        token0=lp_token,
+                        token1=token0,
+                        dex='balancer_lp_exit',
+                        pool_address=pool,
+                        reserve0=base_liq,
+                        reserve1=base_liq * float(t0_per_bpt),
+                        fee=0.0,
+                    )
+                    set_edge_meta(graph.graph, lp_token, token0, dex='balancer_lp_exit', pool_address=pool,
+                                  fee_tier=None, source='onchain', confidence=0.88)
+                    updated += 2
+                # LP -> token1 (1 BPT)
+                t1_per_bpt = self.collector.token_out_per_bpt_in(pool, token1, 1.0)
+                if t1_per_bpt > 0:
+                    graph.add_trading_pair(
+                        token0=lp_token,
+                        token1=token1,
+                        dex='balancer_lp_exit',
+                        pool_address=pool,
+                        reserve0=base_liq,
+                        reserve1=base_liq * float(t1_per_bpt),
+                        fee=0.0,
+                    )
+                    set_edge_meta(graph.graph, lp_token, token1, dex='balancer_lp_exit', pool_address=pool,
+                                  fee_tier=None, source='onchain', confidence=0.88)
+                    updated += 2
             except Exception as e:
                 logger.debug(f"Balancer exit_pool update failed: {e}")
         return updated
