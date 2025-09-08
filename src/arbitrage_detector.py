@@ -30,32 +30,48 @@ class ArbitrageDetector:
         ]
         
     async def start_detection(self):
-        """차익거래 탐지 시작"""
+        """
+        차익거래 탐지를 시작합니다.
+        Local Search 로직을 포함하여, 가장 수익성 높은 기회를 찾고,
+        그래프 상태를 업데이트한 후, 다시 탐색을 반복합니다.
+        """
         self.running = True
-        logger.info("차익거래 탐지 시작")
+        logger.info("차익거래 탐지 시작 (Local Search 활성화)")
         
         while self.running:
             try:
-                # 1. 시장 데이터 업데이트
+                # 1. 시장 데이터 업데이트 (매 탐색 주기 시작 시)
                 await self._update_market_data()
                 
-                # 2. 각 기준 토큰에서 차익거래 기회 탐색
-                all_opportunities = []
-                
-                for base_token in self.base_tokens:
-                    opportunities = self.bellman_ford.find_negative_cycles(base_token)
+                # Local Search 루프
+                while True:
+                    # 2. 모든 기준 토큰에서 가장 수익성 높은 차익거래 기회 탐색
+                    best_opportunity = None
                     
-                    # 3. 기회 최적화 및 필터링
-                    for opp in opportunities:
-                        if opp.net_profit > 0.001:  # 최소 수익 임계값
-                            all_opportunities.append(opp)
-                
-                # 4. 기회 저장 및 알림
-                if all_opportunities:
-                    await self._process_opportunities(all_opportunities)
-                
-                # 5. 잠시 대기 (너무 자주 실행하지 않도록)
-                await asyncio.sleep(5)  # 5초 간격
+                    for base_token in self.base_tokens:
+                        opportunities = self.bellman_ford.find_negative_cycles(base_token)
+                        
+                        if opportunities:
+                            # 가장 수익성 높은 기회 선택
+                            current_best = opportunities[0]
+                            if best_opportunity is None or current_best.net_profit > best_opportunity.net_profit:
+                                best_opportunity = current_best
+                    
+                    # 3. 수익성 있는 기회가 없으면 Local Search 종료
+                    if best_opportunity is None or best_opportunity.net_profit <= 0.001: # 최소 수익 임계값
+                        logger.info("수익성 있는 차익거래 기회를 더 이상 찾을 수 없음. 다음 탐색 주기로 넘어갑니다.")
+                        break
+                        
+                    # 4. 최고의 기회 처리 및 그래프 업데이트
+                    logger.info(f"최고의 차익거래 기회 발견: 순수익 {best_opportunity.net_profit:.6f} ETH")
+                    await self._process_opportunities([best_opportunity])
+                    
+                    # 5. 그래프 상태 업데이트 (시뮬레이션된 거래 실행)
+                    logger.info("그래프 상태를 업데이트하고 Local Search를 계속합니다.")
+                    self.market_graph.update_graph_with_trade(best_opportunity.edges, best_opportunity.required_capital)
+
+                # 6. 다음 탐색 주기까지 대기
+                await asyncio.sleep(5)
                 
             except Exception as e:
                 logger.error(f"탐지 루프 오류: {e}")

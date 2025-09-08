@@ -187,16 +187,19 @@ class BellmanFordArbitrage:
         return amount
 
     def _optimize_trade_volume(self, edges: List[TradingEdge]) -> Tuple[float, float]:
-        """Hill Climbing을 사용하여 최적의 거래량을 찾습니다."""
+        """Hill Climbing을 사용하여 최적의 거래량을 찾습니다.
+        수익이 감소하기 시작하면 탐색을 중단하여 더 효율적으로 최적점을 찾습니다.
+        """
         best_profit = 0.0
         optimal_amount = 0.0
         
         # 탐색 범위와 스텝 설정
-        step = 0.1  # Start with 0.1 ETH
-        max_amount = 50.0 # Don't search beyond 50 ETH for performance
+        step = 0.1  # 0.1 ETH로 탐색 시작
+        max_amount = 50.0 # 성능을 위해 50 ETH 이상은 탐색하지 않음
         
         current_amount = step
-        
+        last_profit = -1.0
+
         while current_amount <= max_amount:
             output_amount = self._simulate_trade(edges, current_amount)
             profit = output_amount - current_amount
@@ -204,14 +207,18 @@ class BellmanFordArbitrage:
             if profit > best_profit:
                 best_profit = profit
                 optimal_amount = current_amount
-            # If profit starts to decrease, we might have passed the peak.
-            # A more robust implementation would check for this and stop.
             
-            # Increase step size for larger amounts to speed up search
-            if current_amount >= 1.0:
-                step = 0.5
+            # 수익이 감소하기 시작하면 탐색 중단 (최적점을 지났을 가능성 높음)
+            if profit < last_profit and last_profit > 0:
+                break
+            
+            last_profit = profit
+
+            # 탐색 속도를 높이기 위해 거래량에 따라 스텝 크기 조정
             if current_amount >= 5.0:
                 step = 1.0
+            elif current_amount >= 1.0:
+                step = 0.5
                 
             current_amount += step
 

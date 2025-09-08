@@ -6,7 +6,7 @@
 ## 1. 핵심 알고리즘 완성 (Critical Missing Components)
 
 ### 1.1 Local Search 알고리즘 구현 (현재 완전히 누락됨)
-- [ ] **CRITICAL**: Negative cycle 탐지 후 Local Search 단계 구현
+- [x] **CRITICAL**: Negative cycle 탐지 후 Local Search 단계 구현
 - [ ] 논문 Figure 1의 4단계 "perform a local search and repeat" 구현  
 - [ ] Hill climbing을 통한 거래량 최적화
 - [ ] Multiple starting points에서 local search 병렬 실행

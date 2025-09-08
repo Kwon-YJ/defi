@@ -137,3 +137,65 @@ class DeFiMarketGraph:
             'density': nx.density(self.graph),
             'is_connected': nx.is_weakly_connected(self.graph)
         }
+
+    def update_graph_with_trade(self, edges: List[TradingEdge], initial_amount: float):
+        """시뮬레이션된 거래로 그래프 상태를 업데이트합니다."""
+        logger.info(f"{len(edges)}개의 엣지를 포함하는 거래로 그래프를 업데이트합니다. 초기 금액: {initial_amount}")
+        amount = initial_amount
+
+        for edge in edges:
+            from_token, to_token = edge.from_token, edge.to_token
+            
+            if not self.graph.has_edge(from_token, to_token) or self.graph[from_token][to_token].get('pool_address') != edge.pool_address:
+                logger.warning(f"거래 엣지를 그래프에서 찾을 수 없음: {from_token} -> {to_token} on {edge.dex}")
+                continue
+
+            # 거래 전 리저브 가져오기
+            edge_data = self.graph[from_token][to_token]
+            output_reserve = edge_data['liquidity']
+            if edge_data['exchange_rate'] == 0: continue
+            input_reserve = output_reserve / edge_data['exchange_rate']
+
+            # 거래량 계산
+            input_amount = amount * (1 - edge.fee)
+            k = input_reserve * output_reserve
+            if input_reserve + input_amount == 0: continue
+            output_amount = output_reserve - k / (input_reserve + input_amount)
+
+            # 새로운 리저브 계산
+            new_input_reserve = input_reserve + input_amount
+            new_output_reserve = output_reserve - output_amount
+
+            # 해당 풀의 양방향 엣지 모두 업데이트
+            self.update_pool_reserves(edge.pool_address, from_token, to_token, new_input_reserve, new_output_reserve)
+            
+            amount = output_amount
+
+    def update_pool_reserves(self, pool_address: str, token0: str, token1: str, reserve0: float, reserve1: float):
+        """특정 풀의 리저브를 업데이트하고 관련된 양방향 엣지를 모두 수정합니다."""
+        if reserve0 <= 0 or reserve1 <= 0:
+            logger.warning(f"업데이트 중 유동성 부족: {pool_address}")
+            # 유동성이 고갈되면 엣지를 제거하거나 가중치를 무한대로 설정할 수 있습니다.
+            if self.graph.has_edge(token0, token1):
+                self.graph.remove_edge(token0, token1)
+            if self.graph.has_edge(token1, token0):
+                self.graph.remove_edge(token1, token0)
+            return
+
+        # token0 -> token1 엣지 업데이트
+        if self.graph.has_edge(token0, token1) and self.graph[token0][token1].get('pool_address') == pool_address:
+            edge_data = self.graph[token0][token1]
+            new_rate_01 = (reserve1 / reserve0) * (1 - edge_data['fee'])
+            edge_data['exchange_rate'] = new_rate_01
+            edge_data['weight'] = -math.log(new_rate_01) if new_rate_01 > 0 else float('inf')
+            edge_data['liquidity'] = min(reserve0, reserve1)
+
+        # token1 -> token0 엣지 업데이트
+        if self.graph.has_edge(token1, token0) and self.graph[token1][token0].get('pool_address') == pool_address:
+            edge_data = self.graph[token1][token0]
+            new_rate_10 = (reserve0 / reserve1) * (1 - edge_data['fee'])
+            edge_data['exchange_rate'] = new_rate_10
+            edge_data['weight'] = -math.log(new_rate_10) if new_rate_10 > 0 else float('inf')
+            edge_data['liquidity'] = min(reserve0, reserve1)
+        
+        logger.debug(f"풀 업데이트: {pool_address} ({token0}/{token1}) -> 새로운 리저브: {reserve0:.4f}/{reserve1:.4f}")
