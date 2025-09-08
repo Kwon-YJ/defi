@@ -18,6 +18,7 @@ from src.dex_balancer_collector import BalancerWeightedCollector
 from src.dydx_collectors import DyDxCollector
 from src.yearn_collectors import YearnV2Collector
 from src.uniswap_v2_lp_collector import UniswapV2LPCollector
+from src.erc20_utils import get_decimals, normalize_reserves
 from src.yearn_collectors import YearnV2Collector
 
 logger = setup_logger(__name__)
@@ -60,13 +61,19 @@ class UniswapV2SwapAction(ProtocolAction, _SwapPairsMixin):
                 r0, r1, _ = await self.collector.get_pool_reserves(pair_address)
                 if r0 == 0 or r1 == 0:
                     continue
+                t0, t1 = await self.collector.get_pool_tokens(pair_address)
+                if not t0 or not t1:
+                    continue
+                d0 = get_decimals(w3, t0, 18)
+                d1 = get_decimals(w3, t1, 18)
+                nr0, nr1 = normalize_reserves(r0, d0, r1, d1)
                 graph.add_trading_pair(
-                    token0=token0,
-                    token1=token1,
+                    token0=t0,
+                    token1=t1,
                     dex='uniswap_v2',
                     pool_address=pair_address,
-                    reserve0=float(r0),
-                    reserve1=float(r1),
+                    reserve0=float(nr0),
+                    reserve1=float(nr1),
                     fee=self.fee,
                 )
                 updated += 2
@@ -94,13 +101,19 @@ class SushiSwapSwapAction(ProtocolAction, _SwapPairsMixin):
                 r0, r1, _ = await self.collector.get_pool_reserves(pair_address)
                 if r0 == 0 or r1 == 0:
                     continue
+                t0, t1 = await self.collector.get_pool_tokens(pair_address)
+                if not t0 or not t1:
+                    continue
+                d0 = get_decimals(w3, t0, 18)
+                d1 = get_decimals(w3, t1, 18)
+                nr0, nr1 = normalize_reserves(r0, d0, r1, d1)
                 graph.add_trading_pair(
-                    token0=token0,
-                    token1=token1,
+                    token0=t0,
+                    token1=t1,
                     dex='sushiswap',
                     pool_address=pair_address,
-                    reserve0=float(r0),
-                    reserve1=float(r1),
+                    reserve0=float(nr0),
+                    reserve1=float(nr1),
                     fee=self.fee,
                 )
                 updated += 2
@@ -420,9 +433,15 @@ class UniswapV2AddLiquidityAction(ProtocolAction, _SwapPairsMixin):
                 t0, t1 = await self.collector.get_pool_tokens(pair)
                 if not t0 or not t1:
                     continue
-                # LP minted per token (approx; require both tokens, split 50/50)
-                lp_per_t0 = (ts / r0) * 0.5
-                lp_per_t1 = (ts / r1) * 0.5
+                d0 = get_decimals(w3, t0, 18)
+                d1 = get_decimals(w3, t1, 18)
+                # LP tokens are 18 decimals by convention
+                lp_dec = 18
+                nr0, nr1 = normalize_reserves(r0, d0, r1, d1)
+                ts_norm = float(ts) / (10 ** lp_dec)
+                # LP minted per unit token (split 50/50 assumption)
+                lp_per_t0 = (ts_norm / nr0) * 0.5 if nr0 > 0 else 0.0
+                lp_per_t1 = (ts_norm / nr1) * 0.5 if nr1 > 0 else 0.0
                 # token0 -> LP
                 graph.add_trading_pair(
                     token0=t0,
@@ -475,8 +494,13 @@ class UniswapV2RemoveLiquidityAction(ProtocolAction, _SwapPairsMixin):
                 t0, t1 = await self.collector.get_pool_tokens(pair)
                 if not t0 or not t1:
                     continue
-                t0_per_lp = r0 / ts
-                t1_per_lp = r1 / ts
+                d0 = get_decimals(w3, t0, 18)
+                d1 = get_decimals(w3, t1, 18)
+                lp_dec = 18
+                nr0, nr1 = normalize_reserves(r0, d0, r1, d1)
+                ts_norm = float(ts) / (10 ** lp_dec)
+                t0_per_lp = nr0 / ts_norm if ts_norm > 0 else 0.0
+                t1_per_lp = nr1 / ts_norm if ts_norm > 0 else 0.0
                 # LP -> token0
                 graph.add_trading_pair(
                     token0=pair,
