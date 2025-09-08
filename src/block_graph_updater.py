@@ -114,6 +114,24 @@ class BlockGraphUpdater:
                         logger.debug(f"Sync 반영: {pool} r0={reserve0} r1={reserve1}")
                         # 메모리 절감을 위한 속성 정리
                         compact_graph_attributes(self.graph.graph)
+                # Swap/Mint/Burn 이벤트: 최신 리저브를 on-chain에서 조회하여 반영
+                elif log_data.get('topics') and log_data['topics'][0] in (
+                    self.rt.monitored_events.get('Swap'),
+                    self.rt.monitored_events.get('Mint'),
+                    self.rt.monitored_events.get('Burn'),
+                ):
+                    pool = log_data.get('address')
+                    if pool:
+                        try:
+                            # V2/Sushi 동일 ABI 사용 가능
+                            v2c = UniswapV2Collector(self.w3)
+                            r0, r1, _ = await v2c.get_pool_reserves(pool)
+                            if r0 and r1:
+                                self.graph.update_pool_data(pool, float(r0), float(r1))
+                                logger.debug(f"Event-triggered reserve refresh: {pool} r0={r0} r1={r1}")
+                                compact_graph_attributes(self.graph.graph)
+                        except Exception as _:
+                            pass
             except Exception as e:
                 logger.debug(f"로그 기반 동적 업데이트 실패: {e}")
 
