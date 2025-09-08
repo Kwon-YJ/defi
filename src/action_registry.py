@@ -477,8 +477,8 @@ class UniswapV2AddLiquidityAction(ProtocolAction, _SwapPairsMixin):
                     continue
                 d0 = get_decimals(w3, t0, 18)
                 d1 = get_decimals(w3, t1, 18)
-                # LP tokens are 18 decimals by convention
-                lp_dec = 18
+                # Read LP token decimals dynamically (fallback 18)
+                lp_dec = await self.collector.get_lp_decimals(pair) or 18
                 nr0, nr1 = normalize_reserves(r0, d0, r1, d1)
                 ts_norm = float(ts) / (10 ** lp_dec)
                 # LP minted per unit token (exact under proportional deposit):
@@ -543,7 +543,7 @@ class UniswapV2RemoveLiquidityAction(ProtocolAction, _SwapPairsMixin):
                     continue
                 d0 = get_decimals(w3, t0, 18)
                 d1 = get_decimals(w3, t1, 18)
-                lp_dec = 18
+                lp_dec = await self.collector.get_lp_decimals(pair) or 18
                 nr0, nr1 = normalize_reserves(r0, d0, r1, d1)
                 ts_norm = float(ts) / (10 ** lp_dec)
                 t0_per_lp = nr0 / ts_norm if ts_norm > 0 else 0.0

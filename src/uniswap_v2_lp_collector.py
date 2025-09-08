@@ -50,6 +50,7 @@ class UniswapV2LPCollector:
             {"constant": True, "inputs": [], "name": "token0", "outputs": [{"name": "", "type": "address"}], "type": "function"},
             {"constant": True, "inputs": [], "name": "token1", "outputs": [{"name": "", "type": "address"}], "type": "function"},
             {"constant": True, "inputs": [], "name": "totalSupply", "outputs": [{"name": "", "type": "uint256"}], "type": "function"},
+            {"constant": True, "inputs": [], "name": "decimals", "outputs": [{"name": "", "type": "uint8"}], "type": "function"},
         ]
 
     async def get_pair_address(self, token0: str, token1: str) -> Optional[str]:
@@ -90,3 +91,11 @@ class UniswapV2LPCollector:
             logger.debug(f"V2 LP totalSupply failed {pair[:6]}: {e}")
             return 0
 
+    async def get_lp_decimals(self, pair: str) -> int:
+        try:
+            c = self.w3.eth.contract(address=pair, abi=self.pair_abi)
+            dec = c.functions.decimals().call()
+            return int(dec)
+        except Exception as e:
+            logger.debug(f"V2 LP decimals failed {pair[:6]}: {e}")
+            return 18
