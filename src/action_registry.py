@@ -17,6 +17,7 @@ from src.maker_collectors import MakerCollector
 from src.dex_balancer_collector import BalancerWeightedCollector
 from src.dydx_collectors import DyDxCollector
 from src.yearn_collectors import YearnV2Collector
+from src.uniswap_v2_lp_collector import UniswapV2LPCollector
 from src.yearn_collectors import YearnV2Collector
 
 logger = setup_logger(__name__)
@@ -394,18 +395,113 @@ class DyDxMarginAction(ProtocolAction, _SwapPairsMixin):
 
 
 # --- Additional major-function scaffolding (disabled by default) ---
-class UniswapV2AddLiquidityAction(ProtocolAction):
+class UniswapV2AddLiquidityAction(ProtocolAction, _SwapPairsMixin):
     name = "uniswap_v2.add_liquidity"
-    enabled = False
-    async def update_graph(self, *args, **kwargs) -> int:
-        return 0
+    enabled = True
+
+    def __init__(self, w3: Web3):
+        self.collector = UniswapV2LPCollector(w3)
+
+    async def update_graph(self, graph: DeFiMarketGraph, w3: Web3, tokens: Dict[str, str],
+                           block_number: Optional[int] = None) -> int:
+        updated = 0
+        base_liq = 100.0
+        for token0, token1 in self._major_pairs(tokens):
+            try:
+                pair = await self.collector.get_pair_address(token0, token1)
+                if not pair:
+                    continue
+                r0, r1, _ = await self.collector.get_pool_reserves(pair)
+                if r0 == 0 or r1 == 0:
+                    continue
+                ts = await self.collector.get_total_supply(pair)
+                if ts == 0:
+                    continue
+                t0, t1 = await self.collector.get_pool_tokens(pair)
+                if not t0 or not t1:
+                    continue
+                # LP minted per token (approx; require both tokens, split 50/50)
+                lp_per_t0 = (ts / r0) * 0.5
+                lp_per_t1 = (ts / r1) * 0.5
+                # token0 -> LP
+                graph.add_trading_pair(
+                    token0=t0,
+                    token1=pair,
+                    dex='uniswap_v2_lp_add',
+                    pool_address=pair,
+                    reserve0=base_liq,
+                    reserve1=base_liq * lp_per_t0,
+                    fee=0.0,
+                )
+                updated += 2
+                # token1 -> LP
+                graph.add_trading_pair(
+                    token0=t1,
+                    token1=pair,
+                    dex='uniswap_v2_lp_add',
+                    pool_address=pair,
+                    reserve0=base_liq,
+                    reserve1=base_liq * lp_per_t1,
+                    fee=0.0,
+                )
+                updated += 2
+            except Exception as e:
+                logger.debug(f"UniswapV2 addLiquidity failed {token0[:6]}-{token1[:6]}: {e}")
+        return updated
 
 
-class UniswapV2RemoveLiquidityAction(ProtocolAction):
+class UniswapV2RemoveLiquidityAction(ProtocolAction, _SwapPairsMixin):
     name = "uniswap_v2.remove_liquidity"
-    enabled = False
-    async def update_graph(self, *args, **kwargs) -> int:
-        return 0
+    enabled = True
+
+    def __init__(self, w3: Web3):
+        self.collector = UniswapV2LPCollector(w3)
+
+    async def update_graph(self, graph: DeFiMarketGraph, w3: Web3, tokens: Dict[str, str],
+                           block_number: Optional[int] = None) -> int:
+        updated = 0
+        base_liq = 100.0
+        for token0, token1 in self._major_pairs(tokens):
+            try:
+                pair = await self.collector.get_pair_address(token0, token1)
+                if not pair:
+                    continue
+                r0, r1, _ = await self.collector.get_pool_reserves(pair)
+                if r0 == 0 and r1 == 0:
+                    continue
+                ts = await self.collector.get_total_supply(pair)
+                if ts == 0:
+                    continue
+                t0, t1 = await self.collector.get_pool_tokens(pair)
+                if not t0 or not t1:
+                    continue
+                t0_per_lp = r0 / ts
+                t1_per_lp = r1 / ts
+                # LP -> token0
+                graph.add_trading_pair(
+                    token0=pair,
+                    token1=t0,
+                    dex='uniswap_v2_lp_remove',
+                    pool_address=pair,
+                    reserve0=base_liq,
+                    reserve1=base_liq * t0_per_lp,
+                    fee=0.0,
+                )
+                updated += 2
+                # LP -> token1
+                graph.add_trading_pair(
+                    token0=pair,
+                    token1=t1,
+                    dex='uniswap_v2_lp_remove',
+                    pool_address=pair,
+                    reserve0=base_liq,
+                    reserve1=base_liq * t1_per_lp,
+                    fee=0.0,
+                )
+                updated += 2
+            except Exception as e:
+                logger.debug(f"UniswapV2 removeLiquidity failed {token0[:6]}-{token1[:6]}: {e}")
+        return updated
 
 
 class UniswapV3AddLiquidityAction(ProtocolAction):
@@ -613,6 +709,8 @@ def register_default_actions(w3: Web3) -> ActionRegistry:
     reg.register(UniswapV3SwapAction(w3))
     reg.register(CurveStableSwapAction(w3))
     reg.register(BalancerWeightedSwapAction(w3))
+    reg.register(UniswapV2AddLiquidityAction(w3))
+    reg.register(UniswapV2RemoveLiquidityAction(w3))
     reg.register(AaveSupplyBorrowAction(w3))
     reg.register(CompoundSupplyBorrowAction(w3))
     reg.register(MakerCdpAction(w3))

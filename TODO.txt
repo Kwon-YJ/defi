@@ -41,7 +41,7 @@
 - [x] dYdX (margin trading actions)
 - [ ] (분할) 각 protocol 주요 functions 구현
   - [x] Uniswap V2: swap (기반 구현)
-  - [ ] Uniswap V2: add/remove liquidity
+  - [x] Uniswap V2: add/remove liquidity
   - [x] Uniswap V3: swap (기반 구현)
   - [ ] Uniswap V3: add/remove liquidity, collect fees
   - [x] Curve: exchange (stableswap)
