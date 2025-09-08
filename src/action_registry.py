@@ -10,6 +10,7 @@ from src.logger import setup_logger
 from src.market_graph import DeFiMarketGraph
 from src.dex_data_collector import UniswapV2Collector, SushiSwapCollector
 from src.dex_uniswap_v3_collector import UniswapV3Collector
+from src.dex_curve_collector import CurveStableSwapCollector
 from src.lending_collectors import CompoundCollector, AaveV2Collector
 
 logger = setup_logger(__name__)
@@ -134,11 +135,42 @@ class UniswapV3SwapAction(ProtocolAction, _SwapPairsMixin):
         return updated
 
 
-class CurveStableSwapAction(ProtocolAction):
+class CurveStableSwapAction(ProtocolAction, _SwapPairsMixin):
     name = "curve.stableswap"
-    enabled = False
-    async def update_graph(self, *args, **kwargs) -> int:
-        return 0
+    enabled = True
+
+    def __init__(self, w3: Web3):
+        self.collector = CurveStableSwapCollector(w3)
+        self.fee = 0.0004  # 0.04% typical for stables
+
+    async def update_graph(self, graph: DeFiMarketGraph, w3: Web3, tokens: Dict[str, str],
+                           block_number: Optional[int] = None) -> int:
+        updated = 0
+        base_liq = 200.0
+        for token0, token1 in self._major_pairs(tokens):
+            try:
+                found = self.collector.find_pool_for_pair(token0, token1)
+                if not found:
+                    continue
+                pool, i, j = found
+                price01 = self.collector.get_price(pool, i, j, token0, token1)
+                if price01 <= 0:
+                    continue
+                reserve0 = base_liq
+                reserve1 = base_liq * price01
+                graph.add_trading_pair(
+                    token0=token0,
+                    token1=token1,
+                    dex='curve',
+                    pool_address=pool,
+                    reserve0=reserve0,
+                    reserve1=reserve1,
+                    fee=self.fee,
+                )
+                updated += 2
+            except Exception as e:
+                logger.debug(f"Curve update failed {token0[:6]}-{token1[:6]}: {e}")
+        return updated
 
 
 class BalancerWeightedSwapAction(ProtocolAction):
@@ -283,7 +315,7 @@ def register_default_actions(w3: Web3) -> ActionRegistry:
 
     # Disabled skeletons for scalability toward 96 actions
     reg.register(UniswapV3SwapAction(w3))
-    reg.register(CurveStableSwapAction())
+    reg.register(CurveStableSwapAction(w3))
     reg.register(BalancerWeightedSwapAction())
     reg.register(AaveSupplyBorrowAction(w3))
     reg.register(CompoundSupplyBorrowAction(w3))
