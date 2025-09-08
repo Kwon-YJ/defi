@@ -46,7 +46,17 @@ class CurveStableSwapCollector:
                 "stateMutability": "view",
                 "type": "function"
             },
-            ]
+            {
+                "name": "calc_withdraw_one_coin",
+                "inputs": [
+                    {"name": "_token_amount", "type": "uint256"},
+                    {"name": "i", "type": "int128"}
+                ],
+                "outputs": [{"name": "", "type": "uint256"}],
+                "stateMutability": "view",
+                "type": "function"
+            }
+        ]
         self.addr_provider_abi = [
             {"name": "get_registry", "inputs": [], "outputs": [{"type": "address", "name": ""}], "stateMutability": "view", "type": "function"}
         ]
@@ -161,6 +171,78 @@ class CurveStableSwapCollector:
                 j = coins.index(b)
                 return (p['address'], i, j)
         return None
+
+    # --- Helpers for coins / indices ---
+    def get_pool_coins(self, pool: str) -> List[str]:
+        """Return list of active coins for a pool (filtered zero addresses)."""
+        # First try from cached pools
+        for p in self.pools or []:
+            if p.get('address', '').lower() == pool.lower():
+                return [c for c in p.get('coins', []) if isinstance(c, str) and int(c, 16) != 0]
+        # Fallback: from registry directly
+        reg = self._registry()
+        if reg:
+            try:
+                coins, _under = reg.functions.get_coins(pool).call()
+                out = []
+                for t in coins:
+                    if isinstance(t, str) and int(t, 16) != 0:
+                        out.append(t)
+                if out:
+                    return out
+            except Exception:
+                pass
+        # Final fallback: in fallback pools table
+        for p in self.FALLBACK_POOLS:
+            if p.get('address', '').lower() == pool.lower():
+                return [c for c in p.get('coins', [])]
+        return []
+
+    def coin_index(self, pool: str, token: str) -> Optional[int]:
+        coins = [c.lower() for c in self.get_pool_coins(pool)]
+        t = token.lower()
+        if t in coins:
+            return coins.index(t)
+        return None
+
+    # --- Accurate calc functions ---
+    def _calc_token_amount_abi(self, n: int) -> List[Dict]:
+        return [{
+            "name": "calc_token_amount",
+            "inputs": [
+                {"name": "amounts", "type": f"uint256[{n}]"},
+                {"name": "is_deposit", "type": "bool"}
+            ],
+            "outputs": [{"name": "", "type": "uint256"}],
+            "stateMutability": "view",
+            "type": "function"
+        }]
+
+    def calc_token_amount(self, pool: str, amounts: List[int], is_deposit: bool) -> int:
+        """Call calc_token_amount with a statically typed array sized by len(amounts). Fallback safe."""
+        try:
+            n = max(0, len(amounts))
+            if n <= 0:
+                return 0
+            abi = self._calc_token_amount_abi(n)
+            c = self.w3.eth.contract(address=pool, abi=abi)
+            return int(c.functions.calc_token_amount(amounts, bool(is_deposit)).call())
+        except Exception as e:
+            logger.debug(f"Curve calc_token_amount fallback pool {pool[:6]}: {e}")
+            # Fallback: sum(amounts) as rough LP (notional)
+            try:
+                return int(sum(int(x) for x in amounts))
+            except Exception:
+                return 0
+
+    def calc_withdraw_one_coin(self, pool: str, lp_amount: int, i: int) -> int:
+        """Call calc_withdraw_one_coin. Fallback safe."""
+        try:
+            c = self.w3.eth.contract(address=pool, abi=self.pool_abi)
+            return int(c.functions.calc_withdraw_one_coin(int(lp_amount), int(i)).call())
+        except Exception as e:
+            logger.debug(f"Curve calc_withdraw_one_coin fallback pool {pool[:6]}: {e}")
+            return 0
 
     def get_price(self, pool: str, i: int, j: int, token_i: str, token_j: str) -> float:
         """Compute token_j/token_i price via get_dy over 1 unit of token_i."""

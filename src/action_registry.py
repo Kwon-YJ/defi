@@ -863,26 +863,48 @@ class CurveAddLiquidityAction(ProtocolAction):
         updated = 0
         base_liq = 150.0
         try:
-            # Iterate known pools (e.g., 3pool) and add token -> LP edges for member coins
-            for p in self.collector.POOLS:
+            # Refresh registry pools (lazy)
+            self.collector.refresh_registry_pools(ttl_sec=1800)
+            pools = self.collector.pools or self.collector.FALLBACK_POOLS
+            for p in pools:
                 pool = p['address']
-                coins = [c.lower() for c in p['coins']]
+                coins = self.collector.get_pool_coins(pool)
+                n = len(coins)
+                if n == 0:
+                    continue
                 lp_token = lp_curve(pool)
+                # For each configured token that is a pool coin
                 for _, addr in tokens.items():
-                    if addr.lower() in coins:
-                        # Approximate 1 LP per 1 unit of stable for add liquidity
+                    try:
+                        if addr.lower() not in [c.lower() for c in coins]:
+                            continue
+                        i = self.collector.coin_index(pool, addr)
+                        if i is None:
+                            continue
+                        # amounts array with 1 unit of token i
+                        d = self.collector._decimals(addr)
+                        dx = int((10 ** d))  # 1 token
+                        amts = [0] * n
+                        amts[int(i)] = dx
+                        minted = self.collector.calc_token_amount(pool, amts, True)  # LP units (typically 1e18)
+                        lp_per_token = (float(minted) / 1e18)  # normalize LP to 1.0 base
+                        if lp_per_token <= 0:
+                            continue
                         graph.add_trading_pair(
                             token0=addr,
                             token1=lp_token,
                             dex='curve_lp_add',
-                            pool_address=pool,
+                            pool_address=pool, edge_key=f"curve_lp_add:{i}",
                             reserve0=base_liq,
-                            reserve1=base_liq * 1.0,
+                            reserve1=base_liq * lp_per_token,
                             fee=0.0,
                         )
                         set_edge_meta(graph.graph, addr, lp_token, dex='curve_lp_add', pool_address=pool,
-                                      fee_tier=None, source='approx', confidence=0.85)
+                                      fee_tier=None, source='onchain', confidence=0.9,
+                                      extra={'n_coins': n, 'coin_index': int(i)})
                         updated += 2
+                    except Exception:
+                        continue
         except Exception as e:
             logger.debug(f"Curve addLiquidity update failed: {e}")
         return updated
@@ -900,24 +922,38 @@ class CurveRemoveLiquidityAction(ProtocolAction):
         updated = 0
         base_liq = 150.0
         try:
-            for p in self.collector.POOLS:
+            self.collector.refresh_registry_pools(ttl_sec=1800)
+            pools = self.collector.pools or self.collector.FALLBACK_POOLS
+            for p in pools:
                 pool = p['address']
-                coins = [c.lower() for c in p['coins']]
                 lp_token = lp_curve(pool)
-                for coin in coins:
-                    # LP -> coin (single-asset withdraw) approximated at 1:1
-                    graph.add_trading_pair(
-                        token0=lp_token,
-                        token1=coin,
-                        dex='curve_lp_remove',
-                        pool_address=pool,
-                        reserve0=base_liq,
-                        reserve1=base_liq * 1.0,
-                        fee=0.0,
-                    )
-                    set_edge_meta(graph.graph, lp_token, coin, dex='curve_lp_remove', pool_address=pool,
-                                  fee_tier=None, source='approx', confidence=0.85)
-                    updated += 2
+                coins = self.collector.get_pool_coins(pool)
+                n = len(coins)
+                if n == 0:
+                    continue
+                for i, coin in enumerate(coins):
+                    try:
+                        # Withdraw 1 LP (1e18) into coin i
+                        out = self.collector.calc_withdraw_one_coin(pool, int(1e18), int(i))
+                        if out <= 0:
+                            continue
+                        dec = self.collector._decimals(coin)
+                        coin_per_lp = float(out) / float(10 ** dec)
+                        graph.add_trading_pair(
+                            token0=lp_token,
+                            token1=coin,
+                            dex='curve_lp_remove',
+                            pool_address=pool, edge_key=f"curve_lp_remove:{i}",
+                            reserve0=base_liq,
+                            reserve1=base_liq * coin_per_lp,
+                            fee=0.0,
+                        )
+                        set_edge_meta(graph.graph, lp_token, coin, dex='curve_lp_remove', pool_address=pool,
+                                      fee_tier=None, source='onchain', confidence=0.9,
+                                      extra={'n_coins': n, 'coin_index': int(i)})
+                        updated += 2
+                    except Exception:
+                        continue
         except Exception as e:
             logger.debug(f"Curve removeLiquidity update failed: {e}")
         return updated
