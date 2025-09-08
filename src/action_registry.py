@@ -506,23 +506,161 @@ class UniswapV2RemoveLiquidityAction(ProtocolAction, _SwapPairsMixin):
 
 class UniswapV3AddLiquidityAction(ProtocolAction):
     name = "uniswap_v3.add_liquidity"
-    enabled = False
-    async def update_graph(self, *args, **kwargs) -> int:
-        return 0
+    enabled = True
+
+    def __init__(self, w3: Web3):
+        self.collector = UniswapV3Collector(w3)
+
+    async def update_graph(self, graph: DeFiMarketGraph, w3: Web3, tokens: Dict[str, str],
+                           block_number: Optional[int] = None) -> int:
+        updated = 0
+        base_liq = 80.0
+        for token0, token1 in list(combinations(tokens.values(), 2)):
+            for fee in self.collector.FEE_TIERS:
+                try:
+                    pool = await self.collector.get_pool_address(token0, token1, fee)
+                    if not pool:
+                        continue
+                    state = await self.collector.get_pool_core_state(pool)
+                    if not state:
+                        continue
+                    price01 = self.collector.price_from_sqrtX96(state['sqrtPriceX96'], state['dec0'], state['dec1'])
+                    if price01 <= 0:
+                        continue
+                    t0 = state['token0']; t1 = state['token1']
+                    lp_token = f"{pool}-v3lp"
+                    lp_per_t0 = 1.0
+                    lp_per_t1 = (1.0 / price01) if price01 > 0 else 0.0
+                    # token0 -> LP
+                    graph.add_trading_pair(
+                        token0=t0,
+                        token1=lp_token,
+                        dex='uniswap_v3_lp_add',
+                        pool_address=pool,
+                        reserve0=base_liq,
+                        reserve1=base_liq * lp_per_t0,
+                        fee=0.0,
+                    )
+                    updated += 2
+                    # token1 -> LP
+                    if lp_per_t1 > 0:
+                        graph.add_trading_pair(
+                            token0=t1,
+                            token1=lp_token,
+                            dex='uniswap_v3_lp_add',
+                            pool_address=pool,
+                            reserve0=base_liq,
+                            reserve1=base_liq * lp_per_t1,
+                            fee=0.0,
+                        )
+                        updated += 2
+                except Exception as e:
+                    logger.debug(f"UniswapV3 addLiquidity failed {token0[:6]}-{token1[:6]}: {e}")
+        return updated
 
 
 class UniswapV3RemoveLiquidityAction(ProtocolAction):
     name = "uniswap_v3.remove_liquidity"
-    enabled = False
-    async def update_graph(self, *args, **kwargs) -> int:
-        return 0
+    enabled = True
+
+    def __init__(self, w3: Web3):
+        self.collector = UniswapV3Collector(w3)
+
+    async def update_graph(self, graph: DeFiMarketGraph, w3: Web3, tokens: Dict[str, str],
+                           block_number: Optional[int] = None) -> int:
+        updated = 0
+        base_liq = 80.0
+        for token0, token1 in list(combinations(tokens.values(), 2)):
+            for fee in self.collector.FEE_TIERS:
+                try:
+                    pool = await self.collector.get_pool_address(token0, token1, fee)
+                    if not pool:
+                        continue
+                    state = await self.collector.get_pool_core_state(pool)
+                    if not state:
+                        continue
+                    price01 = self.collector.price_from_sqrtX96(state['sqrtPriceX96'], state['dec0'], state['dec1'])
+                    if price01 <= 0:
+                        continue
+                    t0 = state['token0']; t1 = state['token1']
+                    lp_token = f"{pool}-v3lp"
+                    t0_per_lp = 1.0
+                    t1_per_lp = price01
+                    # LP -> token0
+                    graph.add_trading_pair(
+                        token0=lp_token,
+                        token1=t0,
+                        dex='uniswap_v3_lp_remove',
+                        pool_address=pool,
+                        reserve0=base_liq,
+                        reserve1=base_liq * t0_per_lp,
+                        fee=0.0,
+                    )
+                    updated += 2
+                    # LP -> token1
+                    graph.add_trading_pair(
+                        token0=lp_token,
+                        token1=t1,
+                        dex='uniswap_v3_lp_remove',
+                        pool_address=pool,
+                        reserve0=base_liq,
+                        reserve1=base_liq * t1_per_lp,
+                        fee=0.0,
+                    )
+                    updated += 2
+                except Exception as e:
+                    logger.debug(f"UniswapV3 removeLiquidity failed {token0[:6]}-{token1[:6]}: {e}")
+        return updated
 
 
 class UniswapV3CollectFeesAction(ProtocolAction):
     name = "uniswap_v3.collect_fees"
-    enabled = False
-    async def update_graph(self, *args, **kwargs) -> int:
-        return 0
+    enabled = True
+
+    def __init__(self, w3: Web3):
+        self.collector = UniswapV3Collector(w3)
+
+    async def update_graph(self, graph: DeFiMarketGraph, w3: Web3, tokens: Dict[str, str],
+                           block_number: Optional[int] = None) -> int:
+        updated = 0
+        base_liq = 20.0
+        fee_yield = 1e-4  # very small unit fees per LP
+        for token0, token1 in list(combinations(tokens.values(), 2)):
+            for fee in self.collector.FEE_TIERS:
+                try:
+                    pool = await self.collector.get_pool_address(token0, token1, fee)
+                    if not pool:
+                        continue
+                    state = await self.collector.get_pool_core_state(pool)
+                    if not state:
+                        continue
+                    t0 = state['token0']; t1 = state['token1']
+                    lp_token = f"{pool}-v3lp"
+                    # LP -> token0 (fees)
+                    graph.add_trading_pair(
+                        token0=lp_token,
+                        token1=t0,
+                        dex='uniswap_v3_fee_collect',
+                        pool_address=pool,
+                        reserve0=base_liq,
+                        reserve1=base_liq * fee_yield,
+                        fee=0.0,
+                    )
+                    updated += 2
+                    # LP -> token1 (fees)
+                    graph.add_trading_pair(
+                        token0=lp_token,
+                        token1=t1,
+                        dex='uniswap_v3_fee_collect',
+                        pool_address=pool,
+                        reserve0=base_liq,
+                        reserve1=base_liq * fee_yield,
+                        fee=0.0,
+                    )
+                    updated += 2
+                except Exception as e:
+                    logger.debug(f"UniswapV3 collectFees failed {token0[:6]}-{token1[:6]}: {e}")
+        return updated
 
 
 class CurveAddLiquidityAction(ProtocolAction):
@@ -711,6 +849,9 @@ def register_default_actions(w3: Web3) -> ActionRegistry:
     reg.register(BalancerWeightedSwapAction(w3))
     reg.register(UniswapV2AddLiquidityAction(w3))
     reg.register(UniswapV2RemoveLiquidityAction(w3))
+    reg.register(UniswapV3AddLiquidityAction(w3))
+    reg.register(UniswapV3RemoveLiquidityAction(w3))
+    reg.register(UniswapV3CollectFeesAction(w3))
     reg.register(AaveSupplyBorrowAction(w3))
     reg.register(CompoundSupplyBorrowAction(w3))
     reg.register(MakerCdpAction(w3))
