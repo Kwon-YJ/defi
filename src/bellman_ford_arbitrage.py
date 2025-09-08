@@ -1,7 +1,7 @@
 import math
 from typing import Dict, List, Tuple, Optional
 from concurrent.futures import ThreadPoolExecutor
-from collections import defaultdict
+from collections import defaultdict, deque
 from src.market_graph import DeFiMarketGraph, ArbitrageOpportunity, TradingEdge
 from src.logger import setup_logger
 
@@ -15,26 +15,111 @@ class BellmanFordArbitrage:
         
     def find_negative_cycles(self, source_token: str, 
                            max_path_length: int = 4) -> List[ArbitrageOpportunity]:
-        """음의 사이클 탐지를 통한 차익거래 기회 발견"""
-        opportunities = []
-        
-        # 1. Bellman-Ford 알고리즘 실행
-        if not self._bellman_ford(source_token, max_path_length):
-            logger.info("음의 사이클이 발견되었습니다!")
-            
-            # 2. 음의 사이클 추출
-            cycles = self._extract_negative_cycles(source_token)
-            
-            # 3. 차익거래 기회로 변환 + Local Search 반복 수행
-            for cycle in cycles:
-                opportunity = self._perform_local_search_and_repeat(cycle)
-                if opportunity and opportunity.net_profit > 0:
-                    opportunities.append(opportunity)
+        """음의 사이클 탐지를 통한 차익거래 기회 발견 (SPFA 우선)"""
+        opportunities: List[ArbitrageOpportunity] = []
+
+        # 1) SPFA로 빠르게 음의 사이클 탐지 시도
+        cycles = self._spfa_detect_negative_cycles(source_token)
+
+        # 2) 실패 시 Bellman-Ford 보조 확인
+        if not cycles:
+            if not self._bellman_ford(source_token, max_path_length):
+                logger.info("음의 사이클이 발견되었습니다!")
+                cycles = self._extract_negative_cycles(source_token)
+
+        # 3) 사이클을 기회로 변환 후 Local Search 반복 수행
+        for cycle in cycles:
+            opportunity = self._perform_local_search_and_repeat(cycle)
+            if opportunity and opportunity.net_profit > 0:
+                opportunities.append(opportunity)
         
         # 최고 수익 기회 우선 반환 (Best revenue transaction per source)
         opportunities.sort(key=lambda x: x.net_profit, reverse=True)
         # 기본적으로 상위 1개만 반환하여 상위 기회에 집중
         return opportunities[:1]
+
+    def _spfa_detect_negative_cycles(self, source: str) -> List[List[str]]:
+        """SPFA 기반 음의 사이클 탐지 (성능 최적화)
+        - 도달 가능한 노드만 대상으로 큐 기반 완화를 수행
+        - 노드별 완화 횟수가 노드 수 이상이 되면 음의 사이클 존재
+        """
+        # 인접 리스트 구성 (환율>0 인 엣지만 사용)
+        adj: Dict[str, List[Tuple[str, float]]] = defaultdict(list)
+        for u, v, data in self.graph.graph.edges(data=True):
+            rate = data.get('exchange_rate', 0.0)
+            if rate and rate > 0:
+                w = -math.log(rate)
+                adj[u].append((v, w))
+
+        # source로부터 도달 가능한 노드만 추림
+        reachable = set()
+        dq = deque([source])
+        while dq:
+            u = dq.popleft()
+            if u in reachable:
+                continue
+            reachable.add(u)
+            for v, _ in adj.get(u, []):
+                if v not in reachable:
+                    dq.append(v)
+        if not reachable:
+            return []
+
+        dist = {node: float('inf') for node in reachable}
+        pred: Dict[str, Optional[str]] = {node: None for node in reachable}
+        inq = {node: False for node in reachable}
+        relax_cnt = {node: 0 for node in reachable}
+
+        q = deque([source])
+        dist[source] = 0.0
+        inq[source] = True
+        n = len(reachable)
+
+        while q:
+            u = q.popleft()
+            inq[u] = False
+            for v, w in adj.get(u, []):
+                if v not in reachable:
+                    continue
+                nd = dist[u] + w
+                if nd < dist[v]:
+                    dist[v] = nd
+                    pred[v] = u
+                    if not inq[v]:
+                        q.append(v)
+                        inq[v] = True
+                        relax_cnt[v] += 1
+                        if relax_cnt[v] >= n:  # 음의 사이클 발견
+                            cyc = self._reconstruct_cycle(pred, v)
+                            if cyc:
+                                return [cyc]
+        return []
+
+    def _reconstruct_cycle(self, pred: Dict[str, Optional[str]], start: str) -> Optional[List[str]]:
+        """predecessor로부터 사이클 복원"""
+        if start not in pred:
+            return None
+        x = start
+        for _ in range(len(pred)):
+            if pred.get(x) is None:
+                return None
+            x = pred[x]
+        cycle = []
+        cur = x
+        while True:
+            cycle.append(cur)
+            cur = pred.get(cur)
+            if cur is None or cur in cycle:
+                break
+        if cur is None:
+            return None
+        try:
+            idx = cycle.index(cur)
+            cyc = cycle[idx:] + [cur]
+            cyc = list(reversed(cyc))
+            return cyc
+        except ValueError:
+            return None
     
     def _bellman_ford(self, source: str, max_iterations: int) -> bool:
         """Bellman-Ford 알고리즘 실행"""
