@@ -607,25 +607,22 @@ class UniswapV3AddLiquidityAction(ProtocolAction):
                     state = await self.collector.get_pool_core_state(pool)
                     if not state:
                         continue
-                    price01 = self.collector.price_from_sqrtX96(state['sqrtPriceX96'], state['dec0'], state['dec1'])
-                    if price01 <= 0:
-                        continue
                     t0 = state['token0']; t1 = state['token1']
                     lp_token = lp_v3(pool)
+                    # Tick-range: 현재 tick 기준 한 칸 밴드
                     ts = int(state.get('tickSpacing', 60) or 60)
                     cur_tick = int(state.get('tick', 0) or 0)
                     tick_lower = (cur_tick // ts) * ts
                     tick_upper = tick_lower + ts
-                    ts = int(state.get('tickSpacing', 60) or 60)
-                    cur_tick = int(state.get('tick', 0) or 0)
-                    tick_lower = (cur_tick // ts) * ts
-                    tick_upper = tick_lower + ts
-                    ts = int(state.get('tickSpacing', 60) or 60)
-                    cur_tick = int(state.get('tick', 0) or 0)
-                    tick_lower = (cur_tick // ts) * ts
-                    tick_upper = tick_lower + ts
-                    lp_per_t0 = 1.0
-                    lp_per_t1 = (1.0 / price01) if price01 > 0 else 0.0
+                    # 정규화된 sqrt 가격들 계산
+                    sqrtP = self.collector.sqrt_from_x96_normalized(state['sqrtPriceX96'], state['dec0'], state['dec1'])
+                    sqrtA = self.collector.sqrt_from_tick_normalized(tick_lower, state['dec0'], state['dec1'])
+                    sqrtB = self.collector.sqrt_from_tick_normalized(tick_upper, state['dec0'], state['dec1'])
+                    if sqrtP <= 0 or sqrtA <= 0 or sqrtB <= 0:
+                        continue
+                    # L per 1 token
+                    lp_per_t0 = max(0.0, float(self.collector.liquidity_per_token0(sqrtP, sqrtA, sqrtB)))
+                    lp_per_t1 = max(0.0, float(self.collector.liquidity_per_token1(sqrtP, sqrtA, sqrtB)))
                     # token0 -> LP
                     graph.add_trading_pair(
                         token0=t0,
@@ -638,8 +635,9 @@ class UniswapV3AddLiquidityAction(ProtocolAction):
                     )
                     set_edge_meta(
                         graph.graph, t0, lp_token, dex='uniswap_v3_lp_add', pool_address=pool,
-                        fee_tier=fee, source='approx', confidence=0.75,
-                        extra={'tick': cur_tick, 'tick_lower': tick_lower, 'tick_upper': tick_upper, 'tick_spacing': ts, 't0': t0, 't1': t1}
+                        fee_tier=fee, source='approx', confidence=0.8,
+                        extra={'tick': cur_tick, 'tick_lower': tick_lower, 'tick_upper': tick_upper, 'tick_spacing': ts, 't0': t0, 't1': t1,
+                               'sqrtP': sqrtP, 'sqrtA': sqrtA, 'sqrtB': sqrtB, 'lp_per_t0': lp_per_t0}
                     )
                     updated += 2
                     # token1 -> LP
@@ -655,8 +653,9 @@ class UniswapV3AddLiquidityAction(ProtocolAction):
                         )
                         set_edge_meta(
                             graph.graph, t1, lp_token, dex='uniswap_v3_lp_add', pool_address=pool,
-                            fee_tier=fee, source='approx', confidence=0.75,
-                            extra={'tick': cur_tick, 'tick_lower': tick_lower, 'tick_upper': tick_upper, 'tick_spacing': ts, 't0': t0, 't1': t1}
+                            fee_tier=fee, source='approx', confidence=0.8,
+                            extra={'tick': cur_tick, 'tick_lower': tick_lower, 'tick_upper': tick_upper, 'tick_spacing': ts, 't0': t0, 't1': t1,
+                                   'sqrtP': sqrtP, 'sqrtA': sqrtA, 'sqrtB': sqrtB, 'lp_per_t1': lp_per_t1}
                         )
                         updated += 2
                 except Exception as e:
@@ -684,13 +683,20 @@ class UniswapV3RemoveLiquidityAction(ProtocolAction):
                     state = await self.collector.get_pool_core_state(pool)
                     if not state:
                         continue
-                    price01 = self.collector.price_from_sqrtX96(state['sqrtPriceX96'], state['dec0'], state['dec1'])
-                    if price01 <= 0:
-                        continue
                     t0 = state['token0']; t1 = state['token1']
                     lp_token = lp_v3(pool)
-                    t0_per_lp = 1.0
-                    t1_per_lp = price01
+                    ts = int(state.get('tickSpacing', 60) or 60)
+                    cur_tick = int(state.get('tick', 0) or 0)
+                    tick_lower = (cur_tick // ts) * ts
+                    tick_upper = tick_lower + ts
+                    sqrtP = self.collector.sqrt_from_x96_normalized(state['sqrtPriceX96'], state['dec0'], state['dec1'])
+                    sqrtA = self.collector.sqrt_from_tick_normalized(tick_lower, state['dec0'], state['dec1'])
+                    sqrtB = self.collector.sqrt_from_tick_normalized(tick_upper, state['dec0'], state['dec1'])
+                    if sqrtP <= 0 or sqrtA <= 0 or sqrtB <= 0:
+                        continue
+                    t0_per_lp, t1_per_lp = self.collector.amounts_per_liquidity(sqrtP, sqrtA, sqrtB)
+                    t0_per_lp = max(0.0, float(t0_per_lp))
+                    t1_per_lp = max(0.0, float(t1_per_lp))
                     # LP -> token0
                     graph.add_trading_pair(
                         token0=lp_token,
@@ -703,8 +709,9 @@ class UniswapV3RemoveLiquidityAction(ProtocolAction):
                     )
                     set_edge_meta(
                         graph.graph, lp_token, t0, dex='uniswap_v3_lp_remove', pool_address=pool,
-                        fee_tier=fee, source='approx', confidence=0.75,
-                        extra={'tick': cur_tick, 'tick_lower': tick_lower, 'tick_upper': tick_upper, 'tick_spacing': ts, 't0': t0, 't1': t1}
+                        fee_tier=fee, source='approx', confidence=0.8,
+                        extra={'tick': cur_tick, 'tick_lower': tick_lower, 'tick_upper': tick_upper, 'tick_spacing': ts, 't0': t0, 't1': t1,
+                               'sqrtP': sqrtP, 'sqrtA': sqrtA, 'sqrtB': sqrtB, 't0_per_lp': t0_per_lp}
                     )
                     updated += 2
                     # LP -> token1
@@ -719,8 +726,9 @@ class UniswapV3RemoveLiquidityAction(ProtocolAction):
                     )
                     set_edge_meta(
                         graph.graph, lp_token, t1, dex='uniswap_v3_lp_remove', pool_address=pool,
-                        fee_tier=fee, source='approx', confidence=0.75,
-                        extra={'tick': cur_tick, 'tick_lower': tick_lower, 'tick_upper': tick_upper, 'tick_spacing': ts, 't0': t0, 't1': t1}
+                        fee_tier=fee, source='approx', confidence=0.8,
+                        extra={'tick': cur_tick, 'tick_lower': tick_lower, 'tick_upper': tick_upper, 'tick_spacing': ts, 't0': t0, 't1': t1,
+                               'sqrtP': sqrtP, 'sqrtA': sqrtA, 'sqrtB': sqrtB, 't1_per_lp': t1_per_lp}
                     )
                     updated += 2
                 except Exception as e:

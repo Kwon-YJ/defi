@@ -127,6 +127,72 @@ class UniswapV3Collector:
         return float(price)
 
     @staticmethod
+    def sqrt_from_x96_normalized(sqrt_price_x96: int, dec0: int, dec1: int) -> float:
+        """정규화된 sqrtP 계산 (decimals 차 반영).
+
+        sqrtP_norm = (sqrtPriceX96 / 2**96) * 10**((dec0 - dec1)/2)
+        """
+        if sqrt_price_x96 <= 0:
+            return 0.0
+        q96 = float(2 ** 96)
+        dec_adj = 10 ** ((dec0 - dec1) / 2.0)
+        return float(sqrt_price_x96) / q96 * float(dec_adj)
+
+    @staticmethod
+    def sqrt_from_tick_normalized(tick: int, dec0: int, dec1: int) -> float:
+        """Tick로부터 정규화된 sqrt(price) 계산 (decimals 차 반영)."""
+        sqrt_raw = 1.0001 ** (tick / 2.0)
+        dec_adj = 10 ** ((dec0 - dec1) / 2.0)
+        return float(sqrt_raw) * float(dec_adj)
+
+    @staticmethod
+    def liquidity_per_token0(sqrtP: float, sqrtA: float, sqrtB: float) -> float:
+        """현재 sqrtP, 범위 [sqrtA, sqrtB]에서 1 token0 당 민트되는 유동성 L."""
+        try:
+            if sqrtP <= 0 or sqrtA <= 0 or sqrtB <= 0 or sqrtA >= sqrtB:
+                return 0.0
+            if sqrtP <= sqrtA:
+                return (sqrtA * sqrtB) / (sqrtB - sqrtA)
+            if sqrtP < sqrtB:
+                return (sqrtP * sqrtB) / (sqrtB - sqrtP)
+            return 0.0
+        except Exception:
+            return 0.0
+
+    @staticmethod
+    def liquidity_per_token1(sqrtP: float, sqrtA: float, sqrtB: float) -> float:
+        """현재 sqrtP, 범위 [sqrtA, sqrtB]에서 1 token1 당 민트되는 유동성 L."""
+        try:
+            if sqrtP <= 0 or sqrtA <= 0 or sqrtB <= 0 or sqrtA >= sqrtB:
+                return 0.0
+            if sqrtP <= sqrtA:
+                return 0.0
+            if sqrtP < sqrtB:
+                return 1.0 / (sqrtP - sqrtA)
+            return 1.0 / (sqrtB - sqrtA)
+        except Exception:
+            return 0.0
+
+    @staticmethod
+    def amounts_per_liquidity(sqrtP: float, sqrtA: float, sqrtB: float) -> Tuple[float, float]:
+        """유동성 L=1 소각 시 반환되는 (amount0, amount1) (정규화 단위)."""
+        try:
+            if sqrtP <= 0 or sqrtA <= 0 or sqrtB <= 0 or sqrtA >= sqrtB:
+                return 0.0, 0.0
+            if sqrtP <= sqrtA:
+                # 전량 token0
+                return (sqrtB - sqrtA) / (sqrtA * sqrtB), 0.0
+            if sqrtP < sqrtB:
+                # 양 토큰 혼합
+                amt0 = (sqrtB - sqrtP) / (sqrtP * sqrtB)
+                amt1 = (sqrtP - sqrtA)
+                return max(amt0, 0.0), max(amt1, 0.0)
+            # 전량 token1
+            return 0.0, (sqrtB - sqrtA)
+        except Exception:
+            return 0.0, 0.0
+
+    @staticmethod
     def price_from_tick(tick: int, dec0: int, dec1: int) -> float:
         # Uniswap V3 tick price: 1.0001 ** tick, adjust for decimals
         p = (1.0001 ** float(tick)) * (10 ** (dec0 - dec1))
