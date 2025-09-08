@@ -112,15 +112,13 @@ class BellmanFordArbitrage:
         return None
     
     def _cycle_to_opportunity(self, cycle: List[str]) -> Optional[ArbitrageOpportunity]:
-        """사이클을 차익거래 기회로 변환"""
+        """사이클을 차익거래 기회로 변환하고 최적화합니다."""
         if len(cycle) < 3:
             return None
         
         edges = []
         total_gas_cost = 0
-        total_fee = 0
         
-        # 사이클의 각 엣지 정보 수집
         for i in range(len(cycle) - 1):
             from_token = cycle[i]
             to_token = cycle[i + 1]
@@ -132,39 +130,95 @@ class BellmanFordArbitrage:
             edge_data = self.graph.graph[from_token][to_token]
             edge = TradingEdge(**edge_data)
             edges.append(edge)
-            
             total_gas_cost += edge.gas_cost
-            total_fee += edge.fee
         
-        # 수익률 계산
-        profit_ratio = self._calculate_profit_ratio(edges)
+        # Local Search를 통해 최적 거래량 및 수익 계산
+        optimal_amount, max_profit = self._optimize_trade_volume(edges)
         
-        if profit_ratio <= 1.0:
-            return None  # 수익 없음
-        
-        # 필요 자본 추정 (가장 큰 유동성 제약 기준)
-        min_liquidity = min(edge.liquidity for edge in edges)
-        required_capital = min(min_liquidity * 0.1, 10.0)  # 최대 10 ETH
-        
-        estimated_profit = required_capital * (profit_ratio - 1)
-        net_profit = estimated_profit - total_gas_cost
-        
-        # 신뢰도 계산 (유동성, 가격 안정성 기준)
+        if max_profit <= total_gas_cost:
+            return None # 가스비를 제하고 나면 수익이 없음
+
+        net_profit = max_profit - total_gas_cost
+        profit_ratio = (optimal_amount + net_profit) / optimal_amount if optimal_amount > 0 else 0
+
         confidence = self._calculate_confidence(edges)
         
         return ArbitrageOpportunity(
             path=cycle,
             edges=edges,
             profit_ratio=profit_ratio,
-            required_capital=required_capital,
-            estimated_profit=estimated_profit,
+            required_capital=optimal_amount,
+            estimated_profit=max_profit, # 이제 이게 총 수익
             gas_cost=total_gas_cost,
-            net_profit=net_profit,
+            net_profit=net_profit, # 가스비 제외 순수익
             confidence=confidence
         )
-    
+
+    def _simulate_trade(self, edges: List[TradingEdge], initial_amount: float) -> float:
+        """Slippage를 고려하여 거래를 시뮬레이션하고 최종 결과 금액을 반환합니다."""
+        amount = initial_amount
+        for edge in edges:
+            # Constant product formula: (x + dx) * (y - dy) = k
+            # dy = y - k / (x + dx)
+            # dx is the input amount, dy is the output amount
+            # k = x * y
+            
+            # A more accurate model would use the actual pool reserves.
+            # For now, we use a simplified model based on liquidity and exchange rate.
+            # Let's assume liquidity represents the reserve of the output token.
+            output_reserve = edge.liquidity
+            if edge.exchange_rate == 0: return 0
+            input_reserve = output_reserve / edge.exchange_rate
+
+            # Input amount for this step
+            input_amount = amount * (1 - edge.fee)
+
+            # Calculate output amount with slippage
+            k = input_reserve * output_reserve
+            if input_reserve + input_amount == 0: return 0
+            
+            output_amount = output_reserve - k / (input_reserve + input_amount)
+            
+            if output_amount <= 0:
+                return 0 # 거래 불가능
+            
+            amount = output_amount
+            
+        return amount
+
+    def _optimize_trade_volume(self, edges: List[TradingEdge]) -> Tuple[float, float]:
+        """Hill Climbing을 사용하여 최적의 거래량을 찾습니다."""
+        best_profit = 0.0
+        optimal_amount = 0.0
+        
+        # 탐색 범위와 스텝 설정
+        step = 0.1  # Start with 0.1 ETH
+        max_amount = 50.0 # Don't search beyond 50 ETH for performance
+        
+        current_amount = step
+        
+        while current_amount <= max_amount:
+            output_amount = self._simulate_trade(edges, current_amount)
+            profit = output_amount - current_amount
+            
+            if profit > best_profit:
+                best_profit = profit
+                optimal_amount = current_amount
+            # If profit starts to decrease, we might have passed the peak.
+            # A more robust implementation would check for this and stop.
+            
+            # Increase step size for larger amounts to speed up search
+            if current_amount >= 1.0:
+                step = 0.5
+            if current_amount >= 5.0:
+                step = 1.0
+                
+            current_amount += step
+
+        return optimal_amount, best_profit
+
     def _calculate_profit_ratio(self, edges: List[TradingEdge]) -> float:
-        """수익률 계산"""
+        """수익률 계산 (참고용, 실제 수익은 시뮬레이션으로)"""
         total_ratio = 1.0
         
         for edge in edges:
@@ -175,7 +229,7 @@ class BellmanFordArbitrage:
     def _calculate_confidence(self, edges: List[TradingEdge]) -> float:
         """신뢰도 계산"""
         # 유동성 기반 신뢰도
-        min_liquidity = min(edge.liquidity for edge in edges)
+        min_liquidity = min(edge.liquidity for edge in edges if edge.liquidity > 0) if any(e.liquidity > 0 for e in edges) else 1.0
         liquidity_score = min(min_liquidity / 100.0, 1.0)  # 100 ETH 기준
         
         # 경로 길이 기반 신뢰도 (짧을수록 좋음)
