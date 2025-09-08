@@ -26,6 +26,7 @@ class CompoundCollector:
 
     def __init__(self, w3: Web3):
         self.w3 = w3
+        self.comptroller_address = getattr(config, 'compound_comptroller', '')
         self.ctoken_abi = [
             {
                 "constant": True,
@@ -33,6 +34,22 @@ class CompoundCollector:
                 "name": "exchangeRateStored",
                 "outputs": [{"name": "", "type": "uint256"}],
                 "type": "function",
+            },
+            {"constant": True, "inputs": [], "name": "borrowRatePerBlock", "outputs": [{"name": "", "type": "uint256"}], "type": "function"},
+            {"constant": True, "inputs": [], "name": "supplyRatePerBlock", "outputs": [{"name": "", "type": "uint256"}], "type": "function"},
+            {"constant": True, "inputs": [], "name": "reserveFactorMantissa", "outputs": [{"name": "", "type": "uint256"}], "type": "function"},
+        ]
+        self.comptroller_abi = [
+            {
+                "constant": True,
+                "inputs": [{"name": "cTokenAddress", "type": "address"}],
+                "name": "markets",
+                "outputs": [
+                    {"name": "isListed", "type": "bool"},
+                    {"name": "collateralFactorMantissa", "type": "uint256"},
+                    {"name": "isComped", "type": "bool"}
+                ],
+                "type": "function"
             }
         ]
 
@@ -57,6 +74,41 @@ class CompoundCollector:
         except Exception as e:
             logger.debug(f"Compound exchangeRateStored read failed for {ctoken[:6]}: {e}")
             return 1.0
+
+    def get_rates_per_block(self, ctoken: str) -> Dict:
+        try:
+            if not self.w3 or not self.w3.is_connected():
+                return {}
+            c = self.w3.eth.contract(address=ctoken, abi=self.ctoken_abi)
+            br = float(c.functions.borrowRatePerBlock().call()) / 1e18
+            sr = float(c.functions.supplyRatePerBlock().call()) / 1e18
+            rf = float(c.functions.reserveFactorMantissa().call()) / 1e18
+            return {"borrowRatePerBlock": br, "supplyRatePerBlock": sr, "reserveFactor": rf}
+        except Exception as e:
+            logger.debug(f"Compound rates read failed for {ctoken[:6]}: {e}")
+            return {}
+
+    def get_collateral_factor(self, ctoken: str) -> Optional[float]:
+        try:
+            if not self.w3 or not self.w3.is_connected() or not self.comptroller_address:
+                return None
+            comp = self.w3.eth.contract(address=self.comptroller_address, abi=self.comptroller_abi)
+            _, cf, _ = comp.functions.markets(ctoken).call()
+            return float(cf) / 1e18
+        except Exception as e:
+            logger.debug(f"Compound collateral factor read failed {ctoken[:6]}: {e}")
+            return None
+
+    def approx_interest_penalty(self, ctoken: str, hold_blocks: int) -> float:
+        rates = self.get_rates_per_block(ctoken) or {}
+        br = float(rates.get('borrowRatePerBlock', 0.0))
+        try:
+            blocks = max(0, int(hold_blocks))
+        except Exception:
+            blocks = 0
+        # simple compounding approximation
+        penalty = (1.0 + br) ** blocks - 1.0 if br > 0 and blocks > 0 else 0.0
+        return max(0.0, penalty)
 
 
 class AaveV2Collector:

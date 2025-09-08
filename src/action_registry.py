@@ -1393,20 +1393,31 @@ class CompoundBorrowAction(ProtocolAction):
         base_liq = 100.0
         for sym, underlying in tokens.items():
             try:
-                if not self.collector.get_ctoken(underlying):
+                ctoken = self.collector.get_ctoken(underlying)
+                if not ctoken:
                     continue
                 debt = self._debt_token_id(underlying)
+                # interest penalty approximation
+                hold_blocks = int(getattr(config, 'interest_hold_blocks', 100))
+                ip = self.collector.approx_interest_penalty(ctoken, hold_blocks)
+                eff = 1.0 / (1.0 + ip) if ip > 0 else 1.0
                 graph.add_trading_pair(
                     token0=debt,
                     token1=underlying,
                     dex='compound_borrow',
                     pool_address=f"compound_borrow_{underlying[:6]}",
                     reserve0=base_liq,
-                    reserve1=base_liq * 1.0,
-                    fee=self.fee,
+                    reserve1=base_liq * float(eff),
+                    fee=0.0,
                 )
-                set_edge_meta(graph.graph, debt, underlying, dex='compound_borrow', pool_address=f"compound_borrow_{underlying[:6]}",
-                              fee_tier=None, source='approx', confidence=0.8)
+                rates = self.collector.get_rates_per_block(ctoken) or {}
+                cf = self.collector.get_collateral_factor(ctoken)
+                set_edge_meta(
+                    graph.graph, debt, underlying, dex='compound_borrow', pool_address=f"compound_borrow_{underlying[:6]}",
+                    fee_tier=None, source='onchain', confidence=0.85,
+                    extra={'collateralFactor': cf, 'borrowRatePerBlock': rates.get('borrowRatePerBlock'),
+                           'supplyRatePerBlock': rates.get('supplyRatePerBlock'), 'interestPenalty': float(ip), 'holdBlocks': hold_blocks}
+                )
                 updated += 2
             except Exception as e:
                 logger.debug(f"Compound borrow update failed {sym}: {e}")

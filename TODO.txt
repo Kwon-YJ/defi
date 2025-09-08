@@ -97,7 +97,7 @@
   - [x] health factor 계산 및 경로 유효성 제약 추가
 
 - [ ] Compound 개선
-  - [ ] borrowRatePerBlock/supplyRatePerBlock 반영(이자 누적 효과 근사)
+  - [x] borrowRatePerBlock/supplyRatePerBlock 반영(이자 누적 효과 근사)
   - [ ] Comptroller 기반 collateral factor/market 지원여부 확인 후 엣지 반영
   - [ ] cToken decimals/exchangeRateStored 정밀 처리
 

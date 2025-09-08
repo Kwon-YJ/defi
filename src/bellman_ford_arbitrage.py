@@ -414,6 +414,9 @@ class BellmanFordArbitrage:
         aave_capacity = 0.0  # sum(amount * liquidationThreshold)
         aave_debt = 0.0      # sum(borrowed)
         amount = 1.0         # 기준 시작 자본 단위
+        # Compound HF 근사 상태
+        comp_capacity = 0.0
+        comp_debt = 0.0
 
         for e in edges:
             dex = (e.dex or '').lower()
@@ -497,6 +500,25 @@ class BellmanFordArbitrage:
                     if aave_debt < -1e-6:
                         return False
                     amount = self._amount_out_with_slippage(amount, e)
+                # Compound HF: supply/borrow/repay
+                elif dex == 'compound':
+                    # supply underlying -> cToken: add to capacity using collateralFactor
+                    cf = float(meta.get('collateralFactor', 0.5) or 0.5)
+                    comp_capacity += max(0.0, amount) * max(0.0, min(cf, 1.0))
+                    amount = self._amount_out_with_slippage(amount, e)
+                elif dex == 'compound_borrow':
+                    if not have_supply.get('compound', False):
+                        return False
+                    out = self._amount_out_with_slippage(amount, e)
+                    comp_debt += max(0.0, out)
+                    if comp_debt > comp_capacity + 1e-9:
+                        return False
+                    amount = out
+                elif dex == 'compound_repay':
+                    comp_debt -= max(0.0, amount)
+                    if comp_debt < -1e-6:
+                        return False
+                    amount = self._amount_out_with_slippage(amount, e)
                 else:
                     amount = self._amount_out_with_slippage(amount, e)
             except Exception:
@@ -514,7 +536,7 @@ class BellmanFordArbitrage:
                 return False
 
         # All debts must be repaid (legacy counter also ensures)
-        if aave_debt > 1e-6:
+        if aave_debt > 1e-6 or comp_debt > 1e-6:
             return False
 
         return True
