@@ -409,8 +409,18 @@ class BellmanFordArbitrage:
             if ed is None:
                 return None
             # DiGraph: ed는 단일 속성 dict
-            if isinstance(ed, dict) and 'exchange_rate' in ed:
-                return TradingEdge(**ed)
+            if isinstance(ed, dict) and 'exchange_rate' in ed and 'dex' in ed:
+                return TradingEdge(
+                    from_token=u,
+                    to_token=v,
+                    dex=ed.get('dex',''),
+                    pool_address=ed.get('pool_address',''),
+                    exchange_rate=ed.get('exchange_rate',0.0),
+                    liquidity=ed.get('liquidity',0.0),
+                    fee=ed.get('fee',0.0),
+                    gas_cost=ed.get('gas_cost',0.0),
+                    weight=0.0,
+                )
             # MultiDiGraph: ed는 key->data dict
             candidates = []
             if isinstance(ed, dict):
@@ -420,6 +430,16 @@ class BellmanFordArbitrage:
             if not candidates:
                 return None
             best = max(candidates, key=lambda d: d.get('exchange_rate', 0))
-            return TradingEdge(**best)
+            return TradingEdge(
+                from_token=u,
+                to_token=v,
+                dex=best.get('dex',''),
+                pool_address=best.get('pool_address',''),
+                exchange_rate=best.get('exchange_rate',0.0),
+                liquidity=best.get('liquidity',0.0),
+                fee=best.get('fee',0.0),
+                gas_cost=best.get('gas_cost',0.0),
+                weight=0.0,
+            )
         except Exception:
             return None

@@ -10,6 +10,7 @@ from src.dex_data_collector import UniswapV2Collector, SushiSwapCollector
 from src.action_registry import register_default_actions, ActionRegistry
 from src.real_time_collector import RealTimeDataCollector
 from src.graph_pruner import prune_graph
+from src.memory_compactor import compact_graph_attributes
 from config.config import config
 
 logger = setup_logger(__name__)
@@ -77,6 +78,8 @@ class BlockGraphUpdater:
                 await self.update_via_actions(block_number)
                 # 블록 단위로 프루닝 수행 (너무 작은 유동성/지배된 엣지 제거)
                 prune_graph(self.graph.graph, min_liquidity=0.1, keep_top_k=2)
+                # 메모리 절감을 위한 속성 정리
+                compact_graph_attributes(self.graph.graph)
             except Exception as e:
                 logger.error(f"블록 갱신 실패: {e}")
 
@@ -109,6 +112,8 @@ class BlockGraphUpdater:
                         # 그래프 풀 데이터 즉시 갱신
                         self.graph.update_pool_data(pool, float(reserve0), float(reserve1))
                         logger.debug(f"Sync 반영: {pool} r0={reserve0} r1={reserve1}")
+                        # 메모리 절감을 위한 속성 정리
+                        compact_graph_attributes(self.graph.graph)
             except Exception as e:
                 logger.debug(f"로그 기반 동적 업데이트 실패: {e}")
 
@@ -121,6 +126,7 @@ class BlockGraphUpdater:
         # 시작 시 1회 초기 빌드
         await self.update_via_actions()
         prune_graph(self.graph.graph, min_liquidity=0.1, keep_top_k=2)
+        compact_graph_attributes(self.graph.graph)
 
     async def update_all_pairs(self, block_number: Optional[int] = None):
         """등록된 모든 DEX, 주요 페어에 대해 그래프 엣지 갱신"""
