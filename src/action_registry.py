@@ -1000,7 +1000,7 @@ class BalancerJoinPoolAction(ProtocolAction):
                 if not pool:
                     continue
                 lp_token = bpt(pool)
-                # token0 -> LP (1 token0)
+                # token0 -> LP (1 token0) — single-asset join (with fee on non-proportional part)
                 d0 = self.collector._decimals(token0)
                 bpt_per_t0 = self.collector.bpt_out_per_token_in(pool, token0, 1.0)
                 if bpt_per_t0 > 0:
@@ -1017,7 +1017,7 @@ class BalancerJoinPoolAction(ProtocolAction):
                                   fee_tier=None, source='onchain', confidence=0.88,
                                   extra={'dec_in': d0})
                     updated += 2
-                # token1 -> LP (1 token1)
+                # token1 -> LP (1 token1) — single-asset join
                 d1 = self.collector._decimals(token1)
                 bpt_per_t1 = self.collector.bpt_out_per_token_in(pool, token1, 1.0)
                 if bpt_per_t1 > 0:
@@ -1034,6 +1034,47 @@ class BalancerJoinPoolAction(ProtocolAction):
                                   fee_tier=None, source='onchain', confidence=0.88,
                                   extra={'dec_in': d1})
                     updated += 2
+
+                # Proportional join branch (no swap fee): BPT per 1 token = ts / balance_i
+                try:
+                    bpt_dec, ts_raw = self.collector.get_bpt_info(pool)
+                    ts = float(ts_raw) / float(10 ** bpt_dec) if bpt_dec else float(ts_raw) / 1e18
+                    # token0 proportional
+                    wi0, _, bi0, _ = self.collector.get_weights_and_balances(pool, token0, token0)
+                    if ts > 0 and bi0 > 0:
+                        bpt_per_t0_prop = ts / float(bi0)
+                        graph.add_trading_pair(
+                            token0=token0,
+                            token1=lp_token,
+                            dex='balancer_lp_join_prop',
+                            pool_address=pool,
+                            reserve0=base_liq,
+                            reserve1=base_liq * float(bpt_per_t0_prop),
+                            fee=0.0,
+                        )
+                        set_edge_meta(graph.graph, token0, lp_token, dex='balancer_lp_join_prop', pool_address=pool,
+                                      fee_tier=None, source='onchain', confidence=0.85,
+                                      extra={'proportional': True, 'dec_in': d0})
+                        updated += 2
+                    # token1 proportional
+                    wi1, _, bi1, _ = self.collector.get_weights_and_balances(pool, token1, token1)
+                    if ts > 0 and bi1 > 0:
+                        bpt_per_t1_prop = ts / float(bi1)
+                        graph.add_trading_pair(
+                            token0=token1,
+                            token1=lp_token,
+                            dex='balancer_lp_join_prop',
+                            pool_address=pool,
+                            reserve0=base_liq,
+                            reserve1=base_liq * float(bpt_per_t1_prop),
+                            fee=0.0,
+                        )
+                        set_edge_meta(graph.graph, token1, lp_token, dex='balancer_lp_join_prop', pool_address=pool,
+                                      fee_tier=None, source='onchain', confidence=0.85,
+                                      extra={'proportional': True, 'dec_in': d1})
+                        updated += 2
+                except Exception:
+                    pass
             except Exception as e:
                 logger.debug(f"Balancer join_pool update failed: {e}")
         return updated
@@ -1056,7 +1097,7 @@ class BalancerExitPoolAction(ProtocolAction):
                 if not pool:
                     continue
                 lp_token = bpt(pool)
-                # LP -> token0 (1 BPT)
+                # LP -> token0 (1 BPT) — single-asset exit (with fee on non-proportional part)
                 t0_per_bpt = self.collector.token_out_per_bpt_in(pool, token0, 1.0)
                 if t0_per_bpt > 0:
                     graph.add_trading_pair(
@@ -1071,7 +1112,7 @@ class BalancerExitPoolAction(ProtocolAction):
                     set_edge_meta(graph.graph, lp_token, token0, dex='balancer_lp_exit', pool_address=pool,
                                   fee_tier=None, source='onchain', confidence=0.88)
                     updated += 2
-                # LP -> token1 (1 BPT)
+                # LP -> token1 (1 BPT) — single-asset exit
                 t1_per_bpt = self.collector.token_out_per_bpt_in(pool, token1, 1.0)
                 if t1_per_bpt > 0:
                     graph.add_trading_pair(
@@ -1086,6 +1127,45 @@ class BalancerExitPoolAction(ProtocolAction):
                     set_edge_meta(graph.graph, lp_token, token1, dex='balancer_lp_exit', pool_address=pool,
                                   fee_tier=None, source='onchain', confidence=0.88)
                     updated += 2
+
+                # Proportional exit branch (no swap fee): token per 1 BPT = balance_i / ts
+                try:
+                    bpt_dec, ts_raw = self.collector.get_bpt_info(pool)
+                    ts = float(ts_raw) / float(10 ** bpt_dec) if bpt_dec else float(ts_raw) / 1e18
+                    wi0, _, bi0, _ = self.collector.get_weights_and_balances(pool, token0, token0)
+                    if ts > 0 and bi0 > 0:
+                        t0_per_bpt_prop = float(bi0) / ts
+                        graph.add_trading_pair(
+                            token0=lp_token,
+                            token1=token0,
+                            dex='balancer_lp_exit_prop',
+                            pool_address=pool,
+                            reserve0=base_liq,
+                            reserve1=base_liq * float(t0_per_bpt_prop),
+                            fee=0.0,
+                        )
+                        set_edge_meta(graph.graph, lp_token, token0, dex='balancer_lp_exit_prop', pool_address=pool,
+                                      fee_tier=None, source='onchain', confidence=0.85,
+                                      extra={'proportional': True})
+                        updated += 2
+                    wi1, _, bi1, _ = self.collector.get_weights_and_balances(pool, token1, token1)
+                    if ts > 0 and bi1 > 0:
+                        t1_per_bpt_prop = float(bi1) / ts
+                        graph.add_trading_pair(
+                            token0=lp_token,
+                            token1=token1,
+                            dex='balancer_lp_exit_prop',
+                            pool_address=pool,
+                            reserve0=base_liq,
+                            reserve1=base_liq * float(t1_per_bpt_prop),
+                            fee=0.0,
+                        )
+                        set_edge_meta(graph.graph, lp_token, token1, dex='balancer_lp_exit_prop', pool_address=pool,
+                                      fee_tier=None, source='onchain', confidence=0.85,
+                                      extra={'proportional': True})
+                        updated += 2
+                except Exception:
+                    pass
             except Exception as e:
                 logger.debug(f"Balancer exit_pool update failed: {e}")
         return updated
