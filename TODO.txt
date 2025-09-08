@@ -39,7 +39,24 @@
 - [x] Synthetix (synthetic asset actions)
 - [x] Yearn Finance (yield strategy actions)
 - [x] dYdX (margin trading actions)
-- [ ] 각 protocol의 모든 주요 functions (mint, burn, swap, lend, borrow, etc.)
+- [ ] (분할) 각 protocol 주요 functions 구현
+  - [x] Uniswap V2: swap (기반 구현)
+  - [ ] Uniswap V2: add/remove liquidity
+  - [x] Uniswap V3: swap (기반 구현)
+  - [ ] Uniswap V3: add/remove liquidity, collect fees
+  - [x] Curve: exchange (stableswap)
+  - [ ] Curve: add/remove liquidity
+  - [x] Balancer: weighted swap
+  - [ ] Balancer: join/exit pool
+  - [x] Aave: supply/withdraw
+  - [ ] Aave: borrow/repay
+  - [x] Compound: mint/redeem (supply/withdraw)
+  - [ ] Compound: borrow/repay
+  - [x] MakerDAO: CDP (WETH->DAI mint)
+  - [x] MakerDAO: PSM (USDC<->DAI)
+  - [x] Synthetix: exchange (sETH<->sUSD)
+  - [ ] Synthetix: mint/burn (SNX staking)
+  - [x] dYdX: margin open/close (가격 근사)
 
 ### 2.2 자산 지원 확장 (현재 4개 base tokens → 논문의 25개 assets)
 - [ ] **CRITICAL**: 논문에서 사용한 정확한 25개 자산 식별 및 구현

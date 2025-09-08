@@ -17,6 +17,7 @@ from src.maker_collectors import MakerCollector
 from src.dex_balancer_collector import BalancerWeightedCollector
 from src.dydx_collectors import DyDxCollector
 from src.yearn_collectors import YearnV2Collector
+from src.yearn_collectors import YearnV2Collector
 
 logger = setup_logger(__name__)
 
@@ -392,6 +393,158 @@ class DyDxMarginAction(ProtocolAction, _SwapPairsMixin):
         return updated
 
 
+# --- Additional major-function scaffolding (disabled by default) ---
+class UniswapV2AddLiquidityAction(ProtocolAction):
+    name = "uniswap_v2.add_liquidity"
+    enabled = False
+    async def update_graph(self, *args, **kwargs) -> int:
+        return 0
+
+
+class UniswapV2RemoveLiquidityAction(ProtocolAction):
+    name = "uniswap_v2.remove_liquidity"
+    enabled = False
+    async def update_graph(self, *args, **kwargs) -> int:
+        return 0
+
+
+class UniswapV3AddLiquidityAction(ProtocolAction):
+    name = "uniswap_v3.add_liquidity"
+    enabled = False
+    async def update_graph(self, *args, **kwargs) -> int:
+        return 0
+
+
+class UniswapV3RemoveLiquidityAction(ProtocolAction):
+    name = "uniswap_v3.remove_liquidity"
+    enabled = False
+    async def update_graph(self, *args, **kwargs) -> int:
+        return 0
+
+
+class UniswapV3CollectFeesAction(ProtocolAction):
+    name = "uniswap_v3.collect_fees"
+    enabled = False
+    async def update_graph(self, *args, **kwargs) -> int:
+        return 0
+
+
+class CurveAddLiquidityAction(ProtocolAction):
+    name = "curve.add_liquidity"
+    enabled = False
+    async def update_graph(self, *args, **kwargs) -> int:
+        return 0
+
+
+class CurveRemoveLiquidityAction(ProtocolAction):
+    name = "curve.remove_liquidity"
+    enabled = False
+    async def update_graph(self, *args, **kwargs) -> int:
+        return 0
+
+
+class BalancerJoinPoolAction(ProtocolAction):
+    name = "balancer.join_pool"
+    enabled = False
+    async def update_graph(self, *args, **kwargs) -> int:
+        return 0
+
+
+class BalancerExitPoolAction(ProtocolAction):
+    name = "balancer.exit_pool"
+    enabled = False
+    async def update_graph(self, *args, **kwargs) -> int:
+        return 0
+
+
+class AaveBorrowAction(ProtocolAction):
+    name = "aave.borrow"
+    enabled = False
+    async def update_graph(self, *args, **kwargs) -> int:
+        return 0
+
+
+class AaveRepayAction(ProtocolAction):
+    name = "aave.repay"
+    enabled = False
+    async def update_graph(self, *args, **kwargs) -> int:
+        return 0
+
+
+class CompoundBorrowAction(ProtocolAction):
+    name = "compound.borrow"
+    enabled = False
+    async def update_graph(self, *args, **kwargs) -> int:
+        return 0
+
+
+class CompoundRepayAction(ProtocolAction):
+    name = "compound.repay"
+    enabled = False
+    async def update_graph(self, *args, **kwargs) -> int:
+        return 0
+
+
+class SynthetixMintAction(ProtocolAction):
+    name = "synthetix.mint"
+    enabled = False
+    async def update_graph(self, *args, **kwargs) -> int:
+        return 0
+
+
+class SynthetixBurnAction(ProtocolAction):
+    name = "synthetix.burn"
+    enabled = False
+    async def update_graph(self, *args, **kwargs) -> int:
+        return 0
+
+
+class DyDxOpenPositionAction(ProtocolAction):
+    name = "dydx.open_position"
+    enabled = False
+    async def update_graph(self, *args, **kwargs) -> int:
+        return 0
+
+
+class DyDxClosePositionAction(ProtocolAction):
+    name = "dydx.close_position"
+    enabled = False
+    async def update_graph(self, *args, **kwargs) -> int:
+        return 0
+
+
+class MakerPsmSwapAction(ProtocolAction):
+    name = "maker.psm_swap"
+    enabled = True
+
+    def __init__(self, w3: Web3):
+        self.w3 = w3
+        self.fee = 0.0001  # ~0.01%
+
+    async def update_graph(self, graph: DeFiMarketGraph, w3: Web3, tokens: Dict[str, str],
+                           block_number: Optional[int] = None) -> int:
+        # USDC <-> DAI near 1:1 swap via PSM (approximate)
+        usdc = tokens.get('USDC') or tokens.get('usdc')
+        dai = tokens.get('DAI') or tokens.get('dai')
+        if not usdc or not dai:
+            return 0
+        base_liq = 500.0
+        try:
+            graph.add_trading_pair(
+                token0=usdc,
+                token1=dai,
+                dex='maker_psm',
+                pool_address='maker_psm_usdc_dai',
+                reserve0=base_liq,
+                reserve1=base_liq,
+                fee=self.fee,
+            )
+            return 2
+        except Exception as e:
+            logger.debug(f"Maker PSM update failed: {e}")
+            return 0
+
+
 class CompoundSupplyBorrowAction(ProtocolAction):
     name = "compound.supply_borrow"
     enabled = True
@@ -463,6 +616,7 @@ def register_default_actions(w3: Web3) -> ActionRegistry:
     reg.register(AaveSupplyBorrowAction(w3))
     reg.register(CompoundSupplyBorrowAction(w3))
     reg.register(MakerCdpAction(w3))
+    reg.register(MakerPsmSwapAction(w3))
     reg.register(YearnVaultAction(w3))
     reg.register(SynthetixExchangeAction(w3))
     reg.register(DyDxMarginAction(w3))
