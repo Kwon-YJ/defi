@@ -1083,6 +1083,8 @@ class SynthetixMintAction(ProtocolAction):
             )
             set_edge_meta(graph.graph, SNX, sUSD, dex='synthetix_mint', pool_address='synthetix_mint_snx_susd',
                           fee_tier=None, source='approx', confidence=0.75)
+            gc = estimate_gas_cost_usd_for_dex(w3, 'synthetix')
+            set_edge_gas_cost(graph.graph, SNX, sUSD, dex='synthetix_mint', pool_address='synthetix_mint_snx_susd', gas_cost=gc)
             return 2
         except Exception as e:
             logger.debug(f"Synthetix mint update failed: {e}")
@@ -1117,6 +1119,8 @@ class SynthetixBurnAction(ProtocolAction):
             )
             set_edge_meta(graph.graph, sUSD, SNX, dex='synthetix_burn', pool_address='synthetix_burn_susd_snx',
                           fee_tier=None, source='approx', confidence=0.75)
+            gc = estimate_gas_cost_usd_for_dex(w3, 'synthetix')
+            set_edge_gas_cost(graph.graph, sUSD, SNX, dex='synthetix_burn', pool_address='synthetix_burn_susd_snx', gas_cost=gc)
             return 2
         except Exception as e:
             logger.debug(f"Synthetix burn update failed: {e}")
