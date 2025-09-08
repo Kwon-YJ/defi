@@ -665,16 +665,70 @@ class UniswapV3CollectFeesAction(ProtocolAction):
 
 class CurveAddLiquidityAction(ProtocolAction):
     name = "curve.add_liquidity"
-    enabled = False
-    async def update_graph(self, *args, **kwargs) -> int:
-        return 0
+    enabled = True
+
+    def __init__(self, w3: Web3):
+        self.collector = CurveStableSwapCollector(w3)
+
+    async def update_graph(self, graph: DeFiMarketGraph, w3: Web3, tokens: Dict[str, str],
+                           block_number: Optional[int] = None) -> int:
+        updated = 0
+        base_liq = 150.0
+        try:
+            # Iterate known pools (e.g., 3pool) and add token -> LP edges for member coins
+            for p in self.collector.POOLS:
+                pool = p['address']
+                coins = [c.lower() for c in p['coins']]
+                lp_token = f"{pool}-curvelp"
+                for _, addr in tokens.items():
+                    if addr.lower() in coins:
+                        # Approximate 1 LP per 1 unit of stable for add liquidity
+                        graph.add_trading_pair(
+                            token0=addr,
+                            token1=lp_token,
+                            dex='curve_lp_add',
+                            pool_address=pool,
+                            reserve0=base_liq,
+                            reserve1=base_liq * 1.0,
+                            fee=0.0,
+                        )
+                        updated += 2
+        except Exception as e:
+            logger.debug(f"Curve addLiquidity update failed: {e}")
+        return updated
 
 
 class CurveRemoveLiquidityAction(ProtocolAction):
     name = "curve.remove_liquidity"
-    enabled = False
-    async def update_graph(self, *args, **kwargs) -> int:
-        return 0
+    enabled = True
+
+    def __init__(self, w3: Web3):
+        self.collector = CurveStableSwapCollector(w3)
+
+    async def update_graph(self, graph: DeFiMarketGraph, w3: Web3, tokens: Dict[str, str],
+                           block_number: Optional[int] = None) -> int:
+        updated = 0
+        base_liq = 150.0
+        try:
+            for p in self.collector.POOLS:
+                pool = p['address']
+                coins = [c.lower() for c in p['coins']]
+                lp_token = f"{pool}-curvelp"
+                for coin in coins:
+                    # LP -> coin (single-asset withdraw) approximated at 1:1
+                    graph.add_trading_pair(
+                        token0=lp_token,
+                        token1=coin,
+                        dex='curve_lp_remove',
+                        pool_address=pool,
+                        reserve0=base_liq,
+                        reserve1=base_liq * 1.0,
+                        fee=0.0,
+                    )
+                    updated += 2
+        except Exception as e:
+            logger.debug(f"Curve removeLiquidity update failed: {e}")
+        return updated
 
 
 class BalancerJoinPoolAction(ProtocolAction):
@@ -846,6 +900,8 @@ def register_default_actions(w3: Web3) -> ActionRegistry:
     # Disabled skeletons for scalability toward 96 actions
     reg.register(UniswapV3SwapAction(w3))
     reg.register(CurveStableSwapAction(w3))
+    reg.register(CurveAddLiquidityAction(w3))
+    reg.register(CurveRemoveLiquidityAction(w3))
     reg.register(BalancerWeightedSwapAction(w3))
     reg.register(UniswapV2AddLiquidityAction(w3))
     reg.register(UniswapV2RemoveLiquidityAction(w3))
