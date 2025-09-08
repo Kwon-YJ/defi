@@ -12,6 +12,7 @@ from src.dex_data_collector import UniswapV2Collector, SushiSwapCollector
 from src.dex_uniswap_v3_collector import UniswapV3Collector
 from src.dex_curve_collector import CurveStableSwapCollector
 from src.lending_collectors import CompoundCollector, AaveV2Collector
+from src.maker_collectors import MakerCollector
 from src.dex_balancer_collector import BalancerWeightedCollector
 
 logger = setup_logger(__name__)
@@ -253,9 +254,39 @@ class CompoundSupplyBorrowAction(ProtocolAction):
 
 class MakerCdpAction(ProtocolAction):
     name = "maker.cdp"
-    enabled = False
-    async def update_graph(self, *args, **kwargs) -> int:
-        return 0
+    enabled = True
+
+    def __init__(self, w3: Web3):
+        self.w3 = w3
+
+    async def update_graph(self, graph: DeFiMarketGraph, w3: Web3, tokens: Dict[str, str],
+                           block_number: Optional[int] = None) -> int:
+        # Focus on WETH -> DAI minting
+        sym_to_addr = tokens or {}
+        weth = sym_to_addr.get('WETH') or sym_to_addr.get('weth')
+        dai = sym_to_addr.get('DAI') or sym_to_addr.get('dai')
+        if not weth or not dai:
+            return 0
+        try:
+            collector = MakerCollector(self.w3, weth=weth, dai=dai)
+            rate = collector.mintable_dai_per_weth(collateral_ratio=1.5, safety_factor=0.95)
+            if rate <= 0:
+                return 0
+            base_liq = 200.0
+            # Add pair representing CDP minting capacity
+            graph.add_trading_pair(
+                token0=weth,
+                token1=dai,
+                dex='maker',
+                pool_address='maker_cdp_weth',
+                reserve0=base_liq,
+                reserve1=base_liq * rate,
+                fee=0.0005,  # represent minor costs
+            )
+            return 2
+        except Exception as e:
+            logger.debug(f"Maker CDP update failed: {e}")
+            return 0
 
 
 class YearnVaultAction(ProtocolAction):
@@ -349,7 +380,7 @@ def register_default_actions(w3: Web3) -> ActionRegistry:
     reg.register(BalancerWeightedSwapAction(w3))
     reg.register(AaveSupplyBorrowAction(w3))
     reg.register(CompoundSupplyBorrowAction(w3))
-    reg.register(MakerCdpAction())
+    reg.register(MakerCdpAction(w3))
     reg.register(YearnVaultAction())
     reg.register(SynthetixExchangeAction())
     reg.register(DyDxMarginAction())

@@ -35,7 +35,7 @@
 - [x] Compound, Aave (lending/borrowing actions) 
 - [x] Curve Finance (stableswap actions)
 - [x] Balancer (weighted pool actions)
-- [ ] MakerDAO (CDP, DAI minting actions)
+- [x] MakerDAO (CDP, DAI minting actions)
 - [ ] Synthetix (synthetic asset actions)
 - [ ] Yearn Finance (yield strategy actions)
 - [ ] dYdX (margin trading actions)
