@@ -17,23 +17,26 @@ class BellmanFordArbitrage:
         """음의 사이클 탐지를 통한 차익거래 기회 발견"""
         opportunities = []
         
-        # 1. Bellman-Ford 알고리즘 실행
-        if not self._bellman_ford(source_token, max_path_length):
-            logger.info("음의 사이클이 발견되었습니다!")
+        # 1. Bellman-Ford 알고리즘 실행 및 음의 사이클 노드 찾기
+        negative_cycle_node = self._bellman_ford(source_token, max_path_length)
+        
+        if negative_cycle_node:
+            logger.info(f"음의 사이클이 노드 {negative_cycle_node} 근처에서 발견되었습니다!")
             
-            # 2. 음의 사이클 추출
-            cycles = self._extract_negative_cycles(source_token)
+            # 2. 특정 노드에서 시작하는 음의 사이클 추출
+            # 벨만-포드 알고리즘의 특성상, predecessor 체인을 따라가면 사이클을 찾을 수 있습니다.
+            cycle = self._extract_cycle_from_node(negative_cycle_node)
             
-            # 3. 차익거래 기회로 변환
-            for cycle in cycles:
+            if cycle:
+                # 3. 차익거래 기회로 변환
                 opportunity = self._cycle_to_opportunity(cycle)
                 if opportunity and opportunity.net_profit > 0:
                     opportunities.append(opportunity)
         
         return sorted(opportunities, key=lambda x: x.net_profit, reverse=True)
     
-    def _bellman_ford(self, source: str, max_iterations: int) -> bool:
-        """Bellman-Ford 알고리즘 실행"""
+    def _bellman_ford(self, source: str, max_iterations: int) -> Optional[str]:
+        """Bellman-Ford 알고리즘을 실행하고, 음의 사이클이 발견되면 해당 사이클의 노드를 반환합니다."""
         # 초기화
         self.distances = {node: float('inf') for node in self.graph.graph.nodes}
         self.predecessors = {node: None for node in self.graph.graph.nodes}
@@ -41,75 +44,54 @@ class BellmanFordArbitrage:
         
         # 거리 완화 (Relaxation)
         for i in range(max_iterations):
-            updated = False
-            
+            updated_in_iteration = False
             for u, v, data in self.graph.graph.edges(data=True):
                 weight = data.get('weight', float('inf'))
                 
-                if self.distances[u] != float('inf'):
-                    new_distance = self.distances[u] + weight
-                    
-                    if new_distance < self.distances[v]:
-                        self.distances[v] = new_distance
-                        self.predecessors[v] = u
-                        updated = True
+                if self.distances[u] != float('inf') and self.distances[u] + weight < self.distances[v]:
+                    self.distances[v] = self.distances[u] + weight
+                    self.predecessors[v] = u
+                    updated_in_iteration = True
             
-            if not updated:
-                break
+            if not updated_in_iteration:
+                break # 더 이상 업데이트가 없으면 조기 종료
         
         # 음의 사이클 검사
         for u, v, data in self.graph.graph.edges(data=True):
             weight = data.get('weight', float('inf'))
-            
-            if (self.distances[u] != float('inf') and 
-                self.distances[u] + weight < self.distances[v]):
-                return False  # 음의 사이클 존재
+            if self.distances[u] != float('inf') and self.distances[u] + weight < self.distances[v]:
+                logger.debug(f"음의 사이클 감지: {u} -> {v}")
+                return v  # 음의 사이클에 포함된 노드 반환
         
-        return True  # 음의 사이클 없음
-    
-    def _extract_negative_cycles(self, source: str) -> List[List[str]]:
-        """음의 사이클 추출"""
-        cycles = []
-        visited = set()
-        
-        for node in self.graph.graph.nodes:
-            if node in visited:
-                continue
-                
-            # 사이클 탐지
-            cycle = self._find_cycle_from_node(node, visited)
-            if cycle and len(cycle) >= 3:  # 최소 3개 노드
-                cycles.append(cycle)
-        
-        return cycles
-    
-    def _find_cycle_from_node(self, start_node: str, visited: set) -> Optional[List[str]]:
-        """특정 노드에서 시작하는 사이클 찾기"""
+        return None  # 음의 사이클 없음
+
+    def _extract_cycle_from_node(self, start_node: str) -> Optional[List[str]]:
+        """주어진 노드에서 시작하여 predecessor 체인을 역추적하여 사이클을 찾습니다."""
         path = []
         current = start_node
-        path_set = set()
         
-        while current is not None and current not in visited:
-            if current in path_set:
-                # 사이클 발견
-                cycle_start = path.index(current)
-                cycle = path[cycle_start:] + [current]
-                
-                # 방문 처리
-                for node in path:
-                    visited.add(node)
-                
-                return cycle
-            
-            path.append(current)
-            path_set.add(current)
-            current = self.predecessors.get(current)
+        # 사이클을 찾기 위해 일정 횟수만큼만 역추적 (무한 루프 방지)
+        # 그래프의 노드 수만큼 추적하면 반드시 사이클을 찾게 됨
+        for _ in range(self.graph.graph.number_of_nodes()):
+            if current is None:
+                return None # 사이클을 찾기 전에 경로가 끊김
+            current = self.predecessors[current]
         
-        # 방문 처리
-        for node in path:
-            visited.add(node)
-        
-        return None
+        # `current`는 이제 사이클 내의 한 노드입니다.
+        # 사이클 경로를 재구성합니다.
+        cycle_node = current
+        while True:
+            path.append(cycle_node)
+            cycle_node = self.predecessors[cycle_node]
+            if cycle_node == current:
+                path.append(cycle_node) # 시작 노드를 마지막에 추가하여 사이클 완성
+                break
+            if len(path) > self.graph.graph.number_of_nodes():
+                 logger.warning("사이클 재구성 중 무한 루프 의심")
+                 return None # 무한 루프 방지
+
+        # 경로를 뒤집어서 올바른 순서로 만듭니다.
+        return path[::-1]
     
     def _cycle_to_opportunity(self, cycle: List[str]) -> Optional[ArbitrageOpportunity]:
         """사이클을 차익거래 기회로 변환하고 최적화합니다."""
