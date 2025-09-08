@@ -24,7 +24,7 @@ class BellmanFordArbitrage:
             # 2. 음의 사이클 추출
             cycles = self._extract_negative_cycles(source_token)
             
-            # 3. 차익거래 기회로 변환
+            # 3. 차익거래 기회로 변환 + Local Search로 최적화
             for cycle in cycles:
                 opportunity = self._cycle_to_opportunity(cycle)
                 if opportunity and opportunity.net_profit > 0:
@@ -40,7 +40,7 @@ class BellmanFordArbitrage:
         self.distances[source] = 0
         
         # 거리 완화 (Relaxation)
-        for i in range(max_iterations):
+        for _ in range(max_iterations):
             updated = False
             
             for u, v, data in self.graph.graph.edges(data=True):
@@ -112,13 +112,12 @@ class BellmanFordArbitrage:
         return None
     
     def _cycle_to_opportunity(self, cycle: List[str]) -> Optional[ArbitrageOpportunity]:
-        """사이클을 차익거래 기회로 변환"""
+        """사이클을 차익거래 기회로 변환 + Local Search 최적화"""
         if len(cycle) < 3:
             return None
         
-        edges = []
-        total_gas_cost = 0
-        total_fee = 0
+        edges: List[TradingEdge] = []
+        total_gas_cost = 0.0
         
         # 사이클의 각 엣지 정보 수집
         for i in range(len(cycle) - 1):
@@ -132,24 +131,14 @@ class BellmanFordArbitrage:
             edge_data = self.graph.graph[from_token][to_token]
             edge = TradingEdge(**edge_data)
             edges.append(edge)
-            
             total_gas_cost += edge.gas_cost
-            total_fee += edge.fee
         
-        # 수익률 계산
-        profit_ratio = self._calculate_profit_ratio(edges)
+        # Local Search로 최적 시작 자본 및 수익 계산
+        ls_result = self._local_search_optimize_amount(edges, total_gas_cost)
+        if ls_result is None:
+            return None
+        required_capital, final_amount, profit_ratio, net_profit = ls_result
         
-        if profit_ratio <= 1.0:
-            return None  # 수익 없음
-        
-        # 필요 자본 추정 (가장 큰 유동성 제약 기준)
-        min_liquidity = min(edge.liquidity for edge in edges)
-        required_capital = min(min_liquidity * 0.1, 10.0)  # 최대 10 ETH
-        
-        estimated_profit = required_capital * (profit_ratio - 1)
-        net_profit = estimated_profit - total_gas_cost
-        
-        # 신뢰도 계산 (유동성, 가격 안정성 기준)
         confidence = self._calculate_confidence(edges)
         
         return ArbitrageOpportunity(
@@ -157,32 +146,102 @@ class BellmanFordArbitrage:
             edges=edges,
             profit_ratio=profit_ratio,
             required_capital=required_capital,
-            estimated_profit=estimated_profit,
+            estimated_profit=final_amount - required_capital,
             gas_cost=total_gas_cost,
             net_profit=net_profit,
             confidence=confidence
         )
     
     def _calculate_profit_ratio(self, edges: List[TradingEdge]) -> float:
-        """수익률 계산"""
+        """수익률 계산 (수수료가 exchange_rate에 포함됨)"""
         total_ratio = 1.0
-        
         for edge in edges:
             total_ratio *= edge.exchange_rate
-        
         return total_ratio
     
     def _calculate_confidence(self, edges: List[TradingEdge]) -> float:
         """신뢰도 계산"""
-        # 유동성 기반 신뢰도
         min_liquidity = min(edge.liquidity for edge in edges)
-        liquidity_score = min(min_liquidity / 100.0, 1.0)  # 100 ETH 기준
-        
-        # 경로 길이 기반 신뢰도 (짧을수록 좋음)
+        liquidity_score = min(min_liquidity / 100.0, 1.0)
         path_score = max(0.5, 1.0 - (len(edges) - 2) * 0.1)
-        
-        # DEX 다양성 기반 신뢰도
         unique_dexes = len(set(edge.dex for edge in edges))
         diversity_score = min(unique_dexes / len(edges), 1.0)
-        
         return (liquidity_score * 0.5 + path_score * 0.3 + diversity_score * 0.2)
+
+    def _local_search_optimize_amount(self, edges: List[TradingEdge], total_gas_cost: float
+                                     ) -> Optional[Tuple[float, float, float, float]]:
+        """힐 클라이밍 기반 Local Search로 최적 시작 자본 탐색
+        반환: (required_capital, final_amount, profit_ratio, net_profit)
+        """
+        if not edges:
+            return None
+        try:
+            min_liquidity = max(1e-6, min(edge.liquidity for edge in edges))
+            max_capital = min(10.0, min_liquidity * 0.2)
+            if max_capital <= 0:
+                return None
+            min_capital = max_capital * 0.01
+
+            starts = [
+                max(min_capital, max_capital * f) for f in (0.2, 0.4, 0.6, 0.8)
+            ]
+            best: Optional[Tuple[float, float, float]] = None  # (net_profit, required_capital, final_amount)
+
+            for start in starts:
+                a = start
+                step = max_capital * 0.25
+                final_amt = self._simulate_final_amount(edges, a)
+                net = (final_amt - a) - total_gas_cost
+                if best is None or net > best[0]:
+                    best = (net, a, final_amt)
+
+                for _ in range(20):
+                    improved = False
+                    for cand in (min(max_capital, a + step), max(min_capital, a - step)):
+                        fa = self._simulate_final_amount(edges, cand)
+                        n = (fa - cand) - total_gas_cost
+                        if n > net + 1e-9:
+                            a, net, final_amt = cand, n, fa
+                            improved = True
+                    if not improved:
+                        step *= 0.5
+                        if step < max_capital * 0.005:
+                            break
+                if net > best[0]:
+                    best = (net, a, final_amt)
+
+            if best is None:
+                return None
+
+            net_profit, req_cap, final_amount = best
+            if final_amount <= 0 or req_cap <= 0:
+                return None
+            profit_ratio = final_amount / req_cap if req_cap > 0 else 0.0
+            if profit_ratio <= 1.0:
+                return None
+            return (req_cap, final_amount, profit_ratio, net_profit)
+        except Exception:
+            return None
+
+    def _simulate_final_amount(self, edges: List[TradingEdge], start_amount: float) -> float:
+        """슬리피지를 고려하여 경로 실행 후 최종 금액 계산"""
+        amount = start_amount
+        for edge in edges:
+            slippage = self._calculate_slippage(amount, edge.liquidity)
+            amount = amount * edge.exchange_rate * (1 - slippage)
+        return amount
+
+    def _calculate_slippage(self, trade_amount: float, liquidity: float) -> float:
+        """단순 슬리피지 모델 (SimulationExecutor와 정합 유지)"""
+        if liquidity <= 0:
+            return 0.1
+        impact_ratio = trade_amount / liquidity
+        if impact_ratio < 0.01:
+            return 0.001
+        elif impact_ratio < 0.05:
+            return 0.005
+        elif impact_ratio < 0.1:
+            return 0.02
+        else:
+            return 0.05
+
