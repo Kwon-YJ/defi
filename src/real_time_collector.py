@@ -21,7 +21,12 @@ class RealTimeDataCollector:
         # 모니터링할 이벤트들
         self.monitored_events = {
             'Swap': '0xd78ad95fa46c994b6551d0da85fc275fe613ce37657fb8d5e3d130840159d822',
-            'Sync': '0x1c411e9a96e071241c2f21f7726b17ae89e3cab4c78be50e062b03a9fffbbad1'
+            'Sync': '0x1c411e9a96e071241c2f21f7726b17ae89e3cab4c78be50e062b03a9fffbbad1',
+            # Uniswap V2 Pair events (Mint/Burn)
+            # keccak256("Mint(address,uint256,uint256)")
+            'Mint': '0x4c209b5fc8ad50758f13e2e1088ba56a560dff690a1c6fef26394f4c03821c4f',
+            # keccak256("Burn(address,uint256,uint256,address)")
+            'Burn': '0xdccd412f0b1252819cb1fd330b93224ca42612892bb3f4f789976e6d81936496'
         }
         
     async def subscribe_to_blocks(self, callback: Callable):
@@ -177,6 +182,12 @@ class RealTimeDataCollector:
             elif log_data['topics'][0] == self.monitored_events['Sync']:
                 await self._handle_sync_event(log_data)
             
+            # Mint/Burn 이벤트 처리 (유동성 변화 → 리저브 변화 가능)
+            elif log_data['topics'][0] == self.monitored_events['Mint']:
+                await self._handle_mint_event(log_data)
+            elif log_data['topics'][0] == self.monitored_events['Burn']:
+                await self._handle_burn_event(log_data)
+            
             # 구독자들에게 알림
             for callback in self.subscribers.get('logs', []):
                 try:
@@ -205,27 +216,45 @@ class RealTimeDataCollector:
         """Sync 이벤트 처리 (리저브 업데이트)"""
         try:
             pool_address = log_data['address']
-            
-            # Sync 이벤트 데이터 파싱
-            # topics[1]: reserve0, topics[2]: reserve1
-            if len(log_data['topics']) >= 3:
-                reserve0 = int(log_data['topics'][1], 16)
-                reserve1 = int(log_data['topics'][2], 16)
-                
-                # 풀 데이터 저장
-                pool_data = {
-                    'address': pool_address,
-                    'reserve0': reserve0,
-                    'reserve1': reserve1,
-                    'timestamp': log_data.get('blockNumber', 0)
-                }
-                
-                await self.storage.store_pool_data(pool_address, pool_data)
-                
-                logger.debug(f"풀 리저브 업데이트: {pool_address}")
-                
+            # Sync 이벤트 데이터 파싱 (데이터 필드에 ABI 인코딩된 reserve0/reserve1 포함)
+            data_hex = log_data.get('data')
+            if isinstance(data_hex, str) and data_hex.startswith('0x') and len(data_hex) >= 2 + 64 * 2:
+                try:
+                    r0_hex = data_hex[2:2+64]
+                    r1_hex = data_hex[2+64:2+128]
+                    reserve0 = int(r0_hex, 16)
+                    reserve1 = int(r1_hex, 16)
+
+                    pool_data = {
+                        'address': pool_address,
+                        'reserve0': reserve0,
+                        'reserve1': reserve1,
+                        'timestamp': log_data.get('blockNumber', 0)
+                    }
+                    await self.storage.store_pool_data(pool_address, pool_data)
+                    logger.debug(f"풀 리저브 업데이트: {pool_address}")
+                except Exception:
+                    pass
         except Exception as e:
             logger.error(f"Sync 이벤트 처리 실패: {e}")
+    
+    async def _handle_mint_event(self, log_data: Dict):
+        """Mint 이벤트 처리 (LP 발행 → 유동성 증가)"""
+        try:
+            pool_address = log_data['address']
+            logger.debug(f"Mint 이벤트 감지: {pool_address}")
+            # 실제 그래프 갱신은 상위 구독자(on_log_event)에서 처리
+        except Exception as e:
+            logger.error(f"Mint 이벤트 처리 실패: {e}")
+
+    async def _handle_burn_event(self, log_data: Dict):
+        """Burn 이벤트 처리 (LP 소각 → 유동성 감소)"""
+        try:
+            pool_address = log_data['address']
+            logger.debug(f"Burn 이벤트 감지: {pool_address}")
+            # 실제 그래프 갱신은 상위 구독자(on_log_event)에서 처리
+        except Exception as e:
+            logger.error(f"Burn 이벤트 처리 실패: {e}")
     
     def stop(self):
         """데이터 수집 중지"""

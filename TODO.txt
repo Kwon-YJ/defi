@@ -70,8 +70,8 @@
   - [x] LP 민팅/소각 정확화: exact 수식 적용(min(amount0*ts/r0, amount1*ts/r1))
   - [x] token decimals 반영 및 LP decimals 고려
   - [x] 이벤트 기반 업데이트(Mint/Burn/Sync)로 그래프 실시간 갱신
-  - [x] fee-on-transfer/rebase 토큰 감지 및 보수적 처리  
-  - [ ] 이벤트 기반 업데이트(Mint/Burn/Sync)로 그래프 실시간 갱신
+- [x] fee-on-transfer/rebase 토큰 감지 및 보수적 처리  
+  - [x] 이벤트 기반 업데이트(Mint/Burn/Sync)로 그래프 실시간 갱신
 
 - [ ] Uniswap V3 개선
   - [ ] Tick-range 포지션 모델링( tickLower/upper, tickSpacing 반영)
