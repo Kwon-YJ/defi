@@ -17,6 +17,7 @@ class RealTimeDataCollector:
         self.subscribers: Dict[str, List[Callable]] = {}
         self.running = False
         self.websocket = None
+        self.log_addresses: Optional[List[str]] = None
         
         # 모니터링할 이벤트들
         self.monitored_events = {
@@ -108,7 +109,8 @@ class RealTimeDataCollector:
                     "params": [
                         "logs",
                         {
-                            "topics": [list(self.monitored_events.values())]
+                            "topics": [list(self.monitored_events.values())],
+                            **({"address": self.log_addresses} if self.log_addresses else {})
                         }
                     ]
                 }))

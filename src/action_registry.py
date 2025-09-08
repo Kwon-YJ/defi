@@ -23,6 +23,7 @@ from src.yearn_collectors import YearnV2Collector
 from src.edge_meta import set_edge_meta
 from src.gas_utils import estimate_gas_cost_usd_for_dex, set_edge_gas_cost
 from src.synth_tokens import lp_v2, lp_v3, lp_curve, bpt, debt_aave, debt_compound
+from config.config import config
 
 logger = setup_logger(__name__)
 
@@ -144,6 +145,8 @@ class UniswapV3SwapAction(ProtocolAction, _SwapPairsMixin):
         self.collector = UniswapV3Collector(w3)
         from src.data_storage import DataStorage
         self.storage = DataStorage()
+        self.w_ema = float(getattr(config, 'v3_score_weight_ema', 1.0))
+        self.w_liq = float(getattr(config, 'v3_score_weight_liq', 0.001))
         from src.data_storage import DataStorage
         self.storage = DataStorage()
 
@@ -162,7 +165,7 @@ class UniswapV3SwapAction(ProtocolAction, _SwapPairsMixin):
                     ema0 = float(stats.get('ema_fee0', 0.0)) if stats else 0.0
                     ema1 = float(stats.get('ema_fee1', 0.0)) if stats else 0.0
                     liq_proxy = max(1e-9, min(float(e['reserve0']), float(e['reserve1'])))
-                    score = (ema0 + ema1) + 0.001 * liq_proxy
+                    score = self.w_ema * (ema0 + ema1) + self.w_liq * liq_proxy
                     scored.append((score, e))
                 scored.sort(key=lambda x: x[0], reverse=True)
                 best_pool = scored[0][1]['pool'] if scored else None

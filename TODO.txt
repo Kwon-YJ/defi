@@ -78,7 +78,7 @@
   - [x] 유동성 민팅 수식(L) 기반 add/remove 비율 정확화(sqrtP, ticks 사용)
   - [x] 수취 수수료 accrual 추정(feeGrowthGlobal/Inside, Collect 이벤트 반영)
   - [x] fee tier 라벨/키 분리(500/3000/10000) 및 통계/선택 로직 개선
-  - [ ] pool.liquidity/액티브 밴드 기반 pseudo-liquidity 보정
+  - [x] pool.liquidity/액티브 밴드 기반 pseudo-liquidity 보정
 
 - [ ] Curve 개선
   - [ ] Curve Registry 통합(모든 풀/메타풀 자동 탐색)

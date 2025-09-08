@@ -27,6 +27,9 @@ class Config:
     # 모니터링
     log_level: str = os.getenv('LOG_LEVEL', 'INFO')
     redis_url: str = os.getenv('REDIS_URL', 'redis://localhost:6379')
+    # V3 tier 선택 로직 가중치
+    v3_score_weight_ema: float = float(os.getenv('V3_SCORE_W_EMA', '1.0'))
+    v3_score_weight_liq: float = float(os.getenv('V3_SCORE_W_LIQ', '0.001'))
     
     def validate(self) -> bool:
         """설정 유효성 검사"""

@@ -56,6 +56,8 @@ class BlockGraphUpdater:
         self.rt = RealTimeDataCollector()
         # V3 전용 수집기 (fee accrual 추정 등에 활용)
         self.v3_collector = UniswapV3Collector(self.w3)
+        # V3 포지션 매니저 (포지션 단위 조회)
+        self.v3_pm = self._init_position_manager()
         # V3 통계 저장소(EMA)
         self.storage = DataStorage()
         # Protocol Action Registry (확장성)
@@ -201,6 +203,41 @@ class BlockGraphUpdater:
                             compact_graph_attributes(self.graph.graph)
                         except Exception as _:
                             pass
+                # PositionManager 이벤트 반영: 포지션 밴드/유동성 통계 업데이트 (선택적)
+                elif log_data.get('topics') and log_data['topics'][0] in (
+                    self.rt.monitored_events.get('V3PMIncrease'),
+                    self.rt.monitored_events.get('V3PMDecrease'),
+                    self.rt.monitored_events.get('V3PMCollect'),
+                ):
+                    try:
+                        topics = log_data.get('topics', [])
+                        data_hex = log_data.get('data', '') or ''
+                        token_id = None
+                        if len(topics) >= 2:
+                            token_id = int(topics[1], 16)
+                        elif isinstance(data_hex, str) and len(data_hex) >= 2+64:
+                            token_id = int(data_hex[2:2+64], 16)
+                        if token_id is None or not self.v3_pm:
+                            return
+                        pos = self.v3_pm.functions.positions(int(token_id)).call()
+                        token0 = pos[2]; token1 = pos[3]; fee = int(pos[4])
+                        tick_lower = int(pos[5]); tick_upper = int(pos[6])
+                        liq = int(pos[7])
+                        pool = await self.v3_collector.get_pool_address(token0, token1, fee)
+                        if not pool:
+                            return
+                        # delta liquidity 파싱 (Increase/Decrease)
+                        delta = None
+                        if log_data['topics'][0] == self.rt.monitored_events.get('V3PMIncrease') and isinstance(data_hex, str):
+                            if len(data_hex) >= 2+64:
+                                delta = int(data_hex[2:2+64], 16)
+                        elif log_data['topics'][0] == self.rt.monitored_events.get('V3PMDecrease') and isinstance(data_hex, str):
+                            if len(data_hex) >= 2+64:
+                                delta = -int(data_hex[2:2+64], 16)
+                        # 현재는 로깅 수준으로 유지 (필요 시 저장/활용 가능)
+                        logger.debug(f"PM pos tokenId={token_id} pool={pool} fee={fee} band=({tick_lower},{tick_upper}) L={liq} dL={delta}")
+                    except Exception:
+                        pass
             except Exception as e:
                 logger.debug(f"로그 기반 동적 업데이트 실패: {e}")
 
@@ -264,3 +301,34 @@ class BlockGraphUpdater:
             else f"그래프 초기 빌드 완료(액션): {updated}개 엣지 추가"
         )
         logger.info(msg)
+
+    def _init_position_manager(self):
+        try:
+            pm_addr = Web3.to_checksum_address('0xC36442b4a4522E871399CD717aBDD847Ab11FE88')
+        except Exception:
+            pm_addr = '0xC36442b4a4522E871399CD717aBDD847Ab11FE88'
+        abi = [
+            {
+                "inputs": [{"internalType":"uint256","name":"tokenId","type":"uint256"}],
+                "name": "positions",
+                "outputs": [
+                    {"internalType":"uint96","name":"nonce","type":"uint96"},
+                    {"internalType":"address","name":"operator","type":"address"},
+                    {"internalType":"address","name":"token0","type":"address"},
+                    {"internalType":"address","name":"token1","type":"address"},
+                    {"internalType":"uint24","name":"fee","type":"uint24"},
+                    {"internalType":"int24","name":"tickLower","type":"int24"},
+                    {"internalType":"int24","name":"tickUpper","type":"int24"},
+                    {"internalType":"uint128","name":"liquidity","type":"uint128"},
+                    {"internalType":"uint256","name":"feeGrowthInside0LastX128","type":"uint256"},
+                    {"internalType":"uint256","name":"feeGrowthInside1LastX128","type":"uint256"},
+                    {"internalType":"uint128","name":"tokensOwed0","type":"uint128"},
+                    {"internalType":"uint128","name":"tokensOwed1","type":"uint128"}
+                ],
+                "stateMutability":"view","type":"function"
+            }
+        ]
+        try:
+            return self.w3.eth.contract(address=pm_addr, abi=abi)
+        except Exception:
+            return None

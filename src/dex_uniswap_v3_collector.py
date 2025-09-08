@@ -299,7 +299,24 @@ class UniswapV3Collector:
             cur_tick = int(state.get('tick', 0) or 0)
             tick_lower = (cur_tick // ts) * ts
             tick_upper = tick_lower + ts
-            reserve0, reserve1 = self.estimate_pseudo_reserves(price01, base_liquidity=100.0)
+            # 활성 유동성 기반 pseudo-liquidity 보정
+            sqrtP = self.sqrt_from_x96_normalized(state['sqrtPriceX96'], state['dec0'], state['dec1'])
+            sqrtA = self.sqrt_from_tick_normalized(tick_lower, state['dec0'], state['dec1'])
+            sqrtB = self.sqrt_from_tick_normalized(tick_upper, state['dec0'], state['dec1'])
+            amt0_per_L, amt1_per_L = self.amounts_per_liquidity(sqrtP, sqrtA, sqrtB)
+            L_active = float(state.get('liquidity', 0))
+            # 스케일 안정화 (임계치/상한 적용)
+            L_scale = max(1e-6, min(L_active / 1e12, 1e6))
+            cap0 = max(0.0, amt0_per_L * L_scale)
+            cap1 = max(0.0, amt1_per_L * L_scale)
+            # 가격 비율 유지하면서 제한 측면을 반영
+            if price01 > 0:
+                equiv0_from1 = cap1 / price01
+                effective0 = max(1e-9, min(cap0, equiv0_from1))
+            else:
+                effective0 = max(1e-9, cap0)
+            reserve0 = effective0
+            reserve1 = reserve0 * price01
             edges.append({
                 'token0': state['token0'],
                 'token1': state['token1'],
@@ -314,5 +331,11 @@ class UniswapV3Collector:
                 'tick_upper': int(tick_upper),
                 'tick_spacing': ts,
                 'sqrtPriceX96': int(state['sqrtPriceX96']),
+                'active_liquidity': int(L_active),
+                'amt0_per_L': float(amt0_per_L),
+                'amt1_per_L': float(amt1_per_L),
+                'capacity0': float(cap0),
+                'capacity1': float(cap1),
+                'effective0': float(effective0),
             })
         return edges
