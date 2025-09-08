@@ -3,6 +3,12 @@ from typing import Dict, List, Tuple, Optional
 from concurrent.futures import ThreadPoolExecutor
 from collections import defaultdict, deque
 from src.market_graph import DeFiMarketGraph, ArbitrageOpportunity, TradingEdge
+from src.slippage import (
+    amount_out_uniswap_v2,
+    amount_out_balancer_weighted,
+    amount_out_curve_stable_approx,
+    amount_out_cpmm,
+)
 from src.logger import setup_logger
 
 logger = setup_logger(__name__)
@@ -379,12 +385,69 @@ class BellmanFordArbitrage:
         )
 
     def _simulate_final_amount(self, edges: List[TradingEdge], start_amount: float) -> float:
-        """슬리피지를 고려하여 경로 실행 후 최종 금액 계산"""
+        """프로토콜별 슬리피지를 고려하여 경로 실행 후 최종 금액 계산"""
         amount = start_amount
         for edge in edges:
-            slippage = self._calculate_slippage(amount, edge.liquidity)
-            amount = amount * edge.exchange_rate * (1 - slippage)
+            amount = self._amount_out_with_slippage(amount, edge)
         return amount
+
+    def _amount_out_with_slippage(self, amount_in: float, edge: TradingEdge) -> float:
+        try:
+            u, v = edge.from_token, edge.to_token
+            ed = self.graph.graph.get_edge_data(u, v)
+            data = None
+            if isinstance(ed, dict) and 'exchange_rate' in ed:
+                data = ed
+            elif isinstance(ed, dict):
+                # MultiDiGraph: find matching dex/pool
+                for _, d in ed.items():
+                    if not isinstance(d, dict):
+                        continue
+                    if d.get('dex') == edge.dex and d.get('pool_address') == edge.pool_address:
+                        data = d; break
+            if data is None:
+                # fallback
+                return amount_in * edge.exchange_rate * (1 - self._calculate_slippage(amount_in, edge.liquidity))
+
+            dex = edge.dex.lower()
+            fee = float(edge.fee)
+            meta = data.get('meta', {}) or {}
+
+            # Uniswap V2/Sushiswap CPMM
+            if dex in ('uniswap_v2', 'sushiswap'):
+                t0 = meta.get('t0'); t1 = meta.get('t1')
+                r0 = float(meta.get('r0', 0.0)); r1 = float(meta.get('r1', 0.0))
+                if t0 and t1 and r0 > 0 and r1 > 0:
+                    if u == t0 and v == t1:
+                        return amount_out_uniswap_v2(amount_in, r0, r1, fee)
+                    elif u == t1 and v == t0:
+                        return amount_out_uniswap_v2(amount_in, r1, r0, fee)
+            # Uniswap V3 approximate via CPMM with pseudo reserves
+            if dex == 'uniswap_v3':
+                t0 = meta.get('t0'); t1 = meta.get('t1')
+                r0 = float(meta.get('r0', 0.0)); r1 = float(meta.get('r1', 0.0))
+                if t0 and t1 and r0 > 0 and r1 > 0:
+                    if u == t0 and v == t1:
+                        return amount_out_cpmm(amount_in, r0, r1, fee)
+                    elif u == t1 and v == t0:
+                        return amount_out_cpmm(amount_in, r1, r0, fee)
+            # Curve stableswap approximate (reduced price impact)
+            if dex == 'curve' or meta.get('stableswap'):
+                # Use pseudo reserves if present; otherwise liquidity as proxy
+                r0 = float(meta.get('r0', edge.liquidity))
+                r1 = float(meta.get('r1', edge.liquidity))
+                amp = float(meta.get('amp', 100.0))
+                return amount_out_curve_stable_approx(amount_in, r0, r1, fee, amp)
+            # Balancer weighted
+            if dex == 'balancer':
+                w_in = float(meta.get('w_in', 0.5)); w_out = float(meta.get('w_out', 0.5))
+                b_in = float(meta.get('b_in', edge.liquidity)); b_out = float(meta.get('b_out', edge.liquidity))
+                return amount_out_balancer_weighted(amount_in, b_in, b_out, w_in, w_out, fee)
+
+            # Default fallback
+            return amount_in * edge.exchange_rate * (1 - self._calculate_slippage(amount_in, edge.liquidity))
+        except Exception:
+            return amount_in * edge.exchange_rate * (1 - self._calculate_slippage(amount_in, edge.liquidity))
 
     def _calculate_slippage(self, trade_amount: float, liquidity: float) -> float:
         """단순 슬리피지 모델 (SimulationExecutor와 정합 유지)"""

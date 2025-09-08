@@ -77,8 +77,11 @@ class UniswapV2SwapAction(ProtocolAction, _SwapPairsMixin):
                     reserve1=float(nr1),
                     fee=self.fee,
                 )
-                set_edge_meta(graph.graph, t0, t1, dex='uniswap_v2', pool_address=pair_address,
-                              fee_tier=None, source='onchain', confidence=0.98)
+                set_edge_meta(
+                    graph.graph, t0, t1, dex='uniswap_v2', pool_address=pair_address,
+                    fee_tier=None, source='onchain', confidence=0.98,
+                    extra={'t0': t0, 't1': t1, 'r0': float(nr0), 'r1': float(nr1)}
+                )
                 updated += 2
             except Exception as e:
                 logger.debug(f"UniswapV2 update failed {token0[:6]}-{token1[:6]}: {e}")
@@ -119,8 +122,11 @@ class SushiSwapSwapAction(ProtocolAction, _SwapPairsMixin):
                     reserve1=float(nr1),
                     fee=self.fee,
                 )
-                set_edge_meta(graph.graph, t0, t1, dex='sushiswap', pool_address=pair_address,
-                              fee_tier=None, source='onchain', confidence=0.98)
+                set_edge_meta(
+                    graph.graph, t0, t1, dex='sushiswap', pool_address=pair_address,
+                    fee_tier=None, source='onchain', confidence=0.98,
+                    extra={'t0': t0, 't1': t1, 'r0': float(nr0), 'r1': float(nr1)}
+                )
                 updated += 2
             except Exception as e:
                 logger.debug(f"SushiSwap update failed {token0[:6]}-{token1[:6]}: {e}")
@@ -154,8 +160,11 @@ class UniswapV3SwapAction(ProtocolAction, _SwapPairsMixin):
                         reserve1=float(e['reserve1']),
                         fee=float(e['fee_fraction']),
                     )
-                    set_edge_meta(graph.graph, e['token0'], e['token1'], dex='uniswap_v3', pool_address=e['pool'],
-                                  fee_tier=e.get('fee_tier'), source='onchain', confidence=0.95)
+                    set_edge_meta(
+                        graph.graph, e['token0'], e['token1'], dex='uniswap_v3', pool_address=e['pool'],
+                        fee_tier=e.get('fee_tier'), source='onchain', confidence=0.95,
+                        extra={'t0': e['token0'], 't1': e['token1'], 'r0': float(e['reserve0']), 'r1': float(e['reserve1'])}
+                    )
                     updated += 2
             except Exception as e:
                 logger.debug(f"UniswapV3 update failed {token0[:6]}-{token1[:6]}: {e}")
@@ -194,8 +203,11 @@ class CurveStableSwapAction(ProtocolAction, _SwapPairsMixin):
                     reserve1=reserve1,
                     fee=self.fee,
                 )
-                set_edge_meta(graph.graph, token0, token1, dex='curve', pool_address=pool,
-                              fee_tier=None, source='onchain', confidence=0.9)
+                set_edge_meta(
+                    graph.graph, token0, token1, dex='curve', pool_address=pool,
+                    fee_tier=None, source='onchain', confidence=0.9,
+                    extra={'stableswap': True, 'amp': 100.0}
+                )
                 updated += 2
             except Exception as e:
                 logger.debug(f"Curve update failed {token0[:6]}-{token1[:6]}: {e}")
@@ -232,8 +244,15 @@ class BalancerWeightedSwapAction(ProtocolAction, _SwapPairsMixin):
                     reserve1=reserve1,
                     fee=float(fee_frac),
                 )
-                set_edge_meta(graph.graph, token0, token1, dex='balancer', pool_address=pool,
-                              fee_tier=None, source='onchain', confidence=0.9)
+                try:
+                    wi, wj, bi, bj = self.collector.get_weights_and_balances(pool, token0, token1)
+                except Exception:
+                    wi = wj = 0.5; bi = bj = 0.0
+                set_edge_meta(
+                    graph.graph, token0, token1, dex='balancer', pool_address=pool,
+                    fee_tier=None, source='onchain', confidence=0.9,
+                    extra={'w_in': wi, 'w_out': wj, 'b_in': bi, 'b_out': bj}
+                )
                 updated += 2
             except Exception as e:
                 logger.debug(f"Balancer update failed {token0[:6]}-{token1[:6]}: {e}")

@@ -81,6 +81,34 @@ class BalancerWeightedCollector:
                 return p['address']
         return None
 
+    def get_weights_and_balances(self, pool_addr: str, token0: str, token1: str) -> Tuple[float, float, float, float]:
+        """Return (w_in, w_out, b_in, b_out) normalized (weights sum to 1, balances in human units).
+
+        Falls back to (0.5, 0.5, 0.0, 0.0) on failure.
+        """
+        try:
+            if not self.w3 or not self.w3.is_connected():
+                return 0.5, 0.5, 0.0, 0.0
+            pool = self.w3.eth.contract(address=pool_addr, abi=self.pool_abi)
+            vault_addr = pool.functions.getVault().call()
+            pool_id = pool.functions.getPoolId().call()
+            weights = pool.functions.getNormalizedWeights().call()  # 1e18 scale
+            vault = self.w3.eth.contract(address=vault_addr, abi=self.vault_abi)
+            tokens, balances, _ = vault.functions.getPoolTokens(pool_id).call()
+            tokens_l = [t.lower() for t in tokens]
+            i = tokens_l.index(token0.lower())
+            j = tokens_l.index(token1.lower())
+            wi = float(weights[i]) / 1e18
+            wj = float(weights[j]) / 1e18
+            di = 10 ** self._decimals(token0)
+            dj = 10 ** self._decimals(token1)
+            bi = float(balances[i]) / di
+            bj = float(balances[j]) / dj
+            return wi, wj, bi, bj
+        except Exception as e:
+            logger.debug(f"Balancer weights/balances failed {pool_addr[:6]}: {e}")
+            return 0.5, 0.5, 0.0, 0.0
+
     def get_spot_price_and_fee(self, pool_addr: str, token0: str, token1: str) -> Tuple[float, float]:
         """Return (price1_per_0, fee_fraction). Fallback to (1.0, 0.001)."""
         try:
@@ -113,4 +141,3 @@ class BalancerWeightedCollector:
         except Exception as e:
             logger.debug(f"Balancer spot price read failed {pool_addr[:6]}: {e}")
             return 1.0, 0.001
-

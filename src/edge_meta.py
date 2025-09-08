@@ -10,7 +10,8 @@ def set_edge_meta(nx_graph: nx.Graph,
                   pool_address: Optional[str] = None,
                   fee_tier: Optional[int] = None,
                   source: str = "unknown",
-                  confidence: float = 0.8) -> None:
+                  confidence: float = 0.8,
+                  extra: Optional[Dict[str, Any]] = None) -> None:
     """Attach standardized metadata to edges between token0 and token1 (both directions).
 
     Metadata fields:
@@ -25,6 +26,11 @@ def set_edge_meta(nx_graph: nx.Graph,
         'source': source,
         'confidence': confidence,
     }
+    if extra:
+        try:
+            meta.update(extra)
+        except Exception:
+            pass
 
     def _apply(u: str, v: str):
         try:
@@ -55,4 +61,3 @@ def set_edge_meta(nx_graph: nx.Graph,
 
     _apply(token0, token1)
     _apply(token1, token0)
-

@@ -62,7 +62,7 @@
 - [x] 공통: ERC-20 decimals 정규화(모든 rate/유동성/LP 계산에 적용)
 - [x] 공통: Edge 메타데이터 정리(원본 컨트랙트 주소, fee tier, source, 신뢰도)
 - [x] 공통: 가스비 동적 추정(EIP-1559 base/priority, 프로토콜별 gas limit)
-- [ ] 공통: 슬리피지/유동성 모델 고도화(프로토콜별 정확한 수식 기반)
+- [x] 공통: 슬리피지/유동성 모델 고도화(프로토콜별 정확한 수식 기반)
 - [ ] 공통: Synthetic 토큰命명 규칙/매핑 일원화(LP, debt, BPT, V3 LP 등)
 - [ ] 공통: 부채/담보 제약 반영(Health factor/LTV/청산 임계 반영) 및 경로 타당성 필터
 
