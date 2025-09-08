@@ -24,9 +24,9 @@ class BellmanFordArbitrage:
             # 2. 음의 사이클 추출
             cycles = self._extract_negative_cycles(source_token)
             
-            # 3. 차익거래 기회로 변환 + Local Search로 최적화
+            # 3. 차익거래 기회로 변환 + Local Search 반복 수행
             for cycle in cycles:
-                opportunity = self._cycle_to_opportunity(cycle)
+                opportunity = self._perform_local_search_and_repeat(cycle)
                 if opportunity and opportunity.net_profit > 0:
                     opportunities.append(opportunity)
         
@@ -168,7 +168,8 @@ class BellmanFordArbitrage:
         diversity_score = min(unique_dexes / len(edges), 1.0)
         return (liquidity_score * 0.5 + path_score * 0.3 + diversity_score * 0.2)
 
-    def _local_search_optimize_amount(self, edges: List[TradingEdge], total_gas_cost: float
+    def _local_search_optimize_amount(self, edges: List[TradingEdge], total_gas_cost: float,
+                                     start_factors: Optional[Tuple[float, ...]] = None
                                      ) -> Optional[Tuple[float, float, float, float]]:
         """힐 클라이밍 기반 Local Search로 최적 시작 자본 탐색
         반환: (required_capital, final_amount, profit_ratio, net_profit)
@@ -182,9 +183,9 @@ class BellmanFordArbitrage:
                 return None
             min_capital = max_capital * 0.01
 
-            starts = [
-                max(min_capital, max_capital * f) for f in (0.2, 0.4, 0.6, 0.8)
-            ]
+            if start_factors is None:
+                start_factors = (0.2, 0.4, 0.6, 0.8)
+            starts = [max(min_capital, max_capital * f) for f in start_factors]
             best: Optional[Tuple[float, float, float]] = None  # (net_profit, required_capital, final_amount)
 
             for start in starts:
@@ -223,6 +224,57 @@ class BellmanFordArbitrage:
         except Exception:
             return None
 
+    def _perform_local_search_and_repeat(self, cycle: List[str]) -> Optional[ArbitrageOpportunity]:
+        """논문 Figure 1의 4단계: perform a local search and repeat
+        다양한 시작점 팩터로 반복 수행하여 최적 순이익을 찾음
+        """
+        if len(cycle) < 3:
+            return None
+
+        # 엣지/가스 수집
+        edges: List[TradingEdge] = []
+        total_gas_cost = 0.0
+        for i in range(len(cycle) - 1):
+            u, v = cycle[i], cycle[i + 1]
+            if not self.graph.graph.has_edge(u, v):
+                return None
+            data = self.graph.graph[u][v]
+            edge = TradingEdge(**data)
+            edges.append(edge)
+            total_gas_cost += edge.gas_cost
+
+        # 반복적으로 시작점 세트를 바꿔가며 탐색
+        start_sets = [
+            (0.2, 0.4, 0.6, 0.8),
+            (0.1, 0.3, 0.5, 0.7, 0.9),
+            (0.15, 0.35, 0.55, 0.75, 0.95)
+        ]
+
+        best: Optional[Tuple[float, float, float, float]] = None  # (req_cap, final_amt, ratio, net)
+        for starts in start_sets:
+            res = self._local_search_optimize_amount(edges, total_gas_cost, starts)
+            if res is None:
+                continue
+            req_cap, final_amt, ratio, net = res
+            if best is None or net > best[3]:
+                best = (req_cap, final_amt, ratio, net)
+
+        if best is None:
+            return None
+
+        req_cap, final_amt, ratio, net = best
+        confidence = self._calculate_confidence(edges)
+        return ArbitrageOpportunity(
+            path=cycle,
+            edges=edges,
+            profit_ratio=ratio,
+            required_capital=req_cap,
+            estimated_profit=final_amt - req_cap,
+            gas_cost=total_gas_cost,
+            net_profit=net,
+            confidence=confidence
+        )
+
     def _simulate_final_amount(self, edges: List[TradingEdge], start_amount: float) -> float:
         """슬리피지를 고려하여 경로 실행 후 최종 금액 계산"""
         amount = start_amount
@@ -244,4 +296,3 @@ class BellmanFordArbitrage:
             return 0.02
         else:
             return 0.05
-
