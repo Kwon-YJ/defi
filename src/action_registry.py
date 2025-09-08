@@ -829,16 +829,75 @@ class BalancerExitPoolAction(ProtocolAction):
 
 class AaveBorrowAction(ProtocolAction):
     name = "aave.borrow"
-    enabled = False
-    async def update_graph(self, *args, **kwargs) -> int:
-        return 0
+    enabled = True
+
+    def __init__(self, w3: Web3):
+        self.collector = AaveV2Collector(w3)
+        self.fee = 0.0005  # borrowing cost approximation
+
+    def _debt_token_id(self, underlying: str) -> str:
+        return f"aave_vdebt:{underlying}"
+
+    async def update_graph(self, graph: DeFiMarketGraph, w3: Web3, tokens: Dict[str, str],
+                           block_number: Optional[int] = None) -> int:
+        updated = 0
+        base_liq = 100.0
+        for sym, underlying in tokens.items():
+            try:
+                # Only consider assets that have an aToken mapping (supported on Aave)
+                if not self.collector.get_atoken(underlying):
+                    continue
+                debt = self._debt_token_id(underlying)
+                # Borrow: incur 1 debt unit to receive ~1 underlying
+                graph.add_trading_pair(
+                    token0=debt,
+                    token1=underlying,
+                    dex='aave_borrow',
+                    pool_address=f"aave_borrow_{underlying[:6]}",
+                    reserve0=base_liq,
+                    reserve1=base_liq * 1.0,
+                    fee=self.fee,
+                )
+                updated += 2
+            except Exception as e:
+                logger.debug(f"Aave borrow update failed {sym}: {e}")
+        return updated
 
 
 class AaveRepayAction(ProtocolAction):
     name = "aave.repay"
-    enabled = False
-    async def update_graph(self, *args, **kwargs) -> int:
-        return 0
+    enabled = True
+
+    def __init__(self, w3: Web3):
+        self.collector = AaveV2Collector(w3)
+        self.fee = 0.0  # repay treated as neutral in this model
+
+    def _debt_token_id(self, underlying: str) -> str:
+        return f"aave_vdebt:{underlying}"
+
+    async def update_graph(self, graph: DeFiMarketGraph, w3: Web3, tokens: Dict[str, str],
+                           block_number: Optional[int] = None) -> int:
+        updated = 0
+        base_liq = 100.0
+        for sym, underlying in tokens.items():
+            try:
+                if not self.collector.get_atoken(underlying):
+                    continue
+                debt = self._debt_token_id(underlying)
+                # Repay: spend underlying to extinguish 1 debt unit
+                graph.add_trading_pair(
+                    token0=underlying,
+                    token1=debt,
+                    dex='aave_repay',
+                    pool_address=f"aave_repay_{underlying[:6]}",
+                    reserve0=base_liq,
+                    reserve1=base_liq * 1.0,
+                    fee=self.fee,
+                )
+                updated += 2
+            except Exception as e:
+                logger.debug(f"Aave repay update failed {sym}: {e}")
+        return updated
 
 
 class CompoundBorrowAction(ProtocolAction):
@@ -1043,6 +1102,8 @@ def register_default_actions(w3: Web3) -> ActionRegistry:
     reg.register(UniswapV3RemoveLiquidityAction(w3))
     reg.register(UniswapV3CollectFeesAction(w3))
     reg.register(AaveSupplyBorrowAction(w3))
+    reg.register(AaveBorrowAction(w3))
+    reg.register(AaveRepayAction(w3))
     reg.register(CompoundSupplyBorrowAction(w3))
     reg.register(MakerCdpAction(w3))
     reg.register(MakerPsmSwapAction(w3))

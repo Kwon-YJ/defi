@@ -49,7 +49,7 @@
   - [x] Balancer: weighted swap
   - [x] Balancer: join/exit pool
   - [x] Aave: supply/withdraw
-  - [ ] Aave: borrow/repay
+  - [x] Aave: borrow/repay
   - [x] Compound: mint/redeem (supply/withdraw)
   - [ ] Compound: borrow/repay
   - [x] MakerDAO: CDP (WETH->DAI mint)
