@@ -12,6 +12,7 @@ from src.dex_data_collector import UniswapV2Collector, SushiSwapCollector
 from src.dex_uniswap_v3_collector import UniswapV3Collector
 from src.dex_curve_collector import CurveStableSwapCollector
 from src.lending_collectors import CompoundCollector, AaveV2Collector
+from src.synthetix_collectors import SynthetixCollector
 from src.maker_collectors import MakerCollector
 from src.dex_balancer_collector import BalancerWeightedCollector
 
@@ -298,9 +299,35 @@ class YearnVaultAction(ProtocolAction):
 
 class SynthetixExchangeAction(ProtocolAction):
     name = "synthetix.exchange"
-    enabled = False
-    async def update_graph(self, *args, **kwargs) -> int:
-        return 0
+    enabled = True
+
+    def __init__(self, w3: Web3):
+        self.collector = SynthetixCollector(w3)
+
+    async def update_graph(self, graph: DeFiMarketGraph, w3: Web3, tokens: Dict[str, str],
+                           block_number: Optional[int] = None) -> int:
+        try:
+            synths = self.collector.get_synths()
+            sUSD = synths["sUSD"]
+            sETH = synths["sETH"]
+            price = self.collector.price_susd_per_seth()
+            fee = self.collector.get_exchange_fee()
+            if price <= 0:
+                return 0
+            base_liq = 200.0
+            graph.add_trading_pair(
+                token0=sETH,
+                token1=sUSD,
+                dex='synthetix',
+                pool_address='synthetix_exchange_seth_susd',
+                reserve0=base_liq,
+                reserve1=base_liq * price,
+                fee=fee,
+            )
+            return 2
+        except Exception as e:
+            logger.debug(f"Synthetix update failed: {e}")
+            return 0
 
 
 class DyDxMarginAction(ProtocolAction):
@@ -382,7 +409,7 @@ def register_default_actions(w3: Web3) -> ActionRegistry:
     reg.register(CompoundSupplyBorrowAction(w3))
     reg.register(MakerCdpAction(w3))
     reg.register(YearnVaultAction())
-    reg.register(SynthetixExchangeAction())
+    reg.register(SynthetixExchangeAction(w3))
     reg.register(DyDxMarginAction())
     # Additional placeholders to reach and organize toward 96 actions
     class KyberSwapAction(ProtocolAction):
