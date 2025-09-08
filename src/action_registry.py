@@ -733,16 +733,98 @@ class CurveRemoveLiquidityAction(ProtocolAction):
 
 class BalancerJoinPoolAction(ProtocolAction):
     name = "balancer.join_pool"
-    enabled = False
-    async def update_graph(self, *args, **kwargs) -> int:
-        return 0
+    enabled = True
+
+    def __init__(self, w3: Web3):
+        self.collector = BalancerWeightedCollector(w3)
+
+    async def update_graph(self, graph: DeFiMarketGraph, w3: Web3, tokens: Dict[str, str],
+                           block_number: Optional[int] = None) -> int:
+        updated = 0
+        base_liq = 120.0
+        for token0, token1 in list(combinations(tokens.values(), 2)):
+            try:
+                pool = self.collector.find_pool_for_pair(token0, token1)
+                if not pool:
+                    continue
+                price01, _ = self.collector.get_spot_price_and_fee(pool, token0, token1)
+                if price01 <= 0:
+                    continue
+                lp_token = f"{pool}-balp"
+                # token0 -> LP (unit)
+                graph.add_trading_pair(
+                    token0=token0,
+                    token1=lp_token,
+                    dex='balancer_lp_join',
+                    pool_address=pool,
+                    reserve0=base_liq,
+                    reserve1=base_liq * 1.0,
+                    fee=0.0,
+                )
+                updated += 2
+                # token1 -> LP (scaled by inverse price)
+                inv = (1.0 / price01) if price01 > 0 else 0.0
+                if inv > 0:
+                    graph.add_trading_pair(
+                        token0=token1,
+                        token1=lp_token,
+                        dex='balancer_lp_join',
+                        pool_address=pool,
+                        reserve0=base_liq,
+                        reserve1=base_liq * inv,
+                        fee=0.0,
+                    )
+                    updated += 2
+            except Exception as e:
+                logger.debug(f"Balancer join_pool update failed: {e}")
+        return updated
 
 
 class BalancerExitPoolAction(ProtocolAction):
     name = "balancer.exit_pool"
-    enabled = False
-    async def update_graph(self, *args, **kwargs) -> int:
-        return 0
+    enabled = True
+
+    def __init__(self, w3: Web3):
+        self.collector = BalancerWeightedCollector(w3)
+
+    async def update_graph(self, graph: DeFiMarketGraph, w3: Web3, tokens: Dict[str, str],
+                           block_number: Optional[int] = None) -> int:
+        updated = 0
+        base_liq = 120.0
+        for token0, token1 in list(combinations(tokens.values(), 2)):
+            try:
+                pool = self.collector.find_pool_for_pair(token0, token1)
+                if not pool:
+                    continue
+                price01, _ = self.collector.get_spot_price_and_fee(pool, token0, token1)
+                if price01 <= 0:
+                    continue
+                lp_token = f"{pool}-balp"
+                # LP -> token0 (unit)
+                graph.add_trading_pair(
+                    token0=lp_token,
+                    token1=token0,
+                    dex='balancer_lp_exit',
+                    pool_address=pool,
+                    reserve0=base_liq,
+                    reserve1=base_liq * 1.0,
+                    fee=0.0,
+                )
+                updated += 2
+                # LP -> token1 (scaled by price)
+                graph.add_trading_pair(
+                    token0=lp_token,
+                    token1=token1,
+                    dex='balancer_lp_exit',
+                    pool_address=pool,
+                    reserve0=base_liq,
+                    reserve1=base_liq * price01,
+                    fee=0.0,
+                )
+                updated += 2
+            except Exception as e:
+                logger.debug(f"Balancer exit_pool update failed: {e}")
+        return updated
 
 
 class AaveBorrowAction(ProtocolAction):
@@ -903,6 +985,8 @@ def register_default_actions(w3: Web3) -> ActionRegistry:
     reg.register(CurveAddLiquidityAction(w3))
     reg.register(CurveRemoveLiquidityAction(w3))
     reg.register(BalancerWeightedSwapAction(w3))
+    reg.register(BalancerJoinPoolAction(w3))
+    reg.register(BalancerExitPoolAction(w3))
     reg.register(UniswapV2AddLiquidityAction(w3))
     reg.register(UniswapV2RemoveLiquidityAction(w3))
     reg.register(UniswapV3AddLiquidityAction(w3))

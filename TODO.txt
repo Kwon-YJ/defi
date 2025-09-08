@@ -47,7 +47,7 @@
   - [x] Curve: exchange (stableswap)
   - [x] Curve: add/remove liquidity
   - [x] Balancer: weighted swap
-  - [ ] Balancer: join/exit pool
+  - [x] Balancer: join/exit pool
   - [x] Aave: supply/withdraw
   - [ ] Aave: borrow/repay
   - [x] Compound: mint/redeem (supply/withdraw)
