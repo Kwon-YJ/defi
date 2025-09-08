@@ -38,6 +38,10 @@ class RealTimeDataCollector:
             'V3PMDecrease': '0x26f6a048ee9138f2c0ce266f322cb99228e8d619ae2bff30c67f8dcf9d2377b4',
             # keccak256("Collect(uint256,address,uint128,uint128)") (PositionManager)
             'V3PMCollect': '0x4d8babf9b22e68d8f3c8653392a91073d3f3d246ad70593d8c8ed3fe381b3c96'
+            ,
+            # ERC20 Transfer (for LP mint/burn detection)
+            # keccak256("Transfer(address,address,uint256)")
+            'ERC20Transfer': '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'
         }
         
     async def subscribe_to_blocks(self, callback: Callable):
@@ -210,6 +214,9 @@ class RealTimeDataCollector:
                 self.monitored_events['V3PMCollect'],
             ):
                 await self._handle_v3_pm_event(log_data)
+            # ERC20 Transfer: LP mint/burn (from/to zero address)
+            elif log_data['topics'][0] == self.monitored_events['ERC20Transfer']:
+                await self._handle_erc20_transfer(log_data)
             
             # 구독자들에게 알림
             for callback in self.subscribers.get('logs', []):
@@ -296,6 +303,22 @@ class RealTimeDataCollector:
             # 심화 처리는 BlockGraphUpdater에서 필요 시 구현
         except Exception as e:
             logger.error(f"V3 PM 이벤트 처리 실패: {e}")
+
+    async def _handle_erc20_transfer(self, log_data: Dict):
+        """ERC20 Transfer 이벤트 처리: LP mint/burn 감지용."""
+        try:
+            addr = log_data.get('address')
+            topics = log_data.get('topics', [])
+            if len(topics) < 3:
+                return
+            from_addr = '0x' + topics[1][-40:]
+            to_addr = '0x' + topics[2][-40:]
+            if from_addr.lower() == '0x0000000000000000000000000000000000000000' or \
+               to_addr.lower() == '0x0000000000000000000000000000000000000000':
+                logger.debug(f"LP Mint/Burn 감지: token={addr} from={from_addr} to={to_addr}")
+                # 실제 그래프 반영은 BlockGraphUpdater에서 수행
+        except Exception as e:
+            logger.error(f"ERC20 Transfer 이벤트 처리 실패: {e}")
     
     def stop(self):
         """데이터 수집 중지"""

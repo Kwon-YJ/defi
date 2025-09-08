@@ -64,6 +64,7 @@ class CurveStableSwapCollector:
             {"name": "pool_count", "inputs": [], "outputs": [{"type": "uint256", "name": ""}], "stateMutability": "view", "type": "function"},
             {"name": "pool_list",  "inputs": [{"type":"uint256","name":"i"}], "outputs": [{"type": "address", "name": ""}], "stateMutability": "view", "type": "function"},
             {"name": "get_coins",  "inputs": [{"type":"address","name":"pool"}], "outputs": [{"type": "address[8]", "name": "coins"}, {"type": "address[8]", "name": "underlying"}], "stateMutability": "view", "type": "function"},
+            {"name": "get_lp_token", "inputs": [{"type":"address","name":"pool"}], "outputs": [{"type":"address","name":"lp"}], "stateMutability": "view", "type": "function"},
         ]
         # Pool params ABIs (best-effort across pool variants)
         self.pool_params_abi = [
@@ -79,9 +80,15 @@ class CurveStableSwapCollector:
         except FileNotFoundError:
             self.erc20_abi = [
                 {"constant": True, "inputs": [], "name": "decimals", "outputs": [{"name": "", "type": "uint8"}], "type": "function"},
+                {"constant": True, "inputs": [], "name": "totalSupply", "outputs": [{"name": "", "type": "uint256"}], "type": "function"},
                 {"constant": True, "inputs": [], "name": "symbol",   "outputs": [{"name": "", "type": "string"}], "type": "function"},
                 {"constant": True, "inputs": [], "name": "name",     "outputs": [{"name": "", "type": "string"}], "type": "function"}
             ]
+        # pool methods to retrieve LP token
+        self.pool_lp_token_abi = [
+            {"name": "token", "inputs": [], "outputs": [{"type":"address","name":""}], "stateMutability":"view", "type":"function"},
+            {"name": "lp_token", "inputs": [], "outputs": [{"type":"address","name":""}], "stateMutability":"view", "type":"function"},
+        ]
 
     def _registry(self):
         try:
@@ -212,6 +219,50 @@ class CurveStableSwapCollector:
         if t in coins:
             return coins.index(t)
         return None
+
+    def get_lp_token(self, pool: str) -> Optional[str]:
+        """Try registry.get_lp_token(pool), or pool.token()/lp_token()."""
+        # via registry
+        try:
+            reg = self._registry()
+            if reg:
+                lp = reg.functions.get_lp_token(pool).call()
+                if isinstance(lp, str) and int(lp, 16) != 0:
+                    return lp
+        except Exception:
+            pass
+        # via pool direct methods
+        try:
+            c = self.w3.eth.contract(address=pool, abi=self.pool_lp_token_abi)
+            for name in ("token", "lp_token"):
+                try:
+                    lp = getattr(c.functions, name)().call()
+                    if isinstance(lp, str) and int(lp, 16) != 0:
+                        return lp
+                except Exception:
+                    continue
+        except Exception:
+            pass
+        # fallback: sometimes pool token equals pool address (rare)
+        try:
+            _ = self.w3.eth.get_code(pool)
+            return pool
+        except Exception:
+            return None
+
+    def get_lp_decimals(self, lp_token: str) -> int:
+        try:
+            c = self.w3.eth.contract(address=lp_token, abi=self.erc20_abi)
+            return int(c.functions.decimals().call())
+        except Exception:
+            return 18
+
+    def get_lp_total_supply(self, lp_token: str) -> int:
+        try:
+            c = self.w3.eth.contract(address=lp_token, abi=self.erc20_abi)
+            return int(c.functions.totalSupply().call())
+        except Exception:
+            return 0
 
     # --- Accurate calc functions ---
     def _calc_token_amount_abi(self, n: int) -> List[Dict]:

@@ -84,7 +84,7 @@
   - [x] Curve Registry 통합(모든 풀/메타풀 자동 탐색)
   - [x] calc_token_amount / calc_withdraw_one_coin 사용해 add/remove 정확화
   - [x] 증폭계수(A), pool fee/admin fee, coin decimals 반영
-  - [ ] LP totalSupply/decimals 사용 및 이벤트(Add/RemoveLiquidity) 반영
+  - [x] LP totalSupply/decimals 사용 및 이벤트(Add/RemoveLiquidity) 반영
 
 - [ ] Balancer 개선
   - [ ] getNormalizedWeights, getSwapFeePercentage, getPoolTokens 기반 spot 정확화

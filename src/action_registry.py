@@ -890,7 +890,10 @@ class CurveAddLiquidityAction(ProtocolAction):
                 n = len(coins)
                 if n == 0:
                     continue
+                lp_addr = self.collector.get_lp_token(pool) or pool
                 lp_token = lp_curve(pool)
+                lp_dec = self.collector.get_lp_decimals(lp_addr)
+                lp_supply = self.collector.get_lp_total_supply(lp_addr)
                 # For each configured token that is a pool coin
                 for _, addr in tokens.items():
                     try:
@@ -905,7 +908,8 @@ class CurveAddLiquidityAction(ProtocolAction):
                         amts = [0] * n
                         amts[int(i)] = dx
                         minted = self.collector.calc_token_amount(pool, amts, True)  # LP units (typically 1e18)
-                        lp_per_token = (float(minted) / 1e18)  # normalize LP to 1.0 base
+                        denom = float(10 ** lp_dec) if lp_dec else 1e18
+                        lp_per_token = (float(minted) / denom)
                         if lp_per_token <= 0:
                             continue
                         graph.add_trading_pair(
@@ -919,7 +923,7 @@ class CurveAddLiquidityAction(ProtocolAction):
                         )
                         set_edge_meta(graph.graph, addr, lp_token, dex='curve_lp_add', pool_address=pool,
                                       fee_tier=None, source='onchain', confidence=0.9,
-                                      extra={'n_coins': n, 'coin_index': int(i)})
+                                      extra={'n_coins': n, 'coin_index': int(i), 'lp_token': lp_addr, 'lp_decimals': lp_dec, 'lp_total_supply': float(lp_supply)})
                         updated += 2
                     except Exception:
                         continue
@@ -944,7 +948,10 @@ class CurveRemoveLiquidityAction(ProtocolAction):
             pools = self.collector.pools or self.collector.FALLBACK_POOLS
             for p in pools:
                 pool = p['address']
+                lp_addr = self.collector.get_lp_token(pool) or pool
                 lp_token = lp_curve(pool)
+                lp_dec = self.collector.get_lp_decimals(lp_addr)
+                lp_supply = self.collector.get_lp_total_supply(lp_addr)
                 coins = self.collector.get_pool_coins(pool)
                 n = len(coins)
                 if n == 0:
@@ -952,7 +959,8 @@ class CurveRemoveLiquidityAction(ProtocolAction):
                 for i, coin in enumerate(coins):
                     try:
                         # Withdraw 1 LP (1e18) into coin i
-                        out = self.collector.calc_withdraw_one_coin(pool, int(1e18), int(i))
+                        denom = int(10 ** lp_dec) if lp_dec else int(1e18)
+                        out = self.collector.calc_withdraw_one_coin(pool, denom, int(i))
                         if out <= 0:
                             continue
                         dec = self.collector._decimals(coin)
@@ -968,7 +976,7 @@ class CurveRemoveLiquidityAction(ProtocolAction):
                         )
                         set_edge_meta(graph.graph, lp_token, coin, dex='curve_lp_remove', pool_address=pool,
                                       fee_tier=None, source='onchain', confidence=0.9,
-                                      extra={'n_coins': n, 'coin_index': int(i)})
+                                      extra={'n_coins': n, 'coin_index': int(i), 'lp_token': lp_addr, 'lp_decimals': lp_dec, 'lp_total_supply': float(lp_supply)})
                         updated += 2
                     except Exception:
                         continue

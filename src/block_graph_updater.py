@@ -208,6 +208,86 @@ class BlockGraphUpdater:
                             compact_graph_attributes(self.graph.graph)
                         except Exception as _:
                             pass
+                # Curve LP mint/burn via ERC20 Transfer on LP token (address-filtered)
+                elif log_data.get('topics') and log_data['topics'][0] == self.rt.monitored_events.get('ERC20Transfer'):
+                    try:
+                        lp_token_addr = log_data.get('address')
+                        pool_addr = None
+                        # search edges for matching lp_token meta
+                        if isinstance(self.graph.graph, nx.MultiDiGraph):
+                            for u, v, k, data in self.graph.graph.edges(keys=True, data=True):
+                                m = data.get('meta') if isinstance(data.get('meta'), dict) else {}
+                                if m.get('lp_token') and isinstance(m.get('lp_token'), str) and m.get('lp_token').lower() == lp_token_addr.lower():
+                                    pool_addr = data.get('pool_address')
+                                    break
+                        else:
+                            for u, v, data in self.graph.graph.edges(data=True):
+                                m = data.get('meta') if isinstance(data.get('meta'), dict) else {}
+                                if m.get('lp_token') and isinstance(m.get('lp_token'), str) and m.get('lp_token').lower() == lp_token_addr.lower():
+                                    pool_addr = data.get('pool_address')
+                                    break
+                        if not pool_addr:
+                            return
+                        from src.dex_curve_collector import CurveStableSwapCollector
+                        coll = CurveStableSwapCollector(self.w3)
+                        coll.refresh_registry_pools(ttl_sec=0)
+                        coins = coll.get_pool_coins(pool_addr)
+                        if not coins:
+                            return
+                        n = len(coins)
+                        lp_token_sym = lp_v3(pool_addr)  # reuse wrapper for naming; address remains in meta
+                        # detect lp decimals
+                        try:
+                            from src.dex_curve_collector import CurveStableSwapCollector as _C
+                            lp_dec = _C(self.w3).get_lp_decimals(lp_token_addr)
+                        except Exception:
+                            lp_dec = 18
+                        base_liq = 150.0
+                        # Recompute add/remove edges
+                        for i, coin in enumerate(coins):
+                            try:
+                                d = coll._decimals(coin)
+                                dx = int(10 ** d)
+                                amts = [0] * n
+                                amts[i] = dx
+                                minted = coll.calc_token_amount(pool_addr, amts, True)
+                                denom = float(10 ** lp_dec) if lp_dec else 1e18
+                                lp_per_token = float(minted) / denom if denom else 0.0
+                                if lp_per_token > 0:
+                                    self.graph.add_trading_pair(
+                                        token0=coin,
+                                        token1=lp_token_sym,
+                                        dex='curve_lp_add',
+                                        pool_address=pool_addr, edge_key=f"curve_lp_add:{i}",
+                                        reserve0=base_liq,
+                                        reserve1=base_liq * lp_per_token,
+                                        fee=0.0,
+                                    )
+                                    set_edge_meta(self.graph.graph, coin, lp_token_sym, dex='curve_lp_add', pool_address=pool_addr,
+                                                  fee_tier=None, source='event', confidence=0.9,
+                                                  extra={'n_coins': n, 'coin_index': int(i), 'lp_token': lp_token_addr, 'lp_decimals': lp_dec})
+                                # remove
+                                denom_i = int(10 ** lp_dec) if lp_dec else int(1e18)
+                                out = coll.calc_withdraw_one_coin(pool_addr, denom_i, i)
+                                if out > 0:
+                                    coin_per_lp = float(out) / float(10 ** d)
+                                    self.graph.add_trading_pair(
+                                        token0=lp_token_sym,
+                                        token1=coin,
+                                        dex='curve_lp_remove',
+                                        pool_address=pool_addr, edge_key=f"curve_lp_remove:{i}",
+                                        reserve0=base_liq,
+                                        reserve1=base_liq * coin_per_lp,
+                                        fee=0.0,
+                                    )
+                                    set_edge_meta(self.graph.graph, lp_token_sym, coin, dex='curve_lp_remove', pool_address=pool_addr,
+                                                  fee_tier=None, source='event', confidence=0.9,
+                                                  extra={'n_coins': n, 'coin_index': int(i), 'lp_token': lp_token_addr, 'lp_decimals': lp_dec})
+                            except Exception:
+                                continue
+                        compact_graph_attributes(self.graph.graph)
+                    except Exception:
+                        pass
                 # PositionManager 이벤트 반영: 포지션 밴드/유동성 통계 업데이트 (선택적)
                 elif log_data.get('topics') and log_data['topics'][0] in (
                     self.rt.monitored_events.get('V3PMIncrease'),
@@ -322,11 +402,19 @@ class BlockGraphUpdater:
                         pa = data.get('pool_address')
                         if pa:
                             addrs.add(pa)
+                        m = data.get('meta') if isinstance(data.get('meta'), dict) else {}
+                        lp = m.get('lp_token')
+                        if isinstance(lp, str) and int(lp, 16) != 0:
+                            addrs.add(lp)
             else:
                 for u, v, data in self.graph.graph.edges(data=True):
                     pa = data.get('pool_address')
                     if pa:
                         addrs.add(pa)
+                    m = data.get('meta') if isinstance(data.get('meta'), dict) else {}
+                    lp = m.get('lp_token')
+                    if isinstance(lp, str) and int(lp, 16) != 0:
+                        addrs.add(lp)
         except Exception:
             pass
         return list(addrs)
