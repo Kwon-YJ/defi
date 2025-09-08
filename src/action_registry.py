@@ -219,7 +219,7 @@ class CurveStableSwapAction(ProtocolAction, _SwapPairsMixin):
 
     def __init__(self, w3: Web3):
         self.collector = CurveStableSwapCollector(w3)
-        self.fee = 0.0004  # 0.04% typical for stables
+        self.fee = 0.0004  # kept for fallback; get_dy is net-of-fee so we set edge fee=0
 
     async def update_graph(self, graph: DeFiMarketGraph, w3: Web3, tokens: Dict[str, str],
                            block_number: Optional[int] = None) -> int:
@@ -248,12 +248,30 @@ class CurveStableSwapAction(ProtocolAction, _SwapPairsMixin):
                     pool_address=pool, edge_key=f"curve:{i}-{j}",
                     reserve0=reserve0,
                     reserve1=reserve1,
-                    fee=self.fee,
+                    fee=0.0,
                 )
+                # Fetch pool params and decimals info for metadata
+                params = {}
+                try:
+                    params = self.collector.get_pool_params(pool) or {}
+                except Exception:
+                    params = {}
+                try:
+                    d0 = self.collector._decimals(token0)
+                    d1 = self.collector._decimals(token1)
+                except Exception:
+                    d0 = d1 = 18
                 set_edge_meta(
                     graph.graph, token0, token1, dex='curve', pool_address=pool,
-                    fee_tier=None, source='onchain', confidence=0.9,
-                    extra={'stableswap': True, 'amp': 100.0}
+                    fee_tier=None, source='onchain', confidence=0.92,
+                    extra={
+                        'stableswap': True,
+                        'amp': params.get('A', None),
+                        'pool_fee': params.get('fee', None),
+                        'admin_fee': params.get('admin_fee', None),
+                        'dec_in': d0,
+                        'dec_out': d1,
+                    }
                 )
                 updated += 2
             except Exception as e:

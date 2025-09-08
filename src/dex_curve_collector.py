@@ -65,6 +65,14 @@ class CurveStableSwapCollector:
             {"name": "pool_list",  "inputs": [{"type":"uint256","name":"i"}], "outputs": [{"type": "address", "name": ""}], "stateMutability": "view", "type": "function"},
             {"name": "get_coins",  "inputs": [{"type":"address","name":"pool"}], "outputs": [{"type": "address[8]", "name": "coins"}, {"type": "address[8]", "name": "underlying"}], "stateMutability": "view", "type": "function"},
         ]
+        # Pool params ABIs (best-effort across pool variants)
+        self.pool_params_abi = [
+            {"name": "A", "inputs": [], "outputs": [{"type": "uint256", "name": ""}], "stateMutability": "view", "type": "function"},
+            {"name": "get_A", "inputs": [], "outputs": [{"type": "uint256", "name": ""}], "stateMutability": "view", "type": "function"},
+            {"name": "A_precise", "inputs": [], "outputs": [{"type": "uint256", "name": ""}], "stateMutability": "view", "type": "function"},
+            {"name": "fee", "inputs": [], "outputs": [{"type": "uint256", "name": ""}], "stateMutability": "view", "type": "function"},
+            {"name": "admin_fee", "inputs": [], "outputs": [{"type": "uint256", "name": ""}], "stateMutability": "view", "type": "function"},
+        ]
         try:
             with open('abi/erc20.json', 'r') as f:
                 self.erc20_abi = json.load(f)
@@ -260,3 +268,49 @@ class CurveStableSwapCollector:
         except Exception as e:
             logger.debug(f"Curve get_dy failed pool {pool[:6]} i={i} j={j}: {e}")
             return 1.0
+
+    def get_pool_params(self, pool: str) -> Dict:
+        """Fetch A, fee, admin_fee (best-effort). Returns normalized values: A(int), fee(float), admin_fee(float)."""
+        params = {"A": None, "fee": None, "admin_fee": None}
+        try:
+            if not self.w3 or not self.w3.is_connected():
+                return params
+            c = self.w3.eth.contract(address=pool, abi=self.pool_params_abi)
+            A = 0
+            for name in ("A", "get_A", "A_precise"):
+                try:
+                    A = int(getattr(c.functions, name)().call())
+                    if name == "A_precise" and A > 0:
+                        # many pools: A_precise = A * 100
+                        if A % 100 == 0:
+                            A = A // 100
+                    break
+                except Exception:
+                    continue
+            params["A"] = int(A) if A else None
+            fee = None
+            admin = None
+            try:
+                fee = int(c.functions.fee().call())
+            except Exception:
+                fee = None
+            try:
+                admin = int(c.functions.admin_fee().call())
+            except Exception:
+                admin = None
+            # Normalize to fraction if looks like 1e10-denominated
+            def _norm(x):
+                if x is None:
+                    return None
+                # Heuristic: common denom is 1e10 for stableswap
+                if x > 1_000_000:
+                    return float(x) / 1e10
+                # If already small, assume it's a fraction
+                if x <= 1_000:
+                    return float(x)
+                return float(x) / 1e10
+            params["fee"] = _norm(fee)
+            params["admin_fee"] = _norm(admin)
+        except Exception as e:
+            logger.debug(f"Curve pool params fetch failed {pool[:6]}: {e}")
+        return params
