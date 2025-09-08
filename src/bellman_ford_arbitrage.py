@@ -352,6 +352,10 @@ class BellmanFordArbitrage:
             edges.append(edge)
             total_gas_cost += edge.gas_cost
 
+        # 경로 유효성 검사: 부채/담보 제약 및 포지션 균형
+        if not self._route_satisfies_constraints(edges):
+            return None
+
         # 반복적으로 시작점 세트를 바꿔가며 탐색
         start_sets = [
             (0.2, 0.4, 0.6, 0.8),
@@ -383,6 +387,72 @@ class BellmanFordArbitrage:
             net_profit=net,
             confidence=confidence
         )
+
+    def _route_satisfies_constraints(self, edges: List[TradingEdge]) -> bool:
+        """경로가 부채/담보 제약을 만족하는지 검증.
+
+        단순 규칙 기반 검증:
+        - Aave/Compound: borrow는 동일 프로토콜의 supply가 경로 내에 존재해야 함
+        - debt 토큰(\"debt:*\") 잔고는 경로 종료 시 0이어야 함 (borrow == repay)
+        - LP/BPT synthetic 토큰(\"lp:*\", \"bpt:*\") 잔고는 경로 종료 시 0이어야 함 (add/join == remove/exit)
+        - 중간에 음수 잔고가 되면(없는 포지션 제거 시도) 경로 무효
+        """
+        if not edges:
+            return False
+
+        debt_counts: Dict[str, int] = defaultdict(int)
+        lp_counts: Dict[str, int] = defaultdict(int)
+        have_supply = {
+            'aave': False,
+            'compound': False,
+        }
+
+        for e in edges:
+            dex = (e.dex or '').lower()
+            u = e.from_token or ''
+            v = e.to_token or ''
+
+            # Supply detection
+            if dex == 'aave':
+                have_supply['aave'] = True
+            if dex == 'compound':
+                have_supply['compound'] = True
+
+            # LP / BPT balances
+            if v.startswith('lp:') or v.startswith('bpt:'):
+                lp_counts[v] += 1
+            if u.startswith('lp:') or u.startswith('bpt:'):
+                lp_counts[u] -= 1
+                if lp_counts[u] < 0:
+                    return False
+
+            # Debt balances via dex types and token prefix
+            if dex in ('aave_borrow', 'compound_borrow'):
+                # require prior supply for that protocol
+                proto = 'aave' if dex.startswith('aave') else 'compound'
+                if not have_supply.get(proto, False):
+                    return False
+                # Increase outstanding debt for the synthetic debt token id in from_token
+                if u.startswith('debt:'):
+                    debt_counts[u] += 1
+            elif dex in ('aave_repay', 'compound_repay'):
+                # Decrease outstanding debt for to_token (which is the debt token)
+                if v.startswith('debt:'):
+                    debt_counts[v] -= 1
+                    if debt_counts[v] < 0:
+                        return False
+
+        # All LP/BPT must be fully unwound
+        for k, c in lp_counts.items():
+            if c != 0:
+                return False
+
+        # All debts must be repaid
+        for k, c in debt_counts.items():
+            if c != 0:
+                return False
+
+        return True
 
     def _simulate_final_amount(self, edges: List[TradingEdge], start_amount: float) -> float:
         """프로토콜별 슬리피지를 고려하여 경로 실행 후 최종 금액 계산"""
