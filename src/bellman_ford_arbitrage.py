@@ -515,7 +515,15 @@ class BellmanFordArbitrage:
                 return amount_out_balancer_weighted(amount_in, b_in, b_out, w_in, w_out, fee)
 
             # Default fallback
-            return amount_in * edge.exchange_rate * (1 - self._calculate_slippage(amount_in, edge.liquidity))
+            out = amount_in * edge.exchange_rate * (1 - self._calculate_slippage(amount_in, edge.liquidity))
+            # Apply conservative penalties for risky tokens (fee-on-transfer/rebase)
+            fot = bool(meta.get('risk_fot'))
+            rbs = bool(meta.get('risk_rebase'))
+            if fot:
+                out *= 0.99  # 1% extra fee per transfer
+            if rbs:
+                out *= 0.995  # minor penalty due to supply changes risk
+            return out
         except Exception:
             return amount_in * edge.exchange_rate * (1 - self._calculate_slippage(amount_in, edge.liquidity))
 

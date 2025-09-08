@@ -1,5 +1,6 @@
 from typing import Optional, Dict, Any
 import networkx as nx
+from src.token_risk import is_fee_on_transfer, is_rebase
 
 
 def set_edge_meta(nx_graph: nx.Graph,
@@ -31,6 +32,22 @@ def set_edge_meta(nx_graph: nx.Graph,
             meta.update(extra)
         except Exception:
             pass
+
+    # Risk flags (fee-on-transfer / rebase)
+    try:
+        t0 = extra.get('t0') if extra else None
+        t1 = extra.get('t1') if extra else None
+        fot = any(is_fee_on_transfer(t) for t in (t0, t1) if t)
+        rbs = any(is_rebase(t) for t in (t0, t1) if t)
+        meta['risk_fot'] = fot
+        meta['risk_rebase'] = rbs
+        # Lower confidence slightly for risky tokens
+        if fot:
+            meta['confidence'] = max(0.0, float(meta.get('confidence', 0.8)) - 0.1)
+        if rbs:
+            meta['confidence'] = max(0.0, float(meta.get('confidence', 0.8)) - 0.05)
+    except Exception:
+        pass
 
     def _apply(u: str, v: str):
         try:
