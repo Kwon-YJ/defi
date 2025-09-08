@@ -20,6 +20,7 @@ from src.yearn_collectors import YearnV2Collector
 from src.uniswap_v2_lp_collector import UniswapV2LPCollector
 from src.erc20_utils import get_decimals, normalize_reserves
 from src.yearn_collectors import YearnV2Collector
+from src.edge_meta import set_edge_meta
 
 logger = setup_logger(__name__)
 
@@ -76,6 +77,8 @@ class UniswapV2SwapAction(ProtocolAction, _SwapPairsMixin):
                     reserve1=float(nr1),
                     fee=self.fee,
                 )
+                set_edge_meta(graph.graph, t0, t1, dex='uniswap_v2', pool_address=pair_address,
+                              fee_tier=None, source='onchain', confidence=0.98)
                 updated += 2
             except Exception as e:
                 logger.debug(f"UniswapV2 update failed {token0[:6]}-{token1[:6]}: {e}")
@@ -116,6 +119,8 @@ class SushiSwapSwapAction(ProtocolAction, _SwapPairsMixin):
                     reserve1=float(nr1),
                     fee=self.fee,
                 )
+                set_edge_meta(graph.graph, t0, t1, dex='sushiswap', pool_address=pair_address,
+                              fee_tier=None, source='onchain', confidence=0.98)
                 updated += 2
             except Exception as e:
                 logger.debug(f"SushiSwap update failed {token0[:6]}-{token1[:6]}: {e}")
@@ -149,6 +154,8 @@ class UniswapV3SwapAction(ProtocolAction, _SwapPairsMixin):
                         reserve1=float(e['reserve1']),
                         fee=float(e['fee_fraction']),
                     )
+                    set_edge_meta(graph.graph, e['token0'], e['token1'], dex='uniswap_v3', pool_address=e['pool'],
+                                  fee_tier=e.get('fee_tier'), source='onchain', confidence=0.95)
                     updated += 2
             except Exception as e:
                 logger.debug(f"UniswapV3 update failed {token0[:6]}-{token1[:6]}: {e}")
@@ -187,6 +194,8 @@ class CurveStableSwapAction(ProtocolAction, _SwapPairsMixin):
                     reserve1=reserve1,
                     fee=self.fee,
                 )
+                set_edge_meta(graph.graph, token0, token1, dex='curve', pool_address=pool,
+                              fee_tier=None, source='onchain', confidence=0.9)
                 updated += 2
             except Exception as e:
                 logger.debug(f"Curve update failed {token0[:6]}-{token1[:6]}: {e}")
@@ -223,6 +232,8 @@ class BalancerWeightedSwapAction(ProtocolAction, _SwapPairsMixin):
                     reserve1=reserve1,
                     fee=float(fee_frac),
                 )
+                set_edge_meta(graph.graph, token0, token1, dex='balancer', pool_address=pool,
+                              fee_tier=None, source='onchain', confidence=0.9)
                 updated += 2
             except Exception as e:
                 logger.debug(f"Balancer update failed {token0[:6]}-{token1[:6]}: {e}")
@@ -257,6 +268,8 @@ class AaveSupplyBorrowAction(ProtocolAction):
                     reserve1=reserve1,
                     fee=0.0,
                 )
+                set_edge_meta(graph.graph, underlying, atoken, dex='aave', pool_address=atoken,
+                              fee_tier=None, source='approx', confidence=0.85)
                 updated += 2
             except Exception as e:
                 logger.debug(f"Aave update failed {sym}: {e}")
@@ -301,6 +314,8 @@ class MakerCdpAction(ProtocolAction):
                 reserve1=base_liq * rate,
                 fee=0.0005,  # represent minor costs
             )
+            set_edge_meta(graph.graph, weth, dai, dex='maker', pool_address='maker_cdp_weth',
+                          fee_tier=None, source='approx', confidence=0.7)
             return 2
         except Exception as e:
             logger.debug(f"Maker CDP update failed: {e}")
@@ -335,6 +350,8 @@ class YearnVaultAction(ProtocolAction):
                     reserve1=reserve1,
                     fee=0.0,
                 )
+                set_edge_meta(graph.graph, underlying, yv, dex='yearn', pool_address=yv,
+                              fee_tier=None, source='onchain', confidence=0.85)
                 updated += 2
             except Exception as e:
                 logger.debug(f"Yearn update failed {sym}: {e}")
@@ -368,6 +385,8 @@ class SynthetixExchangeAction(ProtocolAction):
                 reserve1=base_liq * price,
                 fee=fee,
             )
+            set_edge_meta(graph.graph, sETH, sUSD, dex='synthetix', pool_address='synthetix_exchange_seth_susd',
+                          fee_tier=None, source='onchain', confidence=0.85)
             return 2
         except Exception as e:
             logger.debug(f"Synthetix update failed: {e}")
@@ -401,6 +420,8 @@ class DyDxMarginAction(ProtocolAction, _SwapPairsMixin):
                     reserve1=reserve1,
                     fee=float(fee),
                 )
+                set_edge_meta(graph.graph, token0, token1, dex='dydx', pool_address='dydx_margin',
+                              fee_tier=None, source='approx', confidence=0.7)
                 updated += 2
             except Exception as e:
                 logger.debug(f"dYdX update failed {token0[:6]}-{token1[:6]}: {e}")
@@ -452,6 +473,8 @@ class UniswapV2AddLiquidityAction(ProtocolAction, _SwapPairsMixin):
                     reserve1=base_liq * lp_per_t0,
                     fee=0.0,
                 )
+                set_edge_meta(graph.graph, t0, pair, dex='uniswap_v2_lp_add', pool_address=pair,
+                              fee_tier=None, source='approx', confidence=0.8)
                 updated += 2
                 # token1 -> LP
                 graph.add_trading_pair(
@@ -463,6 +486,8 @@ class UniswapV2AddLiquidityAction(ProtocolAction, _SwapPairsMixin):
                     reserve1=base_liq * lp_per_t1,
                     fee=0.0,
                 )
+                set_edge_meta(graph.graph, t1, pair, dex='uniswap_v2_lp_add', pool_address=pair,
+                              fee_tier=None, source='approx', confidence=0.8)
                 updated += 2
             except Exception as e:
                 logger.debug(f"UniswapV2 addLiquidity failed {token0[:6]}-{token1[:6]}: {e}")
@@ -511,6 +536,8 @@ class UniswapV2RemoveLiquidityAction(ProtocolAction, _SwapPairsMixin):
                     reserve1=base_liq * t0_per_lp,
                     fee=0.0,
                 )
+                set_edge_meta(graph.graph, pair, t0, dex='uniswap_v2_lp_remove', pool_address=pair,
+                              fee_tier=None, source='approx', confidence=0.8)
                 updated += 2
                 # LP -> token1
                 graph.add_trading_pair(
@@ -522,6 +549,8 @@ class UniswapV2RemoveLiquidityAction(ProtocolAction, _SwapPairsMixin):
                     reserve1=base_liq * t1_per_lp,
                     fee=0.0,
                 )
+                set_edge_meta(graph.graph, pair, t1, dex='uniswap_v2_lp_remove', pool_address=pair,
+                              fee_tier=None, source='approx', confidence=0.8)
                 updated += 2
             except Exception as e:
                 logger.debug(f"UniswapV2 removeLiquidity failed {token0[:6]}-{token1[:6]}: {e}")
@@ -565,6 +594,8 @@ class UniswapV3AddLiquidityAction(ProtocolAction):
                         reserve1=base_liq * lp_per_t0,
                         fee=0.0,
                     )
+                    set_edge_meta(graph.graph, t0, lp_token, dex='uniswap_v3_lp_add', pool_address=pool,
+                                  fee_tier=fee, source='approx', confidence=0.75)
                     updated += 2
                     # token1 -> LP
                     if lp_per_t1 > 0:
@@ -577,6 +608,8 @@ class UniswapV3AddLiquidityAction(ProtocolAction):
                             reserve1=base_liq * lp_per_t1,
                             fee=0.0,
                         )
+                        set_edge_meta(graph.graph, t1, lp_token, dex='uniswap_v3_lp_add', pool_address=pool,
+                                      fee_tier=fee, source='approx', confidence=0.75)
                         updated += 2
                 except Exception as e:
                     logger.debug(f"UniswapV3 addLiquidity failed {token0[:6]}-{token1[:6]}: {e}")
@@ -620,6 +653,8 @@ class UniswapV3RemoveLiquidityAction(ProtocolAction):
                         reserve1=base_liq * t0_per_lp,
                         fee=0.0,
                     )
+                    set_edge_meta(graph.graph, lp_token, t0, dex='uniswap_v3_lp_remove', pool_address=pool,
+                                  fee_tier=fee, source='approx', confidence=0.75)
                     updated += 2
                     # LP -> token1
                     graph.add_trading_pair(
@@ -631,6 +666,8 @@ class UniswapV3RemoveLiquidityAction(ProtocolAction):
                         reserve1=base_liq * t1_per_lp,
                         fee=0.0,
                     )
+                    set_edge_meta(graph.graph, lp_token, t1, dex='uniswap_v3_lp_remove', pool_address=pool,
+                                  fee_tier=fee, source='approx', confidence=0.75)
                     updated += 2
                 except Exception as e:
                     logger.debug(f"UniswapV3 removeLiquidity failed {token0[:6]}-{token1[:6]}: {e}")
@@ -670,6 +707,8 @@ class UniswapV3CollectFeesAction(ProtocolAction):
                         reserve1=base_liq * fee_yield,
                         fee=0.0,
                     )
+                    set_edge_meta(graph.graph, lp_token, t0, dex='uniswap_v3_fee_collect', pool_address=pool,
+                                  fee_tier=fee, source='approx', confidence=0.6)
                     updated += 2
                     # LP -> token1 (fees)
                     graph.add_trading_pair(
@@ -681,6 +720,8 @@ class UniswapV3CollectFeesAction(ProtocolAction):
                         reserve1=base_liq * fee_yield,
                         fee=0.0,
                     )
+                    set_edge_meta(graph.graph, lp_token, t1, dex='uniswap_v3_fee_collect', pool_address=pool,
+                                  fee_tier=fee, source='approx', confidence=0.6)
                     updated += 2
                 except Exception as e:
                     logger.debug(f"UniswapV3 collectFees failed {token0[:6]}-{token1[:6]}: {e}")
@@ -716,6 +757,8 @@ class CurveAddLiquidityAction(ProtocolAction):
                             reserve1=base_liq * 1.0,
                             fee=0.0,
                         )
+                        set_edge_meta(graph.graph, addr, lp_token, dex='curve_lp_add', pool_address=pool,
+                                      fee_tier=None, source='approx', confidence=0.85)
                         updated += 2
         except Exception as e:
             logger.debug(f"Curve addLiquidity update failed: {e}")
@@ -749,6 +792,8 @@ class CurveRemoveLiquidityAction(ProtocolAction):
                         reserve1=base_liq * 1.0,
                         fee=0.0,
                     )
+                    set_edge_meta(graph.graph, lp_token, coin, dex='curve_lp_remove', pool_address=pool,
+                                  fee_tier=None, source='approx', confidence=0.85)
                     updated += 2
         except Exception as e:
             logger.debug(f"Curve removeLiquidity update failed: {e}")
@@ -785,6 +830,8 @@ class BalancerJoinPoolAction(ProtocolAction):
                     reserve1=base_liq * 1.0,
                     fee=0.0,
                 )
+                set_edge_meta(graph.graph, token0, lp_token, dex='balancer_lp_join', pool_address=pool,
+                              fee_tier=None, source='approx', confidence=0.85)
                 updated += 2
                 # token1 -> LP (scaled by inverse price)
                 inv = (1.0 / price01) if price01 > 0 else 0.0
@@ -798,6 +845,8 @@ class BalancerJoinPoolAction(ProtocolAction):
                         reserve1=base_liq * inv,
                         fee=0.0,
                     )
+                    set_edge_meta(graph.graph, token1, lp_token, dex='balancer_lp_join', pool_address=pool,
+                                  fee_tier=None, source='approx', confidence=0.85)
                     updated += 2
             except Exception as e:
                 logger.debug(f"Balancer join_pool update failed: {e}")
@@ -834,6 +883,8 @@ class BalancerExitPoolAction(ProtocolAction):
                     reserve1=base_liq * 1.0,
                     fee=0.0,
                 )
+                set_edge_meta(graph.graph, lp_token, token0, dex='balancer_lp_exit', pool_address=pool,
+                              fee_tier=None, source='approx', confidence=0.85)
                 updated += 2
                 # LP -> token1 (scaled by price)
                 graph.add_trading_pair(
@@ -845,6 +896,8 @@ class BalancerExitPoolAction(ProtocolAction):
                     reserve1=base_liq * price01,
                     fee=0.0,
                 )
+                set_edge_meta(graph.graph, lp_token, token1, dex='balancer_lp_exit', pool_address=pool,
+                              fee_tier=None, source='approx', confidence=0.85)
                 updated += 2
             except Exception as e:
                 logger.debug(f"Balancer exit_pool update failed: {e}")
@@ -882,6 +935,8 @@ class AaveBorrowAction(ProtocolAction):
                     reserve1=base_liq * 1.0,
                     fee=self.fee,
                 )
+                set_edge_meta(graph.graph, debt, underlying, dex='aave_borrow', pool_address=f"aave_borrow_{underlying[:6]}",
+                              fee_tier=None, source='approx', confidence=0.8)
                 updated += 2
             except Exception as e:
                 logger.debug(f"Aave borrow update failed {sym}: {e}")
@@ -918,6 +973,8 @@ class AaveRepayAction(ProtocolAction):
                     reserve1=base_liq * 1.0,
                     fee=self.fee,
                 )
+                set_edge_meta(graph.graph, underlying, debt, dex='aave_repay', pool_address=f"aave_repay_{underlying[:6]}",
+                              fee_tier=None, source='approx', confidence=0.8)
                 updated += 2
             except Exception as e:
                 logger.debug(f"Aave repay update failed {sym}: {e}")
@@ -953,6 +1010,8 @@ class CompoundBorrowAction(ProtocolAction):
                     reserve1=base_liq * 1.0,
                     fee=self.fee,
                 )
+                set_edge_meta(graph.graph, debt, underlying, dex='compound_borrow', pool_address=f"compound_borrow_{underlying[:6]}",
+                              fee_tier=None, source='approx', confidence=0.8)
                 updated += 2
             except Exception as e:
                 logger.debug(f"Compound borrow update failed {sym}: {e}")
@@ -988,6 +1047,8 @@ class CompoundRepayAction(ProtocolAction):
                     reserve1=base_liq * 1.0,
                     fee=self.fee,
                 )
+                set_edge_meta(graph.graph, underlying, debt, dex='compound_repay', pool_address=f"compound_repay_{underlying[:6]}",
+                              fee_tier=None, source='approx', confidence=0.8)
                 updated += 2
             except Exception as e:
                 logger.debug(f"Compound repay update failed {sym}: {e}")
@@ -1020,6 +1081,8 @@ class SynthetixMintAction(ProtocolAction):
                 reserve1=base_liq * rate,
                 fee=0.0,
             )
+            set_edge_meta(graph.graph, SNX, sUSD, dex='synthetix_mint', pool_address='synthetix_mint_snx_susd',
+                          fee_tier=None, source='approx', confidence=0.75)
             return 2
         except Exception as e:
             logger.debug(f"Synthetix mint update failed: {e}")
@@ -1052,6 +1115,8 @@ class SynthetixBurnAction(ProtocolAction):
                 reserve1=base_liq * rate,
                 fee=0.0,
             )
+            set_edge_meta(graph.graph, sUSD, SNX, dex='synthetix_burn', pool_address='synthetix_burn_susd_snx',
+                          fee_tier=None, source='approx', confidence=0.75)
             return 2
         except Exception as e:
             logger.debug(f"Synthetix burn update failed: {e}")
@@ -1098,6 +1163,8 @@ class MakerPsmSwapAction(ProtocolAction):
                 reserve1=base_liq,
                 fee=self.fee,
             )
+            set_edge_meta(graph.graph, usdc, dai, dex='maker_psm', pool_address='maker_psm_usdc_dai',
+                          fee_tier=None, source='approx', confidence=0.95)
             return 2
         except Exception as e:
             logger.debug(f"Maker PSM update failed: {e}")
@@ -1132,6 +1199,8 @@ class CompoundSupplyBorrowAction(ProtocolAction):
                     reserve1=reserve1,
                     fee=0.0,
                 )
+                set_edge_meta(graph.graph, underlying, ctoken, dex='compound', pool_address=ctoken,
+                              fee_tier=None, source='onchain', confidence=0.9)
                 updated += 2
             except Exception as e:
                 logger.debug(f"Compound update failed {sym}: {e}")

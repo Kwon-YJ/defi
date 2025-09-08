@@ -144,8 +144,8 @@ class UniswapV3Collector:
                 'token1': state['token1'],
                 'pool': pool,
                 'fee_fraction': state['fee'] / 1_000_000.0,
+                'fee_tier': int(state['fee']),
                 'reserve0': reserve0,
                 'reserve1': reserve1,
             })
         return edges
-
