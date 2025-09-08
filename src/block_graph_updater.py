@@ -86,6 +86,11 @@ class BlockGraphUpdater:
             try:
                 block_number = int(block_data['number'], 16)
                 await self.update_via_actions(block_number)
+                # 구독 주소 갱신(가능 시)
+                try:
+                    self.rt.log_addresses = self._compute_log_addresses()
+                except Exception:
+                    pass
                 # 블록 단위로 프루닝 수행 (너무 작은 유동성/지배된 엣지 제거)
                 prune_graph(self.graph.graph, min_liquidity=0.1, keep_top_k=2)
                 # 메모리 절감을 위한 속성 정리
@@ -234,7 +239,11 @@ class BlockGraphUpdater:
                         elif log_data['topics'][0] == self.rt.monitored_events.get('V3PMDecrease') and isinstance(data_hex, str):
                             if len(data_hex) >= 2+64:
                                 delta = -int(data_hex[2:2+64], 16)
-                        # 현재는 로깅 수준으로 유지 (필요 시 저장/활용 가능)
+                        # 밴드 히스토그램 업데이트
+                        try:
+                            await self.storage.upsert_v3_band_histogram(pool, tick_lower, tick_upper, delta)
+                        except Exception:
+                            pass
                         logger.debug(f"PM pos tokenId={token_id} pool={pool} fee={fee} band=({tick_lower},{tick_upper}) L={liq} dL={delta}")
                     except Exception:
                         pass
@@ -244,11 +253,13 @@ class BlockGraphUpdater:
         await self.rt.subscribe_to_blocks(on_new_block)
         await self.rt.subscribe_to_logs(on_log_event)
 
-        # 백그라운드로 WS 리스너 실행
-        asyncio.create_task(self.rt.start_websocket_listener())
-
-        # 시작 시 1회 초기 빌드
+        # 시작 시 1회 초기 빌드 후 주소 필터 계산 및 WS 시작
         await self.update_via_actions()
+        try:
+            self.rt.log_addresses = self._compute_log_addresses()
+        except Exception:
+            pass
+        asyncio.create_task(self.rt.start_websocket_listener())
         prune_graph(self.graph.graph, min_liquidity=0.1, keep_top_k=2)
         compact_graph_attributes(self.graph.graph)
 
@@ -301,6 +312,24 @@ class BlockGraphUpdater:
             else f"그래프 초기 빌드 완료(액션): {updated}개 엣지 추가"
         )
         logger.info(msg)
+
+    def _compute_log_addresses(self) -> List[str]:
+        addrs = set()
+        try:
+            if isinstance(self.graph.graph, nx.MultiDiGraph):
+                for u, v, k, data in self.graph.graph.edges(keys=True, data=True):
+                    if isinstance(data, dict):
+                        pa = data.get('pool_address')
+                        if pa:
+                            addrs.add(pa)
+            else:
+                for u, v, data in self.graph.graph.edges(data=True):
+                    pa = data.get('pool_address')
+                    if pa:
+                        addrs.add(pa)
+        except Exception:
+            pass
+        return list(addrs)
 
     def _init_position_manager(self):
         try:

@@ -161,6 +161,15 @@ class UniswapV3SwapAction(ProtocolAction, _SwapPairsMixin):
                 # fee tier별 통계 기반 점수 산정 및 선택 마킹
                 scored = []
                 for e in edges:
+                    # 밴드 히스토그램 기반 가중치로 pseudo-liquidity 보정
+                    try:
+                        bw = await self.storage.get_v3_band_weight(e['pool'], e.get('tick_lower'), e.get('tick_upper'))
+                        scale = max(0.25, float(bw))
+                        e['reserve0'] = float(e['reserve0']) * scale
+                        e['reserve1'] = float(e['reserve1']) * scale
+                        e['band_weight'] = float(bw)
+                    except Exception:
+                        e['band_weight'] = 1.0
                     stats = await self.storage.get_v3_fee_stats(e['pool'], e.get('fee_tier', 0))
                     ema0 = float(stats.get('ema_fee0', 0.0)) if stats else 0.0
                     ema1 = float(stats.get('ema_fee1', 0.0)) if stats else 0.0
@@ -195,6 +204,7 @@ class UniswapV3SwapAction(ProtocolAction, _SwapPairsMixin):
                             'fee_label': e.get('fee_label'),
                             'tier_score': float(score),
                             'selected': bool(best_pool and e['pool'] == best_pool),
+                            'band_weight': float(e.get('band_weight', 1.0)),
                         }
                     )
                     updated += 2
@@ -213,6 +223,11 @@ class CurveStableSwapAction(ProtocolAction, _SwapPairsMixin):
 
     async def update_graph(self, graph: DeFiMarketGraph, w3: Web3, tokens: Dict[str, str],
                            block_number: Optional[int] = None) -> int:
+        # 레지스트리 동기화(주기적)
+        try:
+            self.collector.refresh_registry_pools(ttl_sec=1800)
+        except Exception:
+            pass
         updated = 0
         base_liq = 200.0
         for token0, token1 in self._major_pairs(tokens):
@@ -230,7 +245,7 @@ class CurveStableSwapAction(ProtocolAction, _SwapPairsMixin):
                     token0=token0,
                     token1=token1,
                     dex='curve',
-                    pool_address=pool,
+                    pool_address=pool, edge_key=f"curve:{i}-{j}",
                     reserve0=reserve0,
                     reserve1=reserve1,
                     fee=self.fee,

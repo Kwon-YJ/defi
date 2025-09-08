@@ -140,3 +140,66 @@ class DataStorage:
         except Exception as e:
             logger.debug(f"V3 fee stats 조회 실패: {e}")
             return None
+
+    # --- V3 band histogram (positions) ---
+    async def upsert_v3_band_histogram(self, pool_address: str, tick_lower: int, tick_upper: int,
+                                       delta_liquidity: Optional[int] = None) -> None:
+        """밴드별 유동성 히스토그램을 업데이트. delta_liquidity가 있으면 유동성 총합에 가산.
+
+        저장 구조 (JSON):
+          {
+            "bands": {"{lower}:{upper}": {"liq": float, "count": int}},
+            "total_liq": float,
+            "total_count": int,
+            "updated_at": iso8601
+          }
+        """
+        try:
+            key = f"v3band:{pool_address}"
+            raw = self.redis_client.get(key)
+            if raw:
+                obj = json.loads(raw)
+            else:
+                obj = {"bands": {}, "total_liq": 0.0, "total_count": 0}
+            bkey = f"{int(tick_lower)}:{int(tick_upper)}"
+            band = obj.setdefault("bands", {}).get(bkey, {"liq": 0.0, "count": 0})
+            # count 증가
+            band["count"] = int(band.get("count", 0)) + 1
+            obj["total_count"] = int(obj.get("total_count", 0)) + 1
+            # 유동성 합산
+            if delta_liquidity is not None:
+                inc = float(delta_liquidity)
+                band["liq"] = float(band.get("liq", 0.0)) + inc
+                obj["total_liq"] = float(obj.get("total_liq", 0.0)) + inc
+            # 저장
+            obj.setdefault("bands", {})[bkey] = band
+            obj["updated_at"] = datetime.now().isoformat()
+            self.redis_client.setex(key, 7 * 24 * 3600, json.dumps(obj))
+        except Exception as e:
+            logger.debug(f"V3 band histogram upsert 실패: {e}")
+
+    async def get_v3_band_weight(self, pool_address: str, tick_lower: int, tick_upper: int) -> float:
+        """해당 밴드의 상대 가중치(0..1)를 반환. 데이터 없으면 1.0."""
+        try:
+            key = f"v3band:{pool_address}"
+            raw = self.redis_client.get(key)
+            if not raw:
+                return 1.0
+            obj = json.loads(raw)
+            bands = obj.get("bands", {})
+            total_liq = float(obj.get("total_liq", 0.0))
+            bkey = f"{int(tick_lower)}:{int(tick_upper)}"
+            band = bands.get(bkey)
+            if not band:
+                return 1.0
+            bliq = float(band.get("liq", 0.0))
+            if total_liq <= 0.0:
+                # total 부재 시 count 비율로 근사
+                total_cnt = float(obj.get("total_count", 0.0))
+                if total_cnt <= 0:
+                    return 1.0
+                return max(0.0, float(band.get("count", 0)) / total_cnt)
+            return max(0.0, bliq / total_liq)
+        except Exception as e:
+            logger.debug(f"V3 band weight 조회 실패: {e}")
+            return 1.0

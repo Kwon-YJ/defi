@@ -81,7 +81,7 @@
   - [x] pool.liquidity/액티브 밴드 기반 pseudo-liquidity 보정
 
 - [ ] Curve 개선
-  - [ ] Curve Registry 통합(모든 풀/메타풀 자동 탐색)
+  - [x] Curve Registry 통합(모든 풀/메타풀 자동 탐색)
   - [ ] calc_token_amount / calc_withdraw_one_coin 사용해 add/remove 정확화
   - [ ] 증폭계수(A), pool fee/admin fee, coin decimals 반영
   - [ ] LP totalSupply/decimals 사용 및 이벤트(Add/RemoveLiquidity) 반영
