@@ -20,6 +20,7 @@ class UniswapV3Collector:
         self.w3 = web3_provider
         self.factory_abi = self._get_factory_abi()
         self.pool_abi = self._get_pool_abi()
+        self._last_fee_inside: Dict[str, Dict[Tuple[int, int], Tuple[int, int]]] = {}
         try:
             with open('abi/erc20.json', 'r') as f:
                 self.erc20_abi = json.load(f)
@@ -68,6 +69,25 @@ class UniswapV3Collector:
             {"inputs": [], "name": "token1",   "outputs": [{"internalType": "address", "name": "", "type": "address"}], "stateMutability": "view", "type": "function"},
             {"inputs": [], "name": "fee",      "outputs": [{"internalType": "uint24",  "name": "", "type": "uint24"}],  "stateMutability": "view", "type": "function"},
             {"inputs": [], "name": "tickSpacing", "outputs": [{"internalType": "int24", "name": "", "type": "int24"}], "stateMutability": "view", "type": "function"}
+            ,
+            {"inputs": [], "name": "feeGrowthGlobal0X128", "outputs": [{"internalType": "uint256", "name": "", "type": "uint256"}], "stateMutability": "view", "type": "function"},
+            {"inputs": [], "name": "feeGrowthGlobal1X128", "outputs": [{"internalType": "uint256", "name": "", "type": "uint256"}], "stateMutability": "view", "type": "function"},
+            {
+                "inputs": [{"internalType": "int24", "name": "tick", "type": "int24"}],
+                "name": "ticks",
+                "outputs": [
+                    {"internalType": "uint128", "name": "liquidityGross", "type": "uint128"},
+                    {"internalType": "int128",  "name": "liquidityNet",   "type": "int128"},
+                    {"internalType": "uint256", "name": "feeGrowthOutside0X128", "type": "uint256"},
+                    {"internalType": "uint256", "name": "feeGrowthOutside1X128", "type": "uint256"},
+                    {"internalType": "int56",   "name": "tickCumulativeOutside", "type": "int56"},
+                    {"internalType": "uint160",  "name": "secondsPerLiquidityOutsideX128", "type": "uint160"},
+                    {"internalType": "uint32",   "name": "secondsOutside", "type": "uint32"},
+                    {"internalType": "bool",     "name": "initialized", "type": "bool"}
+                ],
+                "stateMutability": "view",
+                "type": "function"
+            }
         ]
 
     async def get_pool_address(self, token0: str, token1: str, fee: int) -> Optional[str]:
@@ -203,6 +223,63 @@ class UniswapV3Collector:
         r0 = max(1e-9, float(base_liquidity))
         r1 = max(1e-9, float(base_liquidity) * max(price01, 0.0))
         return (r0, r1)
+
+    # --- Fee growth helpers ---
+    @staticmethod
+    def _u256(x: int) -> int:
+        return x & ((1 << 256) - 1)
+
+    @classmethod
+    def _u256_sub(cls, a: int, b: int) -> int:
+        return cls._u256(a - b)
+
+    async def _fee_growth_inside(self, pool_address: str, cur_tick: int, tick_lower: int, tick_upper: int) -> Tuple[int, int]:
+        pool = self.w3.eth.contract(address=pool_address, abi=self.pool_abi)
+        fgg0 = int(pool.functions.feeGrowthGlobal0X128().call())
+        fgg1 = int(pool.functions.feeGrowthGlobal1X128().call())
+        tL = pool.functions.ticks(int(tick_lower)).call()
+        tU = pool.functions.ticks(int(tick_upper)).call()
+        out0L = int(tL[2]); out1L = int(tL[3])
+        out0U = int(tU[2]); out1U = int(tU[3])
+        # below
+        if cur_tick >= tick_lower:
+            below0 = out0L
+            below1 = out1L
+        else:
+            below0 = self._u256_sub(fgg0, out0L)
+            below1 = self._u256_sub(fgg1, out1L)
+        # above
+        if cur_tick < tick_upper:
+            above0 = self._u256_sub(fgg0, out0U)
+            above1 = self._u256_sub(fgg1, out1U)
+        else:
+            above0 = out0U
+            above1 = out1U
+        # inside = global - below - above
+        inside0 = self._u256_sub(self._u256_sub(fgg0, below0), above0)
+        inside1 = self._u256_sub(self._u256_sub(fgg1, below1), above1)
+        return inside0, inside1
+
+    async def estimate_fees_per_L(self, pool_address: str, dec0: int, dec1: int,
+                                  tick_lower: int, tick_upper: int, cur_tick: int) -> Tuple[float, float]:
+        """해당 풀과 밴드에서 직전 관측 이후 1 L 당 발생한 수수료(정규화 단위)를 추정.
+
+        반환값: (token0_per_L, token1_per_L)
+        """
+        inside0, inside1 = await self._fee_growth_inside(pool_address, cur_tick, tick_lower, tick_upper)
+        last_map = self._last_fee_inside.setdefault(pool_address, {})
+        last0, last1 = last_map.get((tick_lower, tick_upper), (inside0, inside1))
+        # delta with wraparound
+        d0 = self._u256_sub(inside0, last0)
+        d1 = self._u256_sub(inside1, last1)
+        # store current
+        last_map[(tick_lower, tick_upper)] = (inside0, inside1)
+        Q128 = float(2 ** 128)
+        # normalize by decimals
+        amt0 = (float(d0) / Q128) / (10 ** dec0)
+        amt1 = (float(d1) / Q128) / (10 ** dec1)
+        # keep non-negative
+        return max(0.0, amt0), max(0.0, amt1)
 
     async def build_edges_for_pair(self, tokenA: str, tokenB: str) -> List[Dict]:
         edges: List[Dict] = []

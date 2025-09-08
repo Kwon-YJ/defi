@@ -747,7 +747,6 @@ class UniswapV3CollectFeesAction(ProtocolAction):
                            block_number: Optional[int] = None) -> int:
         updated = 0
         base_liq = 20.0
-        fee_yield = 1e-4  # very small unit fees per LP
         for token0, token1 in list(combinations(tokens.values(), 2)):
             for fee in self.collector.FEE_TIERS:
                 try:
@@ -758,7 +757,17 @@ class UniswapV3CollectFeesAction(ProtocolAction):
                     if not state:
                         continue
                     t0 = state['token0']; t1 = state['token1']
+                    dec0 = state['dec0']; dec1 = state['dec1']
                     lp_token = lp_v3(pool)
+                    # 현재 활성 밴드 한 칸
+                    ts = int(state.get('tickSpacing', 60) or 60)
+                    cur_tick = int(state.get('tick', 0) or 0)
+                    tick_lower = (cur_tick // ts) * ts
+                    tick_upper = tick_lower + ts
+                    # 해당 밴드에서 직전 대비 1 L 당 수취된 수수료 추정
+                    fee0_per_L, fee1_per_L = await self.collector.estimate_fees_per_L(
+                        pool, dec0, dec1, tick_lower, tick_upper, cur_tick
+                    )
                     # LP -> token0 (fees)
                     graph.add_trading_pair(
                         token0=lp_token,
@@ -766,13 +775,14 @@ class UniswapV3CollectFeesAction(ProtocolAction):
                         dex='uniswap_v3_fee_collect',
                         pool_address=pool,
                         reserve0=base_liq,
-                        reserve1=base_liq * fee_yield,
+                        reserve1=base_liq * float(fee0_per_L),
                         fee=0.0,
                     )
                     set_edge_meta(
                         graph.graph, lp_token, t0, dex='uniswap_v3_fee_collect', pool_address=pool,
-                        fee_tier=fee, source='approx', confidence=0.6,
-                        extra={'tick': cur_tick, 'tick_lower': tick_lower, 'tick_upper': tick_upper, 'tick_spacing': ts, 't0': t0, 't1': t1}
+                        fee_tier=fee, source='onchain', confidence=0.7,
+                        extra={'tick': cur_tick, 'tick_lower': tick_lower, 'tick_upper': tick_upper,
+                               'tick_spacing': ts, 't0': t0, 't1': t1, 'fee0_per_L': float(fee0_per_L)}
                     )
                     updated += 2
                     # LP -> token1 (fees)
@@ -782,13 +792,14 @@ class UniswapV3CollectFeesAction(ProtocolAction):
                         dex='uniswap_v3_fee_collect',
                         pool_address=pool,
                         reserve0=base_liq,
-                        reserve1=base_liq * fee_yield,
+                        reserve1=base_liq * float(fee1_per_L),
                         fee=0.0,
                     )
                     set_edge_meta(
                         graph.graph, lp_token, t1, dex='uniswap_v3_fee_collect', pool_address=pool,
-                        fee_tier=fee, source='approx', confidence=0.6,
-                        extra={'tick': cur_tick, 'tick_lower': tick_lower, 'tick_upper': tick_upper, 'tick_spacing': ts, 't0': t0, 't1': t1}
+                        fee_tier=fee, source='onchain', confidence=0.7,
+                        extra={'tick': cur_tick, 'tick_lower': tick_lower, 'tick_upper': tick_upper,
+                               'tick_spacing': ts, 't0': t0, 't1': t1, 'fee1_per_L': float(fee1_per_L)}
                     )
                     updated += 2
                 except Exception as e:

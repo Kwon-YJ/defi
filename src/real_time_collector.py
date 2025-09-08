@@ -26,7 +26,10 @@ class RealTimeDataCollector:
             # keccak256("Mint(address,uint256,uint256)")
             'Mint': '0x4c209b5fc8ad50758f13e2e1088ba56a560dff690a1c6fef26394f4c03821c4f',
             # keccak256("Burn(address,uint256,uint256,address)")
-            'Burn': '0xdccd412f0b1252819cb1fd330b93224ca42612892bb3f4f789976e6d81936496'
+            'Burn': '0xdccd412f0b1252819cb1fd330b93224ca42612892bb3f4f789976e6d81936496',
+            # Uniswap V3 Pool Collect event
+            # keccak256("Collect(address,address,int24,int24,uint128,uint256,uint256)")
+            'V3Collect': '0xf4ffc589144636c0d56f9ddc7c2399571e6401783c0aafedc9d34ab7cadad2ba'
         }
         
     async def subscribe_to_blocks(self, callback: Callable):
@@ -188,6 +191,10 @@ class RealTimeDataCollector:
             elif log_data['topics'][0] == self.monitored_events['Burn']:
                 await self._handle_burn_event(log_data)
             
+            # Uniswap V3 Collect 이벤트 처리 (수수료 수취)
+            elif log_data['topics'][0] == self.monitored_events['V3Collect']:
+                await self._handle_v3_collect_event(log_data)
+            
             # 구독자들에게 알림
             for callback in self.subscribers.get('logs', []):
                 try:
@@ -255,6 +262,15 @@ class RealTimeDataCollector:
             # 실제 그래프 갱신은 상위 구독자(on_log_event)에서 처리
         except Exception as e:
             logger.error(f"Burn 이벤트 처리 실패: {e}")
+
+    async def _handle_v3_collect_event(self, log_data: Dict):
+        """Uniswap V3 Collect 이벤트 처리 (수수료 수취)"""
+        try:
+            pool_address = log_data['address']
+            logger.debug(f"V3 Collect 이벤트 감지: {pool_address}")
+            # 실제 그래프 갱신은 상위 구독자(on_log_event)에서 처리
+        except Exception as e:
+            logger.error(f"V3 Collect 이벤트 처리 실패: {e}")
     
     def stop(self):
         """데이터 수집 중지"""

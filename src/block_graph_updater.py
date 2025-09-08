@@ -7,10 +7,13 @@ import networkx as nx
 from src.logger import setup_logger
 from src.market_graph import DeFiMarketGraph
 from src.dex_data_collector import UniswapV2Collector, SushiSwapCollector
+from src.dex_uniswap_v3_collector import UniswapV3Collector
 from src.action_registry import register_default_actions, ActionRegistry
 from src.real_time_collector import RealTimeDataCollector
 from src.graph_pruner import prune_graph
 from src.memory_compactor import compact_graph_attributes
+from src.synth_tokens import lp_v3
+from src.edge_meta import set_edge_meta
 from config.config import config
 
 logger = setup_logger(__name__)
@@ -50,6 +53,8 @@ class BlockGraphUpdater:
 
         # 블록 수신기
         self.rt = RealTimeDataCollector()
+        # V3 전용 수집기 (fee accrual 추정 등에 활용)
+        self.v3_collector = UniswapV3Collector(self.w3)
         # Protocol Action Registry (확장성)
         self.registry: ActionRegistry = register_default_actions(self.w3)
 
@@ -130,6 +135,62 @@ class BlockGraphUpdater:
                                 self.graph.update_pool_data(pool, float(r0), float(r1))
                                 logger.debug(f"Event-triggered reserve refresh: {pool} r0={r0} r1={r1}")
                                 compact_graph_attributes(self.graph.graph)
+                        except Exception as _:
+                            pass
+                # Uniswap V3 Collect: 수수료 수취 이벤트 감지 시 해당 풀의 fee-collect 엣지 즉시 갱신
+                elif log_data.get('topics') and log_data['topics'][0] == self.rt.monitored_events.get('V3Collect'):
+                    pool = log_data.get('address')
+                    if pool:
+                        try:
+                            state = await self.v3_collector.get_pool_core_state(pool)
+                            if not state:
+                                return
+                            t0 = state['token0']; t1 = state['token1']
+                            dec0 = state['dec0']; dec1 = state['dec1']
+                            ts = int(state.get('tickSpacing', 60) or 60)
+                            cur_tick = int(state.get('tick', 0) or 0)
+                            tick_lower = (cur_tick // ts) * ts
+                            tick_upper = tick_lower + ts
+                            fee0_per_L, fee1_per_L = await self.v3_collector.estimate_fees_per_L(
+                                pool, dec0, dec1, tick_lower, tick_upper, cur_tick
+                            )
+                            lp_token = lp_v3(pool)
+                            base_liq = 20.0
+                            # LP -> token0 (fees)
+                            self.graph.add_trading_pair(
+                                token0=lp_token,
+                                token1=t0,
+                                dex='uniswap_v3_fee_collect',
+                                pool_address=pool,
+                                reserve0=base_liq,
+                                reserve1=base_liq * float(fee0_per_L),
+                                fee=0.0,
+                            )
+                            set_edge_meta(
+                                self.graph.graph, lp_token, t0, dex='uniswap_v3_fee_collect', pool_address=pool,
+                                fee_tier=state.get('fee'), source='event', confidence=0.72,
+                                extra={'tick': cur_tick, 'tick_lower': tick_lower, 'tick_upper': tick_upper,
+                                       'tick_spacing': ts, 't0': t0, 't1': t1, 'fee0_per_L': float(fee0_per_L),
+                                       'collect_event': True}
+                            )
+                            # LP -> token1 (fees)
+                            self.graph.add_trading_pair(
+                                token0=lp_token,
+                                token1=t1,
+                                dex='uniswap_v3_fee_collect',
+                                pool_address=pool,
+                                reserve0=base_liq,
+                                reserve1=base_liq * float(fee1_per_L),
+                                fee=0.0,
+                            )
+                            set_edge_meta(
+                                self.graph.graph, lp_token, t1, dex='uniswap_v3_fee_collect', pool_address=pool,
+                                fee_tier=state.get('fee'), source='event', confidence=0.72,
+                                extra={'tick': cur_tick, 'tick_lower': tick_lower, 'tick_upper': tick_upper,
+                                       'tick_spacing': ts, 't0': t0, 't1': t1, 'fee1_per_L': float(fee1_per_L),
+                                       'collect_event': True}
+                            )
+                            compact_graph_attributes(self.graph.graph)
                         except Exception as _:
                             pass
             except Exception as e:
