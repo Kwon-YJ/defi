@@ -481,9 +481,10 @@ class UniswapV2AddLiquidityAction(ProtocolAction, _SwapPairsMixin):
                 lp_dec = 18
                 nr0, nr1 = normalize_reserves(r0, d0, r1, d1)
                 ts_norm = float(ts) / (10 ** lp_dec)
-                # LP minted per unit token (split 50/50 assumption)
-                lp_per_t0 = (ts_norm / nr0) * 0.5 if nr0 > 0 else 0.0
-                lp_per_t1 = (ts_norm / nr1) * 0.5 if nr1 > 0 else 0.0
+                # LP minted per unit token (exact under proportional deposit):
+                # L = min(a0*ts/r0, a1*ts/r1); with proportional a1/a0=r1/r0 => L = a0*ts/r0 = a1*ts/r1
+                lp_per_t0 = (ts_norm / nr0) if nr0 > 0 else 0.0
+                lp_per_t1 = (ts_norm / nr1) if nr1 > 0 else 0.0
                 # token0 -> LP
                 graph.add_trading_pair(
                     token0=t0,

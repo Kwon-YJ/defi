@@ -67,7 +67,7 @@
 - [x] 공통: 부채/담보 제약 반영(Health factor/LTV/청산 임계 반영) 및 경로 타당성 필터  
 
 - [ ] Uniswap V2 개선
-  - [ ] LP 민팅/소각 정확화: exact 수식 적용(min(amount0*ts/r0, amount1*ts/r1))
+  - [x] LP 민팅/소각 정확화: exact 수식 적용(min(amount0*ts/r0, amount1*ts/r1))
   - [ ] token decimals 반영 및 LP decimals 고려
   - [ ] fee-on-transfer/rebase 토큰 감지 및 보수적 처리
   - [ ] 이벤트 기반 업데이트(Mint/Burn/Sync)로 그래프 실시간 갱신
