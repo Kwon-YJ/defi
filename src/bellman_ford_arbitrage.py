@@ -31,7 +31,10 @@ class BellmanFordArbitrage:
                 if opportunity and opportunity.net_profit > 0:
                     opportunities.append(opportunity)
         
-        return sorted(opportunities, key=lambda x: x.net_profit, reverse=True)
+        # 최고 수익 기회 우선 반환 (Best revenue transaction per source)
+        opportunities.sort(key=lambda x: x.net_profit, reverse=True)
+        # 기본적으로 상위 1개만 반환하여 상위 기회에 집중
+        return opportunities[:1]
     
     def _bellman_ford(self, source: str, max_iterations: int) -> bool:
         """Bellman-Ford 알고리즘 실행"""
