@@ -77,7 +77,40 @@ class BlockGraphUpdater:
             except Exception as e:
                 logger.error(f"블록 갱신 실패: {e}")
 
+        async def on_log_event(log_data):
+            try:
+                # Sync 이벤트: 풀 리저브 업데이트 즉시 반영
+                if log_data.get('topics') and log_data['topics'][0] == self.rt.monitored_events.get('Sync'):
+                    pool = log_data.get('address')
+                    data_hex = log_data.get('data')
+                    reserve0 = reserve1 = None
+                    if isinstance(data_hex, str) and data_hex.startswith('0x') and len(data_hex) >= 2 + 64 * 2:
+                        try:
+                            # ABI 인코딩된 두 개의 uint256에서 상위 비트는 0으로 패딩됨 (uint112 사용)
+                            r0_hex = data_hex[2:2+64]
+                            r1_hex = data_hex[2+64:2+128]
+                            reserve0 = int(r0_hex, 16)
+                            reserve1 = int(r1_hex, 16)
+                        except Exception:
+                            reserve0 = reserve1 = None
+                    # 일부 구현에서 토픽으로 싱크를 보낼 수 있어 예비 처리
+                    if reserve0 is None or reserve1 is None:
+                        topics = log_data.get('topics', [])
+                        if len(topics) >= 3:
+                            try:
+                                reserve0 = int(topics[1], 16)
+                                reserve1 = int(topics[2], 16)
+                            except Exception:
+                                reserve0 = reserve1 = None
+                    if pool and reserve0 is not None and reserve1 is not None:
+                        # 그래프 풀 데이터 즉시 갱신
+                        self.graph.update_pool_data(pool, float(reserve0), float(reserve1))
+                        logger.debug(f"Sync 반영: {pool} r0={reserve0} r1={reserve1}")
+            except Exception as e:
+                logger.debug(f"로그 기반 동적 업데이트 실패: {e}")
+
         await self.rt.subscribe_to_blocks(on_new_block)
+        await self.rt.subscribe_to_logs(on_log_event)
 
         # 백그라운드로 WS 리스너 실행
         asyncio.create_task(self.rt.start_websocket_listener())
