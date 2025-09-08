@@ -389,13 +389,16 @@ class BellmanFordArbitrage:
         )
 
     def _route_satisfies_constraints(self, edges: List[TradingEdge]) -> bool:
-        """경로가 부채/담보 제약을 만족하는지 검증.
+        """경로가 부채/담보 제약을 만족하는지 검증 + Health Factor 근사 계산.
 
-        단순 규칙 기반 검증:
-        - Aave/Compound: borrow는 동일 프로토콜의 supply가 경로 내에 존재해야 함
-        - debt 토큰(\"debt:*\") 잔고는 경로 종료 시 0이어야 함 (borrow == repay)
-        - LP/BPT synthetic 토큰(\"lp:*\", \"bpt:*\") 잔고는 경로 종료 시 0이어야 함 (add/join == remove/exit)
-        - 중간에 음수 잔고가 되면(없는 포지션 제거 시도) 경로 무효
+        규칙/근사:
+        - Aave: supply(underlying->aToken)로 담보 용량(capacity)을 적립: amount * liquidationThreshold 합산
+        - Aave: borrow(edge: debt->underlying)로 부채 증가; repay(underlying->debt)로 감소
+        - 경로 중 어느 시점이든 debt <= capacity 유지 (HF = capacity / debt >= 1)
+        - usageAsCollateralEnabled=False 담보는 capacity 미반영
+        - borrowingEnabled=False 자산은 borrow 엣지 무효
+        - debt 토큰(\"debt:*\")/LP/BPT 잔고는 경로 종료 시 0이어야 함 (기존 규칙 유지)
+        - 단위/가격은 근사적으로 1:1 가정(상대적 제약 목적)
         """
         if not edges:
             return False
@@ -407,10 +410,32 @@ class BellmanFordArbitrage:
             'compound': False,
         }
 
+        # Aave HF 근사 상태
+        aave_capacity = 0.0  # sum(amount * liquidationThreshold)
+        aave_debt = 0.0      # sum(borrowed)
+        amount = 1.0         # 기준 시작 자본 단위
+
         for e in edges:
             dex = (e.dex or '').lower()
             u = e.from_token or ''
             v = e.to_token or ''
+            # 엣지 메타 조회
+            meta = {}
+            try:
+                ed = self.graph.graph.get_edge_data(u, v)
+                data = None
+                if isinstance(ed, dict) and 'exchange_rate' in ed:
+                    data = ed
+                elif isinstance(ed, dict):
+                    for _, d in ed.items():
+                        if not isinstance(d, dict):
+                            continue
+                        if d.get('dex') == e.dex and d.get('pool_address') == e.pool_address:
+                            data = d; break
+                if isinstance(data, dict):
+                    meta = data.get('meta', {}) or {}
+            except Exception:
+                meta = {}
 
             # Supply detection
             if dex == 'aave':
@@ -426,7 +451,7 @@ class BellmanFordArbitrage:
                 if lp_counts[u] < 0:
                     return False
 
-            # Debt balances via dex types and token prefix
+            # Debt balances via dex types and token prefix (legacy)
             if dex in ('aave_borrow', 'compound_borrow'):
                 # require prior supply for that protocol
                 proto = 'aave' if dex.startswith('aave') else 'compound'
@@ -442,6 +467,42 @@ class BellmanFordArbitrage:
                     if debt_counts[v] < 0:
                         return False
 
+            # Aave Health Factor 근사
+            try:
+                if dex == 'aave':
+                    # supply: treat as depositing `amount` units; add to capacity with liquidationThreshold
+                    lt = float(meta.get('liquidationThreshold', 0.5) or 0.5)
+                    uac = bool(meta.get('usageAsCollateralEnabled', True))
+                    if uac:
+                        aave_capacity += max(0.0, amount) * max(0.0, min(lt, 1.0))
+                    amount = self._amount_out_with_slippage(amount, e)
+                elif dex in ('aave_borrow_variable', 'aave_borrow_stable'):
+                    # require supply first
+                    if not have_supply.get('aave', False):
+                        return False
+                    # borrowing enabled?
+                    if dex.endswith('stable') and meta and not bool(meta.get('stableBorrowRateEnabled', True)):
+                        return False
+                    if meta and not bool(meta.get('borrowingEnabled', True)):
+                        return False
+                    out = self._amount_out_with_slippage(amount, e)
+                    aave_debt += max(0.0, out)
+                    # HF >= 1 requirement
+                    if aave_debt > aave_capacity + 1e-9:
+                        return False
+                    amount = out
+                elif dex in ('aave_repay_variable', 'aave_repay_stable'):
+                    # repay uses underlying input amount to reduce debt
+                    aave_debt -= max(0.0, amount)
+                    if aave_debt < -1e-6:
+                        return False
+                    amount = self._amount_out_with_slippage(amount, e)
+                else:
+                    amount = self._amount_out_with_slippage(amount, e)
+            except Exception:
+                # 안전하게 실패 시 경로 거부
+                return False
+
         # All LP/BPT must be fully unwound
         for k, c in lp_counts.items():
             if c != 0:
@@ -451,6 +512,10 @@ class BellmanFordArbitrage:
         for k, c in debt_counts.items():
             if c != 0:
                 return False
+
+        # All debts must be repaid (legacy counter also ensures)
+        if aave_debt > 1e-6:
+            return False
 
         return True
 
