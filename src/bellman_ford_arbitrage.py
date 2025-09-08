@@ -215,13 +215,15 @@ class BellmanFordArbitrage:
         for i in range(len(cycle) - 1):
             from_token = cycle[i]
             to_token = cycle[i + 1]
-            
+
             if not self.graph.graph.has_edge(from_token, to_token):
                 logger.warning(f"엣지가 존재하지 않음: {from_token} -> {to_token}")
                 return None
-            
-            edge_data = self.graph.graph[from_token][to_token]
-            edge = TradingEdge(**edge_data)
+
+            edge = self._pick_edge(from_token, to_token)
+            if edge is None:
+                logger.warning(f"엣지 선택 실패: {from_token} -> {to_token}")
+                return None
             edges.append(edge)
             total_gas_cost += edge.gas_cost
         
@@ -338,8 +340,9 @@ class BellmanFordArbitrage:
             u, v = cycle[i], cycle[i + 1]
             if not self.graph.graph.has_edge(u, v):
                 return None
-            data = self.graph.graph[u][v]
-            edge = TradingEdge(**data)
+            edge = self._pick_edge(u, v)
+            if edge is None:
+                return None
             edges.append(edge)
             total_gas_cost += edge.gas_cost
 
@@ -396,3 +399,27 @@ class BellmanFordArbitrage:
             return 0.02
         else:
             return 0.05
+
+    def _pick_edge(self, u: str, v: str) -> Optional[TradingEdge]:
+        """동일 토큰 쌍에서 여러 DEX 엣지가 있을 경우 최적 엣지 선택
+        기본 정책: exchange_rate가 가장 큰 엣지 선택
+        """
+        try:
+            ed = self.graph.graph.get_edge_data(u, v)
+            if ed is None:
+                return None
+            # DiGraph: ed는 단일 속성 dict
+            if isinstance(ed, dict) and 'exchange_rate' in ed:
+                return TradingEdge(**ed)
+            # MultiDiGraph: ed는 key->data dict
+            candidates = []
+            if isinstance(ed, dict):
+                for _, data in ed.items():
+                    if isinstance(data, dict) and 'exchange_rate' in data:
+                        candidates.append(data)
+            if not candidates:
+                return None
+            best = max(candidates, key=lambda d: d.get('exchange_rate', 0))
+            return TradingEdge(**best)
+        except Exception:
+            return None

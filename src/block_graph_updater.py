@@ -2,6 +2,7 @@ import asyncio
 from typing import Dict, List, Tuple, Optional
 from itertools import combinations
 from web3 import Web3
+import networkx as nx
 
 from src.logger import setup_logger
 from src.market_graph import DeFiMarketGraph
@@ -60,6 +61,14 @@ class BlockGraphUpdater:
         if self.running:
             return
         self.running = True
+
+        # Multi-graph 지원: 동일 토큰 쌍에서 여러 DEX 엣지 처리
+        if not isinstance(self.graph.graph, nx.MultiDiGraph):
+            try:
+                self.graph.graph = nx.MultiDiGraph(self.graph.graph)
+                logger.info("그래프를 MultiDiGraph로 변환하여 다중 DEX 엣지 지원")
+            except Exception as e:
+                logger.warning(f"MultiDiGraph 변환 실패(계속 진행): {e}")
 
         async def on_new_block(block_data):
             try:
