@@ -38,7 +38,7 @@
 - [x] MakerDAO (CDP, DAI minting actions)
 - [x] Synthetix (synthetic asset actions)
 - [x] Yearn Finance (yield strategy actions)
-- [ ] dYdX (margin trading actions)
+- [x] dYdX (margin trading actions)
 - [ ] 각 protocol의 모든 주요 functions (mint, burn, swap, lend, borrow, etc.)
 
 ### 2.2 자산 지원 확장 (현재 4개 base tokens → 논문의 25개 assets)
