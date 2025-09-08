@@ -9,6 +9,7 @@ from web3 import Web3
 from src.logger import setup_logger
 from src.market_graph import DeFiMarketGraph
 from src.dex_data_collector import UniswapV2Collector, SushiSwapCollector
+from src.dex_uniswap_v3_collector import UniswapV3Collector
 
 logger = setup_logger(__name__)
 
@@ -100,11 +101,36 @@ class SushiSwapSwapAction(ProtocolAction, _SwapPairsMixin):
 
 
 # Skeletons for future expansion (disabled by default)
-class UniswapV3SwapAction(ProtocolAction):
+class UniswapV3SwapAction(ProtocolAction, _SwapPairsMixin):
     name = "uniswap_v3.swap"
-    enabled = False
-    async def update_graph(self, *args, **kwargs) -> int:
-        return 0
+    enabled = True
+
+    def __init__(self, w3: Web3):
+        self.collector = UniswapV3Collector(w3)
+
+    async def update_graph(self, graph: DeFiMarketGraph, w3: Web3, tokens: Dict[str, str],
+                           block_number: Optional[int] = None) -> int:
+        updated = 0
+        for token0, token1 in self._major_pairs(tokens):
+            try:
+                edges = await self.collector.build_edges_for_pair(token0, token1)
+                if not edges:
+                    continue
+                for e in edges:
+                    # 유사 리저브를 통한 환율 반영 (add_trading_pair 내부에서 수수료 감안)
+                    graph.add_trading_pair(
+                        token0=e['token0'],
+                        token1=e['token1'],
+                        dex='uniswap_v3',
+                        pool_address=e['pool'],
+                        reserve0=float(e['reserve0']),
+                        reserve1=float(e['reserve1']),
+                        fee=float(e['fee_fraction']),
+                    )
+                    updated += 2
+            except Exception as e:
+                logger.debug(f"UniswapV3 update failed {token0[:6]}-{token1[:6]}: {e}")
+        return updated
 
 
 class CurveStableSwapAction(ProtocolAction):
@@ -194,7 +220,7 @@ def register_default_actions(w3: Web3) -> ActionRegistry:
     reg.register(SushiSwapSwapAction(w3))
 
     # Disabled skeletons for scalability toward 96 actions
-    reg.register(UniswapV3SwapAction())
+    reg.register(UniswapV3SwapAction(w3))
     reg.register(CurveStableSwapAction())
     reg.register(BalancerWeightedSwapAction())
     reg.register(AaveSupplyBorrowAction())
