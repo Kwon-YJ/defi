@@ -21,6 +21,8 @@ from src.uniswap_v2_lp_collector import UniswapV2LPCollector
 from src.erc20_utils import get_decimals, normalize_reserves
 from src.yearn_collectors import YearnV2Collector
 from src.edge_meta import set_edge_meta
+from src.gas_utils import estimate_gas_cost_usd_for_dex, set_edge_gas_cost
+from src.synth_tokens import lp_v2, lp_v3, lp_curve, bpt, debt_aave, debt_compound
 
 logger = setup_logger(__name__)
 
@@ -485,27 +487,27 @@ class UniswapV2AddLiquidityAction(ProtocolAction, _SwapPairsMixin):
                 # token0 -> LP
                 graph.add_trading_pair(
                     token0=t0,
-                    token1=pair,
+                    token1=lp_v2(pair),
                     dex='uniswap_v2_lp_add',
                     pool_address=pair,
                     reserve0=base_liq,
                     reserve1=base_liq * lp_per_t0,
                     fee=0.0,
                 )
-                set_edge_meta(graph.graph, t0, pair, dex='uniswap_v2_lp_add', pool_address=pair,
+                set_edge_meta(graph.graph, t0, lp_v2(pair), dex='uniswap_v2_lp_add', pool_address=pair,
                               fee_tier=None, source='approx', confidence=0.8)
                 updated += 2
                 # token1 -> LP
                 graph.add_trading_pair(
                     token0=t1,
-                    token1=pair,
+                    token1=lp_v2(pair),
                     dex='uniswap_v2_lp_add',
                     pool_address=pair,
                     reserve0=base_liq,
                     reserve1=base_liq * lp_per_t1,
                     fee=0.0,
                 )
-                set_edge_meta(graph.graph, t1, pair, dex='uniswap_v2_lp_add', pool_address=pair,
+                set_edge_meta(graph.graph, t1, lp_v2(pair), dex='uniswap_v2_lp_add', pool_address=pair,
                               fee_tier=None, source='approx', confidence=0.8)
                 updated += 2
             except Exception as e:
@@ -547,7 +549,7 @@ class UniswapV2RemoveLiquidityAction(ProtocolAction, _SwapPairsMixin):
                 t1_per_lp = nr1 / ts_norm if ts_norm > 0 else 0.0
                 # LP -> token0
                 graph.add_trading_pair(
-                    token0=pair,
+                    token0=lp_v2(pair),
                     token1=t0,
                     dex='uniswap_v2_lp_remove',
                     pool_address=pair,
@@ -555,12 +557,12 @@ class UniswapV2RemoveLiquidityAction(ProtocolAction, _SwapPairsMixin):
                     reserve1=base_liq * t0_per_lp,
                     fee=0.0,
                 )
-                set_edge_meta(graph.graph, pair, t0, dex='uniswap_v2_lp_remove', pool_address=pair,
+                set_edge_meta(graph.graph, lp_v2(pair), t0, dex='uniswap_v2_lp_remove', pool_address=pair,
                               fee_tier=None, source='approx', confidence=0.8)
                 updated += 2
                 # LP -> token1
                 graph.add_trading_pair(
-                    token0=pair,
+                    token0=lp_v2(pair),
                     token1=t1,
                     dex='uniswap_v2_lp_remove',
                     pool_address=pair,
@@ -568,7 +570,7 @@ class UniswapV2RemoveLiquidityAction(ProtocolAction, _SwapPairsMixin):
                     reserve1=base_liq * t1_per_lp,
                     fee=0.0,
                 )
-                set_edge_meta(graph.graph, pair, t1, dex='uniswap_v2_lp_remove', pool_address=pair,
+                set_edge_meta(graph.graph, lp_v2(pair), t1, dex='uniswap_v2_lp_remove', pool_address=pair,
                               fee_tier=None, source='approx', confidence=0.8)
                 updated += 2
             except Exception as e:
@@ -600,7 +602,7 @@ class UniswapV3AddLiquidityAction(ProtocolAction):
                     if price01 <= 0:
                         continue
                     t0 = state['token0']; t1 = state['token1']
-                    lp_token = f"{pool}-v3lp"
+                    lp_token = lp_v3(pool)
                     lp_per_t0 = 1.0
                     lp_per_t1 = (1.0 / price01) if price01 > 0 else 0.0
                     # token0 -> LP
@@ -659,7 +661,7 @@ class UniswapV3RemoveLiquidityAction(ProtocolAction):
                     if price01 <= 0:
                         continue
                     t0 = state['token0']; t1 = state['token1']
-                    lp_token = f"{pool}-v3lp"
+                    lp_token = lp_v3(pool)
                     t0_per_lp = 1.0
                     t1_per_lp = price01
                     # LP -> token0
@@ -715,7 +717,7 @@ class UniswapV3CollectFeesAction(ProtocolAction):
                     if not state:
                         continue
                     t0 = state['token0']; t1 = state['token1']
-                    lp_token = f"{pool}-v3lp"
+                    lp_token = lp_v3(pool)
                     # LP -> token0 (fees)
                     graph.add_trading_pair(
                         token0=lp_token,
@@ -763,7 +765,7 @@ class CurveAddLiquidityAction(ProtocolAction):
             for p in self.collector.POOLS:
                 pool = p['address']
                 coins = [c.lower() for c in p['coins']]
-                lp_token = f"{pool}-curvelp"
+                lp_token = lp_curve(pool)
                 for _, addr in tokens.items():
                     if addr.lower() in coins:
                         # Approximate 1 LP per 1 unit of stable for add liquidity
@@ -799,7 +801,7 @@ class CurveRemoveLiquidityAction(ProtocolAction):
             for p in self.collector.POOLS:
                 pool = p['address']
                 coins = [c.lower() for c in p['coins']]
-                lp_token = f"{pool}-curvelp"
+                lp_token = lp_curve(pool)
                 for coin in coins:
                     # LP -> coin (single-asset withdraw) approximated at 1:1
                     graph.add_trading_pair(
@@ -838,7 +840,7 @@ class BalancerJoinPoolAction(ProtocolAction):
                 price01, _ = self.collector.get_spot_price_and_fee(pool, token0, token1)
                 if price01 <= 0:
                     continue
-                lp_token = f"{pool}-balp"
+                lp_token = bpt(pool)
                 # token0 -> LP (unit)
                 graph.add_trading_pair(
                     token0=token0,
@@ -891,7 +893,7 @@ class BalancerExitPoolAction(ProtocolAction):
                 price01, _ = self.collector.get_spot_price_and_fee(pool, token0, token1)
                 if price01 <= 0:
                     continue
-                lp_token = f"{pool}-balp"
+                lp_token = bpt(pool)
                 # LP -> token0 (unit)
                 graph.add_trading_pair(
                     token0=lp_token,
@@ -932,7 +934,7 @@ class AaveBorrowAction(ProtocolAction):
         self.fee = 0.0005  # borrowing cost approximation
 
     def _debt_token_id(self, underlying: str) -> str:
-        return f"aave_vdebt:{underlying}"
+        return debt_aave(underlying)
 
     async def update_graph(self, graph: DeFiMarketGraph, w3: Web3, tokens: Dict[str, str],
                            block_number: Optional[int] = None) -> int:
@@ -1009,7 +1011,7 @@ class CompoundBorrowAction(ProtocolAction):
         self.fee = 0.0005  # borrowing cost approximation
 
     def _debt_token_id(self, underlying: str) -> str:
-        return f"compound_debt:{underlying}"
+        return debt_compound(underlying)
 
     async def update_graph(self, graph: DeFiMarketGraph, w3: Web3, tokens: Dict[str, str],
                            block_number: Optional[int] = None) -> int:
