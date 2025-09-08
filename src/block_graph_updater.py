@@ -9,6 +9,7 @@ from src.market_graph import DeFiMarketGraph
 from src.dex_data_collector import UniswapV2Collector, SushiSwapCollector
 from src.action_registry import register_default_actions, ActionRegistry
 from src.real_time_collector import RealTimeDataCollector
+from src.graph_pruner import prune_graph
 from config.config import config
 
 logger = setup_logger(__name__)
@@ -74,6 +75,8 @@ class BlockGraphUpdater:
             try:
                 block_number = int(block_data['number'], 16)
                 await self.update_via_actions(block_number)
+                # 블록 단위로 프루닝 수행 (너무 작은 유동성/지배된 엣지 제거)
+                prune_graph(self.graph.graph, min_liquidity=0.1, keep_top_k=2)
             except Exception as e:
                 logger.error(f"블록 갱신 실패: {e}")
 
@@ -117,6 +120,7 @@ class BlockGraphUpdater:
 
         # 시작 시 1회 초기 빌드
         await self.update_via_actions()
+        prune_graph(self.graph.graph, min_liquidity=0.1, keep_top_k=2)
 
     async def update_all_pairs(self, block_number: Optional[int] = None):
         """등록된 모든 DEX, 주요 페어에 대해 그래프 엣지 갱신"""
