@@ -87,7 +87,7 @@
   - [x] LP totalSupply/decimals 사용 및 이벤트(Add/RemoveLiquidity) 반영
 
 - [ ] Balancer 개선
-  - [ ] getNormalizedWeights, getSwapFeePercentage, getPoolTokens 기반 spot 정확화
+  - [x] getNormalizedWeights, getSwapFeePercentage, getPoolTokens 기반 spot 정확화
   - [ ] Weighted 수학 기반 join/exit 수식 적용(BPT totalSupply 사용)
   - [ ] 단일자산 join/exit 수수료 반영 및 비례 join/exit 분기 처리
 

@@ -289,17 +289,19 @@ class BalancerWeightedSwapAction(ProtocolAction, _SwapPairsMixin):
     async def update_graph(self, graph: DeFiMarketGraph, w3: Web3, tokens: Dict[str, str],
                            block_number: Optional[int] = None) -> int:
         updated = 0
-        base_liq = 150.0
         for token0, token1 in self._major_pairs(tokens):
             try:
                 pool = self.collector.find_pool_for_pair(token0, token1)
                 if not pool:
                     continue
+                # read weights, balances and fee
+                wi, wj, bi, bj = self.collector.get_weights_and_balances(pool, token0, token1)
                 price01, fee_frac = self.collector.get_spot_price_and_fee(pool, token0, token1)
-                if price01 <= 0:
+                if price01 <= 0 or wi <= 0 or wj <= 0 or bi <= 0 or bj <= 0:
                     continue
-                reserve0 = base_liq
-                reserve1 = base_liq * price01
+                # effective reserves so that exchange_rate matches Balancer spot
+                reserve0 = float(bi) / float(wi)
+                reserve1 = float(bj) / float(wj)
                 graph.add_trading_pair(
                     token0=token0,
                     token1=token1,
@@ -309,10 +311,6 @@ class BalancerWeightedSwapAction(ProtocolAction, _SwapPairsMixin):
                     reserve1=reserve1,
                     fee=float(fee_frac),
                 )
-                try:
-                    wi, wj, bi, bj = self.collector.get_weights_and_balances(pool, token0, token1)
-                except Exception:
-                    wi = wj = 0.5; bi = bj = 0.0
                 set_edge_meta(
                     graph.graph, token0, token1, dex='balancer', pool_address=pool,
                     fee_tier=None, source='onchain', confidence=0.9,
