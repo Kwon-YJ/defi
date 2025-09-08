@@ -23,6 +23,8 @@ from src.yearn_collectors import YearnV2Collector
 from src.edge_meta import set_edge_meta
 from src.gas_utils import estimate_gas_cost_usd_for_dex, set_edge_gas_cost
 from src.synth_tokens import lp_v2, lp_v3, lp_curve, bpt, debt_aave, debt_compound
+from src.slippage import amount_out_uniswap_v2
+from config.config import config
 from config.config import config
 
 logger = setup_logger(__name__)
@@ -71,19 +73,30 @@ class UniswapV2SwapAction(ProtocolAction, _SwapPairsMixin):
                 d0 = get_decimals(w3, t0, 18)
                 d1 = get_decimals(w3, t1, 18)
                 nr0, nr1 = normalize_reserves(r0, d0, r1, d1)
+                # amount-dependent effective rate for reference trade fraction
+                try:
+                    f = float(getattr(config, 'slippage_trade_fraction', 0.01))
+                except Exception:
+                    f = 0.01
+                amt_in = max(1e-12, float(nr0) * max(1e-6, min(f, 0.5)))
+                out = amount_out_uniswap_v2(amt_in, float(nr0), float(nr1), self.fee)
+                eff_rate = (out / amt_in) if amt_in > 0 and out > 0 else (float(nr1) / float(nr0)) * (1.0 - self.fee)
+                # set pseudo reserves to match effective rate: rate_pre_fee = eff_rate / (1-fee)
+                pre_fee_rate = eff_rate / max(1e-9, (1.0 - self.fee))
+                base = 100.0
                 graph.add_trading_pair(
                     token0=t0,
                     token1=t1,
                     dex='uniswap_v2',
                     pool_address=pair_address,
-                    reserve0=float(nr0),
-                    reserve1=float(nr1),
+                    reserve0=base,
+                    reserve1=base * float(pre_fee_rate),
                     fee=self.fee,
                 )
                 set_edge_meta(
                     graph.graph, t0, t1, dex='uniswap_v2', pool_address=pair_address,
                     fee_tier=None, source='onchain', confidence=0.98,
-                    extra={'t0': t0, 't1': t1, 'r0': float(nr0), 'r1': float(nr1)}
+                    extra={'t0': t0, 't1': t1, 'r0': float(nr0), 'r1': float(nr1), 'eff_rate': float(eff_rate), 'ref_fraction': float(f)}
                 )
                 updated += 2
             except Exception as e:
@@ -116,19 +129,28 @@ class SushiSwapSwapAction(ProtocolAction, _SwapPairsMixin):
                 d0 = get_decimals(w3, t0, 18)
                 d1 = get_decimals(w3, t1, 18)
                 nr0, nr1 = normalize_reserves(r0, d0, r1, d1)
+                try:
+                    f = float(getattr(config, 'slippage_trade_fraction', 0.01))
+                except Exception:
+                    f = 0.01
+                amt_in = max(1e-12, float(nr0) * max(1e-6, min(f, 0.5)))
+                out = amount_out_uniswap_v2(amt_in, float(nr0), float(nr1), self.fee)
+                eff_rate = (out / amt_in) if amt_in > 0 and out > 0 else (float(nr1) / float(nr0)) * (1.0 - self.fee)
+                pre_fee_rate = eff_rate / max(1e-9, (1.0 - self.fee))
+                base = 100.0
                 graph.add_trading_pair(
                     token0=t0,
                     token1=t1,
                     dex='sushiswap',
                     pool_address=pair_address,
-                    reserve0=float(nr0),
-                    reserve1=float(nr1),
+                    reserve0=base,
+                    reserve1=base * float(pre_fee_rate),
                     fee=self.fee,
                 )
                 set_edge_meta(
                     graph.graph, t0, t1, dex='sushiswap', pool_address=pair_address,
                     fee_tier=None, source='onchain', confidence=0.98,
-                    extra={'t0': t0, 't1': t1, 'r0': float(nr0), 'r1': float(nr1)}
+                    extra={'t0': t0, 't1': t1, 'r0': float(nr0), 'r1': float(nr1), 'eff_rate': float(eff_rate), 'ref_fraction': float(f)}
                 )
                 updated += 2
             except Exception as e:
@@ -349,8 +371,26 @@ class AaveSupplyBorrowAction(ProtocolAction):
                     reserve1=reserve1,
                     fee=0.0,
                 )
-                set_edge_meta(graph.graph, underlying, atoken, dex='aave', pool_address=atoken,
-                              fee_tier=None, source='approx', confidence=0.85)
+                # Fetch risk and rate params for metadata
+                cfg = self.collector.get_reserve_configuration(underlying) or {}
+                rates = self.collector.get_reserve_rates(underlying) or {}
+                emode = self.collector.get_emode_category(underlying)
+                set_edge_meta(
+                    graph.graph, underlying, atoken, dex='aave', pool_address=atoken,
+                    fee_tier=None, source='onchain', confidence=0.9,
+                    extra={
+                        'ltv': cfg.get('ltv'),
+                        'liquidationThreshold': cfg.get('liquidationThreshold'),
+                        'liquidationBonus': cfg.get('liquidationBonus'),
+                        'reserveFactor': cfg.get('reserveFactor'),
+                        'borrowingEnabled': cfg.get('borrowingEnabled'),
+                        'stableBorrowRateEnabled': cfg.get('stableBorrowRateEnabled'),
+                        'liquidityRate': rates.get('liquidityRate'),
+                        'variableBorrowRate': rates.get('variableBorrowRate'),
+                        'stableBorrowRate': rates.get('stableBorrowRate'),
+                        'eModeCategory': emode,
+                    }
+                )
                 updated += 2
             except Exception as e:
                 logger.debug(f"Aave update failed {sym}: {e}")
@@ -1209,6 +1249,9 @@ class AaveBorrowAction(ProtocolAction):
                     updated += 2
                     continue
                 a_token, stable_debt, variable_debt = addrs
+                cfg = self.collector.get_reserve_configuration(underlying) or {}
+                rates = self.collector.get_reserve_rates(underlying) or {}
+                emode = self.collector.get_emode_category(underlying)
                 # Borrow variable
                 if isinstance(variable_debt, str) and int(variable_debt, 16) != 0:
                     graph.add_trading_pair(
@@ -1220,9 +1263,12 @@ class AaveBorrowAction(ProtocolAction):
                         reserve1=base_liq * 1.0,
                         fee=self.fee,
                     )
-                    set_edge_meta(graph.graph, variable_debt, underlying, dex='aave_borrow_variable', pool_address=f"aave_borrow_var_{underlying[:6]}",
-                                  fee_tier=None, source='onchain', confidence=0.9,
-                                  extra={'debt_type': 'variable'})
+                    set_edge_meta(
+                        graph.graph, variable_debt, underlying, dex='aave_borrow_variable', pool_address=f"aave_borrow_var_{underlying[:6]}",
+                        fee_tier=None, source='onchain', confidence=0.9,
+                        extra={'debt_type': 'variable', 'ltv': cfg.get('ltv'), 'liquidationThreshold': cfg.get('liquidationThreshold'),
+                               'variableBorrowRate': rates.get('variableBorrowRate'), 'eModeCategory': emode}
+                    )
                     updated += 2
                 # Borrow stable
                 if isinstance(stable_debt, str) and int(stable_debt, 16) != 0:
@@ -1235,9 +1281,12 @@ class AaveBorrowAction(ProtocolAction):
                         reserve1=base_liq * 1.0,
                         fee=self.fee,
                     )
-                    set_edge_meta(graph.graph, stable_debt, underlying, dex='aave_borrow_stable', pool_address=f"aave_borrow_st_{underlying[:6]}",
-                                  fee_tier=None, source='onchain', confidence=0.9,
-                                  extra={'debt_type': 'stable'})
+                    set_edge_meta(
+                        graph.graph, stable_debt, underlying, dex='aave_borrow_stable', pool_address=f"aave_borrow_st_{underlying[:6]}",
+                        fee_tier=None, source='onchain', confidence=0.9,
+                        extra={'debt_type': 'stable', 'ltv': cfg.get('ltv'), 'liquidationThreshold': cfg.get('liquidationThreshold'),
+                               'stableBorrowRate': rates.get('stableBorrowRate'), 'eModeCategory': emode}
+                    )
                     updated += 2
             except Exception as e:
                 logger.debug(f"Aave borrow update failed {sym}: {e}")
@@ -1275,12 +1324,17 @@ class AaveRepayAction(ProtocolAction):
                         reserve1=base_liq * 1.0,
                         fee=self.fee,
                     )
-                    set_edge_meta(graph.graph, underlying, debt_var, dex='aave_repay_variable', pool_address=f"aave_repay_var_{underlying[:6]}",
-                                  fee_tier=None, source='approx', confidence=0.75,
-                                  extra={'debt_type': 'variable', 'fallback': True})
+                    set_edge_meta(
+                        graph.graph, underlying, debt_var, dex='aave_repay_variable', pool_address=f"aave_repay_var_{underlying[:6]}",
+                        fee_tier=None, source='approx', confidence=0.75,
+                        extra={'debt_type': 'variable', 'fallback': True}
+                    )
                     updated += 2
                     continue
                 a_token, stable_debt, variable_debt = addrs
+                cfg = self.collector.get_reserve_configuration(underlying) or {}
+                rates = self.collector.get_reserve_rates(underlying) or {}
+                emode = self.collector.get_emode_category(underlying)
                 # Repay variable
                 if isinstance(variable_debt, str) and int(variable_debt, 16) != 0:
                     graph.add_trading_pair(
@@ -1292,9 +1346,12 @@ class AaveRepayAction(ProtocolAction):
                         reserve1=base_liq * 1.0,
                         fee=self.fee,
                     )
-                    set_edge_meta(graph.graph, underlying, variable_debt, dex='aave_repay_variable', pool_address=f"aave_repay_var_{underlying[:6]}",
-                                  fee_tier=None, source='onchain', confidence=0.9,
-                                  extra={'debt_type': 'variable'})
+                    set_edge_meta(
+                        graph.graph, underlying, variable_debt, dex='aave_repay_variable', pool_address=f"aave_repay_var_{underlying[:6]}",
+                        fee_tier=None, source='onchain', confidence=0.9,
+                        extra={'debt_type': 'variable', 'ltv': cfg.get('ltv'), 'liquidationThreshold': cfg.get('liquidationThreshold'),
+                               'variableBorrowRate': rates.get('variableBorrowRate'), 'eModeCategory': emode}
+                    )
                     updated += 2
                 # Repay stable
                 if isinstance(stable_debt, str) and int(stable_debt, 16) != 0:
@@ -1307,9 +1364,12 @@ class AaveRepayAction(ProtocolAction):
                         reserve1=base_liq * 1.0,
                         fee=self.fee,
                     )
-                    set_edge_meta(graph.graph, underlying, stable_debt, dex='aave_repay_stable', pool_address=f"aave_repay_st_{underlying[:6]}",
-                                  fee_tier=None, source='onchain', confidence=0.9,
-                                  extra={'debt_type': 'stable'})
+                    set_edge_meta(
+                        graph.graph, underlying, stable_debt, dex='aave_repay_stable', pool_address=f"aave_repay_st_{underlying[:6]}",
+                        fee_tier=None, source='onchain', confidence=0.9,
+                        extra={'debt_type': 'stable', 'ltv': cfg.get('ltv'), 'liquidationThreshold': cfg.get('liquidationThreshold'),
+                               'stableBorrowRate': rates.get('stableBorrowRate'), 'eModeCategory': emode}
+                    )
                     updated += 2
             except Exception as e:
                 logger.debug(f"Aave repay update failed {sym}: {e}")

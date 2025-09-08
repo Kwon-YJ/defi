@@ -90,6 +90,55 @@ class AaveV2Collector:
                 "type": "function"
             }
         ]
+        self.data_provider_rates_abi = [
+            {
+                "inputs": [{"internalType": "address", "name": "asset", "type": "address"}],
+                "name": "getReserveData",
+                "outputs": [
+                    {"internalType": "uint256", "name": "availableLiquidity", "type": "uint256"},
+                    {"internalType": "uint256", "name": "totalStableDebt", "type": "uint256"},
+                    {"internalType": "uint256", "name": "totalVariableDebt", "type": "uint256"},
+                    {"internalType": "uint256", "name": "liquidityRate", "type": "uint256"},
+                    {"internalType": "uint256", "name": "variableBorrowRate", "type": "uint256"},
+                    {"internalType": "uint256", "name": "stableBorrowRate", "type": "uint256"},
+                    {"internalType": "uint256", "name": "averageStableBorrowRate", "type": "uint256"},
+                    {"internalType": "uint256", "name": "liquidityIndex", "type": "uint256"},
+                    {"internalType": "uint256", "name": "variableBorrowIndex", "type": "uint256"},
+                    {"internalType": "uint40",  "name": "lastUpdateTimestamp", "type": "uint40"}
+                ],
+                "stateMutability": "view",
+                "type": "function"
+            },
+            {
+                "inputs": [{"internalType": "address", "name": "asset", "type": "address"}],
+                "name": "getReserveConfigurationData",
+                "outputs": [
+                    {"internalType": "uint256", "name": "decimals", "type": "uint256"},
+                    {"internalType": "uint256", "name": "ltv", "type": "uint256"},
+                    {"internalType": "uint256", "name": "liquidationThreshold", "type": "uint256"},
+                    {"internalType": "uint256", "name": "liquidationBonus", "type": "uint256"},
+                    {"internalType": "uint256", "name": "reserveFactor", "type": "uint256"},
+                    {"internalType": "bool",    "name": "usageAsCollateralEnabled", "type": "bool"},
+                    {"internalType": "bool",    "name": "borrowingEnabled", "type": "bool"},
+                    {"internalType": "bool",    "name": "stableBorrowRateEnabled", "type": "bool"},
+                    {"internalType": "bool",    "name": "isActive", "type": "bool"},
+                    {"internalType": "bool",    "name": "isFrozen", "type": "bool"}
+                ],
+                "stateMutability": "view",
+                "type": "function"
+            }
+        ]
+        # Optional Aave v3 Data Provider for eMode
+        self.v3_data_provider_address = getattr(config, 'aave_v3_data_provider', '')
+        self.v3_data_provider_abi = [
+            {
+                "inputs": [{"internalType": "address", "name": "asset", "type": "address"}],
+                "name": "getReserveEModeCategory",
+                "outputs": [{"internalType": "uint8", "name": "", "type": "uint8"}],
+                "stateMutability": "view",
+                "type": "function"
+            }
+        ]
 
     def get_atoken(self, underlying: str) -> Optional[str]:
         # Try DataProvider first
@@ -117,4 +166,58 @@ class AaveV2Collector:
             return a, sd, vd
         except Exception as e:
             logger.debug(f"Aave DataProvider read failed for {underlying[:6]}: {e}")
+            return None
+
+    def get_reserve_rates(self, underlying: str) -> Optional[Dict]:
+        try:
+            if not self.w3 or not self.w3.is_connected() or not self.data_provider_address:
+                return None
+            c = self.w3.eth.contract(address=self.data_provider_address, abi=self.data_provider_rates_abi)
+            data = c.functions.getReserveData(underlying).call()
+            if not isinstance(data, (list, tuple)) or len(data) < 10:
+                return None
+            liq_rate = float(data[3]) / 1e27
+            var_rate = float(data[4]) / 1e27
+            st_rate = float(data[5]) / 1e27
+            return {"liquidityRate": liq_rate, "variableBorrowRate": var_rate, "stableBorrowRate": st_rate}
+        except Exception as e:
+            logger.debug(f"Aave getReserveData failed {underlying[:6]}: {e}")
+            return None
+
+    def get_reserve_configuration(self, underlying: str) -> Optional[Dict]:
+        try:
+            if not self.w3 or not self.w3.is_connected() or not self.data_provider_address:
+                return None
+            c = self.w3.eth.contract(address=self.data_provider_address, abi=self.data_provider_rates_abi)
+            cfg = c.functions.getReserveConfigurationData(underlying).call()
+            if not isinstance(cfg, (list, tuple)) or len(cfg) < 10:
+                return None
+            return {
+                "decimals": int(cfg[0]),
+                "ltv": float(cfg[1]) / 10000.0,
+                "liquidationThreshold": float(cfg[2]) / 10000.0,
+                "liquidationBonus": float(cfg[3]) / 10000.0,
+                "reserveFactor": float(cfg[4]) / 10000.0,
+                "usageAsCollateralEnabled": bool(cfg[5]),
+                "borrowingEnabled": bool(cfg[6]),
+                "stableBorrowRateEnabled": bool(cfg[7]),
+                "isActive": bool(cfg[8]),
+                "isFrozen": bool(cfg[9]),
+            }
+        except Exception as e:
+            logger.debug(f"Aave getReserveConfigurationData failed {underlying[:6]}: {e}")
+            return None
+
+    def get_emode_category(self, underlying: str) -> Optional[int]:
+        try:
+            if not self.w3 or not self.w3.is_connected() or not self.v3_data_provider_address:
+                return None
+            c = self.w3.eth.contract(address=self.v3_data_provider_address, abi=self.v3_data_provider_abi)
+            cat = c.functions.getReserveEModeCategory(underlying).call()
+            try:
+                return int(cat)
+            except Exception:
+                return None
+        except Exception as e:
+            logger.debug(f"Aave v3 eMode read failed {underlying[:6]}: {e}")
             return None

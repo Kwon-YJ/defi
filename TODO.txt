@@ -93,7 +93,7 @@
 
 - [ ] Aave 개선
   - [x] stable/variable debt 토큰 구분 및 주소 DataProvider로 동적 조회
-  - [ ] 현재 이자율/리스크 파라미터(LTV, liquidationThreshold, eMode) 반영
+  - [x] 현재 이자율/리스크 파라미터(LTV, liquidationThreshold, eMode) 반영
   - [ ] health factor 계산 및 경로 유효성 제약 추가
 
 - [ ] Compound 개선
