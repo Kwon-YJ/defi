@@ -45,18 +45,17 @@ class ArbitrageDetector:
                 
                 # Local Search 루프
                 while True:
-                    # 2. 모든 기준 토큰에서 가장 수익성 높은 차익거래 기회 탐색
+                    # 2. 모든 기준 토큰에서 병렬로 차익거래 기회 탐색
+                    logger.debug(f"{len(self.base_tokens)}개의 시작점에서 병렬 탐색 시작")
+                    tasks = [asyncio.to_thread(self.bellman_ford.find_negative_cycles, base_token) for base_token in self.base_tokens]
+                    results = await asyncio.gather(*tasks)
+
+                    all_opportunities = [opp for sublist in results for opp in sublist]
+                    
                     best_opportunity = None
-                    
-                    for base_token in self.base_tokens:
-                        opportunities = self.bellman_ford.find_negative_cycles(base_token)
-                        
-                        if opportunities:
-                            # 가장 수익성 높은 기회 선택
-                            current_best = opportunities[0]
-                            if best_opportunity is None or current_best.net_profit > best_opportunity.net_profit:
-                                best_opportunity = current_best
-                    
+                    if all_opportunities:
+                        best_opportunity = max(all_opportunities, key=lambda op: op.net_profit)
+
                     # 3. 수익성 있는 기회가 없으면 Local Search 종료
                     if best_opportunity is None or best_opportunity.net_profit <= 0.001: # 최소 수익 임계값
                         logger.info("수익성 있는 차익거래 기회를 더 이상 찾을 수 없음. 다음 탐색 주기로 넘어갑니다.")
