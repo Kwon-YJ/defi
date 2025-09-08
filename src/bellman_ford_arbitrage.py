@@ -1,5 +1,6 @@
 import math
 from typing import Dict, List, Tuple, Optional
+from concurrent.futures import ThreadPoolExecutor
 from collections import defaultdict
 from src.market_graph import DeFiMarketGraph, ArbitrageOpportunity, TradingEdge
 from src.logger import setup_logger
@@ -188,17 +189,16 @@ class BellmanFordArbitrage:
             starts = [max(min_capital, max_capital * f) for f in start_factors]
             best: Optional[Tuple[float, float, float]] = None  # (net_profit, required_capital, final_amount)
 
-            for start in starts:
-                a = start
+            def optimize_from_start(a0: float) -> Tuple[float, float, float]:
+                a = a0
                 step = max_capital * 0.25
                 final_amt = self._simulate_final_amount(edges, a)
                 net = (final_amt - a) - total_gas_cost
-                if best is None or net > best[0]:
-                    best = (net, a, final_amt)
-
                 for _ in range(20):
                     improved = False
-                    for cand in (min(max_capital, a + step), max(min_capital, a - step)):
+                    up = min(max_capital, a + step)
+                    down = max(min_capital, a - step)
+                    for cand in (up, down):
                         fa = self._simulate_final_amount(edges, cand)
                         n = (fa - cand) - total_gas_cost
                         if n > net + 1e-9:
@@ -208,8 +208,17 @@ class BellmanFordArbitrage:
                         step *= 0.5
                         if step < max_capital * 0.005:
                             break
-                if net > best[0]:
-                    best = (net, a, final_amt)
+                return (net, a, final_amt)
+
+            # 병렬 실행: 여러 시작점에 대해 동시에 최적화
+            max_workers = min(len(starts), 8) if len(starts) > 0 else 0
+            if max_workers > 1:
+                with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                    for net, a, final_amt in executor.map(optimize_from_start, starts):
+                        if best is None or net > best[0]:
+                            best = (net, a, final_amt)
+            elif max_workers == 1:
+                best = optimize_from_start(starts[0])
 
             if best is None:
                 return None

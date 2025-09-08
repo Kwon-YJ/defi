@@ -9,7 +9,7 @@
 - [x] **CRITICAL**: Negative cycle 탐지 후 Local Search 단계 구현
 - [x] 논문 Figure 1의 4단계 "perform a local search and repeat" 구현  
 - [x] Hill climbing을 통한 거래량 최적화
-- [ ] Multiple starting points에서 local search 병렬 실행
+- [x] Multiple starting points에서 local search 병렬 실행
 - [ ] Best revenue transaction 선택 로직 구현
 
 ### 1.2 Bellman-Ford-Moore 알고리즘 정확한 구현
