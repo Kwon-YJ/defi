@@ -165,7 +165,15 @@ class UniswapV3SwapAction(ProtocolAction, _SwapPairsMixin):
                     set_edge_meta(
                         graph.graph, e['token0'], e['token1'], dex='uniswap_v3', pool_address=e['pool'],
                         fee_tier=e.get('fee_tier'), source='onchain', confidence=0.95,
-                        extra={'t0': e['token0'], 't1': e['token1'], 'r0': float(e['reserve0']), 'r1': float(e['reserve1'])}
+                        extra={
+                            't0': e['token0'], 't1': e['token1'],
+                            'r0': float(e['reserve0']), 'r1': float(e['reserve1']),
+                            'tick': e.get('tick'),
+                            'tick_lower': e.get('tick_lower'),
+                            'tick_upper': e.get('tick_upper'),
+                            'tick_spacing': e.get('tick_spacing'),
+                            'sqrtPriceX96': e.get('sqrtPriceX96'),
+                        }
                     )
                     updated += 2
             except Exception as e:
@@ -604,6 +612,18 @@ class UniswapV3AddLiquidityAction(ProtocolAction):
                         continue
                     t0 = state['token0']; t1 = state['token1']
                     lp_token = lp_v3(pool)
+                    ts = int(state.get('tickSpacing', 60) or 60)
+                    cur_tick = int(state.get('tick', 0) or 0)
+                    tick_lower = (cur_tick // ts) * ts
+                    tick_upper = tick_lower + ts
+                    ts = int(state.get('tickSpacing', 60) or 60)
+                    cur_tick = int(state.get('tick', 0) or 0)
+                    tick_lower = (cur_tick // ts) * ts
+                    tick_upper = tick_lower + ts
+                    ts = int(state.get('tickSpacing', 60) or 60)
+                    cur_tick = int(state.get('tick', 0) or 0)
+                    tick_lower = (cur_tick // ts) * ts
+                    tick_upper = tick_lower + ts
                     lp_per_t0 = 1.0
                     lp_per_t1 = (1.0 / price01) if price01 > 0 else 0.0
                     # token0 -> LP
@@ -616,8 +636,11 @@ class UniswapV3AddLiquidityAction(ProtocolAction):
                         reserve1=base_liq * lp_per_t0,
                         fee=0.0,
                     )
-                    set_edge_meta(graph.graph, t0, lp_token, dex='uniswap_v3_lp_add', pool_address=pool,
-                                  fee_tier=fee, source='approx', confidence=0.75)
+                    set_edge_meta(
+                        graph.graph, t0, lp_token, dex='uniswap_v3_lp_add', pool_address=pool,
+                        fee_tier=fee, source='approx', confidence=0.75,
+                        extra={'tick': cur_tick, 'tick_lower': tick_lower, 'tick_upper': tick_upper, 'tick_spacing': ts, 't0': t0, 't1': t1}
+                    )
                     updated += 2
                     # token1 -> LP
                     if lp_per_t1 > 0:
@@ -630,8 +653,11 @@ class UniswapV3AddLiquidityAction(ProtocolAction):
                             reserve1=base_liq * lp_per_t1,
                             fee=0.0,
                         )
-                        set_edge_meta(graph.graph, t1, lp_token, dex='uniswap_v3_lp_add', pool_address=pool,
-                                      fee_tier=fee, source='approx', confidence=0.75)
+                        set_edge_meta(
+                            graph.graph, t1, lp_token, dex='uniswap_v3_lp_add', pool_address=pool,
+                            fee_tier=fee, source='approx', confidence=0.75,
+                            extra={'tick': cur_tick, 'tick_lower': tick_lower, 'tick_upper': tick_upper, 'tick_spacing': ts, 't0': t0, 't1': t1}
+                        )
                         updated += 2
                 except Exception as e:
                     logger.debug(f"UniswapV3 addLiquidity failed {token0[:6]}-{token1[:6]}: {e}")
@@ -675,8 +701,11 @@ class UniswapV3RemoveLiquidityAction(ProtocolAction):
                         reserve1=base_liq * t0_per_lp,
                         fee=0.0,
                     )
-                    set_edge_meta(graph.graph, lp_token, t0, dex='uniswap_v3_lp_remove', pool_address=pool,
-                                  fee_tier=fee, source='approx', confidence=0.75)
+                    set_edge_meta(
+                        graph.graph, lp_token, t0, dex='uniswap_v3_lp_remove', pool_address=pool,
+                        fee_tier=fee, source='approx', confidence=0.75,
+                        extra={'tick': cur_tick, 'tick_lower': tick_lower, 'tick_upper': tick_upper, 'tick_spacing': ts, 't0': t0, 't1': t1}
+                    )
                     updated += 2
                     # LP -> token1
                     graph.add_trading_pair(
@@ -688,8 +717,11 @@ class UniswapV3RemoveLiquidityAction(ProtocolAction):
                         reserve1=base_liq * t1_per_lp,
                         fee=0.0,
                     )
-                    set_edge_meta(graph.graph, lp_token, t1, dex='uniswap_v3_lp_remove', pool_address=pool,
-                                  fee_tier=fee, source='approx', confidence=0.75)
+                    set_edge_meta(
+                        graph.graph, lp_token, t1, dex='uniswap_v3_lp_remove', pool_address=pool,
+                        fee_tier=fee, source='approx', confidence=0.75,
+                        extra={'tick': cur_tick, 'tick_lower': tick_lower, 'tick_upper': tick_upper, 'tick_spacing': ts, 't0': t0, 't1': t1}
+                    )
                     updated += 2
                 except Exception as e:
                     logger.debug(f"UniswapV3 removeLiquidity failed {token0[:6]}-{token1[:6]}: {e}")
@@ -729,8 +761,11 @@ class UniswapV3CollectFeesAction(ProtocolAction):
                         reserve1=base_liq * fee_yield,
                         fee=0.0,
                     )
-                    set_edge_meta(graph.graph, lp_token, t0, dex='uniswap_v3_fee_collect', pool_address=pool,
-                                  fee_tier=fee, source='approx', confidence=0.6)
+                    set_edge_meta(
+                        graph.graph, lp_token, t0, dex='uniswap_v3_fee_collect', pool_address=pool,
+                        fee_tier=fee, source='approx', confidence=0.6,
+                        extra={'tick': cur_tick, 'tick_lower': tick_lower, 'tick_upper': tick_upper, 'tick_spacing': ts, 't0': t0, 't1': t1}
+                    )
                     updated += 2
                     # LP -> token1 (fees)
                     graph.add_trading_pair(
@@ -742,8 +777,11 @@ class UniswapV3CollectFeesAction(ProtocolAction):
                         reserve1=base_liq * fee_yield,
                         fee=0.0,
                     )
-                    set_edge_meta(graph.graph, lp_token, t1, dex='uniswap_v3_fee_collect', pool_address=pool,
-                                  fee_tier=fee, source='approx', confidence=0.6)
+                    set_edge_meta(
+                        graph.graph, lp_token, t1, dex='uniswap_v3_fee_collect', pool_address=pool,
+                        fee_tier=fee, source='approx', confidence=0.6,
+                        extra={'tick': cur_tick, 'tick_lower': tick_lower, 'tick_upper': tick_upper, 'tick_spacing': ts, 't0': t0, 't1': t1}
+                    )
                     updated += 2
                 except Exception as e:
                     logger.debug(f"UniswapV3 collectFees failed {token0[:6]}-{token1[:6]}: {e}")

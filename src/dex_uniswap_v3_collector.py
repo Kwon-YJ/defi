@@ -66,7 +66,8 @@ class UniswapV3Collector:
             {"inputs": [], "name": "liquidity", "outputs": [{"internalType": "uint128", "name": "", "type": "uint128"}], "stateMutability": "view", "type": "function"},
             {"inputs": [], "name": "token0",   "outputs": [{"internalType": "address", "name": "", "type": "address"}], "stateMutability": "view", "type": "function"},
             {"inputs": [], "name": "token1",   "outputs": [{"internalType": "address", "name": "", "type": "address"}], "stateMutability": "view", "type": "function"},
-            {"inputs": [], "name": "fee",      "outputs": [{"internalType": "uint24",  "name": "", "type": "uint24"}],  "stateMutability": "view", "type": "function"}
+            {"inputs": [], "name": "fee",      "outputs": [{"internalType": "uint24",  "name": "", "type": "uint24"}],  "stateMutability": "view", "type": "function"},
+            {"inputs": [], "name": "tickSpacing", "outputs": [{"internalType": "int24", "name": "", "type": "int24"}], "stateMutability": "view", "type": "function"}
         ]
 
     async def get_pool_address(self, token0: str, token1: str, fee: int) -> Optional[str]:
@@ -82,21 +83,26 @@ class UniswapV3Collector:
     async def get_pool_core_state(self, pool_address: str) -> Optional[Dict]:
         try:
             pool = self.w3.eth.contract(address=pool_address, abi=self.pool_abi)
-            sqrt_price_x96, *_ = pool.functions.slot0().call()
+            slot0 = pool.functions.slot0().call()
+            sqrt_price_x96 = slot0[0]
+            current_tick = int(slot0[1])
             liq = pool.functions.liquidity().call()
             t0 = pool.functions.token0().call()
             t1 = pool.functions.token1().call()
             fee = pool.functions.fee().call()
+            tick_spacing = int(pool.functions.tickSpacing().call())
 
             dec0 = self._get_decimals(t0)
             dec1 = self._get_decimals(t1)
 
             return {
                 'sqrtPriceX96': int(sqrt_price_x96),
+                'tick': current_tick,
                 'liquidity': int(liq),
                 'token0': t0,
                 'token1': t1,
                 'fee': int(fee),
+                'tickSpacing': tick_spacing,
                 'dec0': dec0,
                 'dec1': dec1,
             }
@@ -121,6 +127,12 @@ class UniswapV3Collector:
         return float(price)
 
     @staticmethod
+    def price_from_tick(tick: int, dec0: int, dec1: int) -> float:
+        # Uniswap V3 tick price: 1.0001 ** tick, adjust for decimals
+        p = (1.0001 ** float(tick)) * (10 ** (dec0 - dec1))
+        return float(p)
+
+    @staticmethod
     def estimate_pseudo_reserves(price01: float, base_liquidity: float = 100.0) -> Tuple[float, float]:
         r0 = max(1e-9, float(base_liquidity))
         r1 = max(1e-9, float(base_liquidity) * max(price01, 0.0))
@@ -138,6 +150,11 @@ class UniswapV3Collector:
             price01 = self.price_from_sqrtX96(state['sqrtPriceX96'], state['dec0'], state['dec1'])
             if price01 <= 0:
                 continue
+            # Tick-range 모델링: 현재 tick을 기준으로 한 밴드를 정의 (한 칸 폭)
+            ts = int(state.get('tickSpacing', 60) or 60)
+            cur_tick = int(state.get('tick', 0) or 0)
+            tick_lower = (cur_tick // ts) * ts
+            tick_upper = tick_lower + ts
             reserve0, reserve1 = self.estimate_pseudo_reserves(price01, base_liquidity=100.0)
             edges.append({
                 'token0': state['token0'],
@@ -147,5 +164,10 @@ class UniswapV3Collector:
                 'fee_tier': int(state['fee']),
                 'reserve0': reserve0,
                 'reserve1': reserve1,
+                'tick': cur_tick,
+                'tick_lower': int(tick_lower),
+                'tick_upper': int(tick_upper),
+                'tick_spacing': ts,
+                'sqrtPriceX96': int(state['sqrtPriceX96']),
             })
         return edges
