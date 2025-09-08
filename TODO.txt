@@ -58,6 +58,68 @@
   - [x] Synthetix: mint/burn (SNX staking)
   - [x] dYdX: margin open/close (가격 근사)
 
+#### 2.1A 정밀도/현실성 향상 (이전 제안 사항 반영)
+- [ ] 공통: ERC-20 decimals 정규화(모든 rate/유동성/LP 계산에 적용)
+- [ ] 공통: Edge 메타데이터 정리(원본 컨트랙트 주소, fee tier, source, 신뢰도)
+- [ ] 공통: 가스비 동적 추정(EIP-1559 base/priority, 프로토콜별 gas limit)
+- [ ] 공통: 슬리피지/유동성 모델 고도화(프로토콜별 정확한 수식 기반)
+- [ ] 공통: Synthetic 토큰命명 규칙/매핑 일원화(LP, debt, BPT, V3 LP 등)
+- [ ] 공통: 부채/담보 제약 반영(Health factor/LTV/청산 임계 반영) 및 경로 타당성 필터
+
+- [ ] Uniswap V2 개선
+  - [ ] LP 민팅/소각 정확화: exact 수식 적용(min(amount0*ts/r0, amount1*ts/r1))
+  - [ ] token decimals 반영 및 LP decimals 고려
+  - [ ] fee-on-transfer/rebase 토큰 감지 및 보수적 처리
+  - [ ] 이벤트 기반 업데이트(Mint/Burn/Sync)로 그래프 실시간 갱신
+
+- [ ] Uniswap V3 개선
+  - [ ] Tick-range 포지션 모델링( tickLower/upper, tickSpacing 반영)
+  - [ ] 유동성 민팅 수식(L) 기반 add/remove 비율 정확화(sqrtP, ticks 사용)
+  - [ ] 수취 수수료 accrual 추정(feeGrowthGlobal/Inside, Collect 이벤트 반영)
+  - [ ] fee tier 라벨/키 분리(500/3000/10000) 및 통계/선택 로직 개선
+  - [ ] pool.liquidity/액티브 밴드 기반 pseudo-liquidity 보정
+
+- [ ] Curve 개선
+  - [ ] Curve Registry 통합(모든 풀/메타풀 자동 탐색)
+  - [ ] calc_token_amount / calc_withdraw_one_coin 사용해 add/remove 정확화
+  - [ ] 증폭계수(A), pool fee/admin fee, coin decimals 반영
+  - [ ] LP totalSupply/decimals 사용 및 이벤트(Add/RemoveLiquidity) 반영
+
+- [ ] Balancer 개선
+  - [ ] getNormalizedWeights, getSwapFeePercentage, getPoolTokens 기반 spot 정확화
+  - [ ] Weighted 수학 기반 join/exit 수식 적용(BPT totalSupply 사용)
+  - [ ] 단일자산 join/exit 수수료 반영 및 비례 join/exit 분기 처리
+
+- [ ] Aave 개선
+  - [ ] stable/variable debt 토큰 구분 및 주소 DataProvider로 동적 조회
+  - [ ] 현재 이자율/리스크 파라미터(LTV, liquidationThreshold, eMode) 반영
+  - [ ] health factor 계산 및 경로 유효성 제약 추가
+
+- [ ] Compound 개선
+  - [ ] borrowRatePerBlock/supplyRatePerBlock 반영(이자 누적 효과 근사)
+  - [ ] Comptroller 기반 collateral factor/market 지원여부 확인 후 엣지 반영
+  - [ ] cToken decimals/exchangeRateStored 정밀 처리
+
+- [ ] MakerDAO 개선
+  - [ ] OSM/Vault(ilk)별 파라미터(spot, duty, line) 사용, 담보종류(WBTC 등) 확장
+  - [ ] PSM 실제 수수료(tin/tout) on-chain 반영
+  - [ ] Stability fee/interest 누적 효과 근사
+
+- [ ] Synthetix 개선
+  - [ ] SystemSettings target c-ratio/freezeFee/exchange fee per synth 반영
+  - [ ] DebtCache/전체 부채 풀 변동 반영 및 L2 지원
+  - [ ] 추가 synth(sBTC 등) 확장 및 환전 경로 확대
+
+- [ ] dYdX 개선
+  - [ ] 공식 API/온체인 파라미터 연동(펀딩비, 마진 요구치, 레버리지 한도)
+  - [ ] 포지션 오픈/종료 수수료/펀딩비 동적 반영
+  - [ ] 경로 대검증: 위험 파라미터 기반 불가 경로 제거
+
+#### 2.1B 실시간/데이터 동기화 강화
+- [ ] 프로토콜별 이벤트 구독(예: V2 Sync/Mint/Burn, V3 Increase/Decrease/Collect, Curve Add/Remove, Balancer PoolTokens/BPT 변경, Aave/Compound Accrue/Reserve 업데이트)
+- [ ] WS 다중 소스 폴백/리던던시 구성 및 지연/에러 처리 로직
+- [ ] Pruning/Compaction 이전에 이벤트 기반 미니 업데이트 적용
+
 ### 2.2 자산 지원 확장 (현재 4개 base tokens → 논문의 25개 assets)
 - [ ] **CRITICAL**: 논문에서 사용한 정확한 25개 자산 식별 및 구현
 - [ ] ETH, WETH (native and wrapped Ether)
