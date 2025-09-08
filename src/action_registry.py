@@ -10,6 +10,7 @@ from src.logger import setup_logger
 from src.market_graph import DeFiMarketGraph
 from src.dex_data_collector import UniswapV2Collector, SushiSwapCollector
 from src.dex_uniswap_v3_collector import UniswapV3Collector
+from src.lending_collectors import CompoundCollector, AaveV2Collector
 
 logger = setup_logger(__name__)
 
@@ -149,9 +150,36 @@ class BalancerWeightedSwapAction(ProtocolAction):
 
 class AaveSupplyBorrowAction(ProtocolAction):
     name = "aave.supply_borrow"
-    enabled = False
-    async def update_graph(self, *args, **kwargs) -> int:
-        return 0
+    enabled = True
+
+    def __init__(self, w3: Web3):
+        self.collector = AaveV2Collector(w3)
+
+    async def update_graph(self, graph: DeFiMarketGraph, w3: Web3, tokens: Dict[str, str],
+                           block_number: Optional[int] = None) -> int:
+        updated = 0
+        base_liq = 100.0
+        for sym, underlying in tokens.items():
+            try:
+                atoken = self.collector.get_atoken(underlying)
+                if not atoken:
+                    continue
+                rate = self.collector.get_deposit_rate_underlying_to_atoken(atoken)  # ~1.0
+                reserve0 = base_liq
+                reserve1 = base_liq * rate
+                graph.add_trading_pair(
+                    token0=underlying,
+                    token1=atoken,
+                    dex='aave',
+                    pool_address=atoken,
+                    reserve0=reserve0,
+                    reserve1=reserve1,
+                    fee=0.0,
+                )
+                updated += 2
+            except Exception as e:
+                logger.debug(f"Aave update failed {sym}: {e}")
+        return updated
 
 
 class CompoundSupplyBorrowAction(ProtocolAction):
@@ -189,6 +217,40 @@ class DyDxMarginAction(ProtocolAction):
         return 0
 
 
+class CompoundSupplyBorrowAction(ProtocolAction):
+    name = "compound.supply_borrow"
+    enabled = True
+
+    def __init__(self, w3: Web3):
+        self.collector = CompoundCollector(w3)
+
+    async def update_graph(self, graph: DeFiMarketGraph, w3: Web3, tokens: Dict[str, str],
+                           block_number: Optional[int] = None) -> int:
+        updated = 0
+        base_liq = 100.0
+        for sym, underlying in tokens.items():
+            try:
+                ctoken = self.collector.get_ctoken(underlying)
+                if not ctoken:
+                    continue
+                rate = self.collector.get_deposit_rate_underlying_to_ctoken(ctoken)  # cToken per underlying
+                reserve0 = base_liq
+                reserve1 = base_liq * rate
+                graph.add_trading_pair(
+                    token0=underlying,
+                    token1=ctoken,
+                    dex='compound',
+                    pool_address=ctoken,
+                    reserve0=reserve0,
+                    reserve1=reserve1,
+                    fee=0.0,
+                )
+                updated += 2
+            except Exception as e:
+                logger.debug(f"Compound update failed {sym}: {e}")
+        return updated
+
+
 class ActionRegistry:
     def __init__(self):
         self.actions: Dict[str, ProtocolAction] = {}
@@ -223,8 +285,8 @@ def register_default_actions(w3: Web3) -> ActionRegistry:
     reg.register(UniswapV3SwapAction(w3))
     reg.register(CurveStableSwapAction())
     reg.register(BalancerWeightedSwapAction())
-    reg.register(AaveSupplyBorrowAction())
-    reg.register(CompoundSupplyBorrowAction())
+    reg.register(AaveSupplyBorrowAction(w3))
+    reg.register(CompoundSupplyBorrowAction(w3))
     reg.register(MakerCdpAction())
     reg.register(YearnVaultAction())
     reg.register(SynthetixExchangeAction())
