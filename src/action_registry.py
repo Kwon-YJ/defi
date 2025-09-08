@@ -142,6 +142,10 @@ class UniswapV3SwapAction(ProtocolAction, _SwapPairsMixin):
 
     def __init__(self, w3: Web3):
         self.collector = UniswapV3Collector(w3)
+        from src.data_storage import DataStorage
+        self.storage = DataStorage()
+        from src.data_storage import DataStorage
+        self.storage = DataStorage()
 
     async def update_graph(self, graph: DeFiMarketGraph, w3: Web3, tokens: Dict[str, str],
                            block_number: Optional[int] = None) -> int:
@@ -151,13 +155,24 @@ class UniswapV3SwapAction(ProtocolAction, _SwapPairsMixin):
                 edges = await self.collector.build_edges_for_pair(token0, token1)
                 if not edges:
                     continue
+                # fee tier별 통계 기반 점수 산정 및 선택 마킹
+                scored = []
                 for e in edges:
+                    stats = await self.storage.get_v3_fee_stats(e['pool'], e.get('fee_tier', 0))
+                    ema0 = float(stats.get('ema_fee0', 0.0)) if stats else 0.0
+                    ema1 = float(stats.get('ema_fee1', 0.0)) if stats else 0.0
+                    liq_proxy = max(1e-9, min(float(e['reserve0']), float(e['reserve1'])))
+                    score = (ema0 + ema1) + 0.001 * liq_proxy
+                    scored.append((score, e))
+                scored.sort(key=lambda x: x[0], reverse=True)
+                best_pool = scored[0][1]['pool'] if scored else None
+                for score, e in scored:
                     # 유사 리저브를 통한 환율 반영 (add_trading_pair 내부에서 수수료 감안)
                     graph.add_trading_pair(
                         token0=e['token0'],
                         token1=e['token1'],
                         dex='uniswap_v3',
-                        pool_address=e['pool'],
+                        pool_address=e['pool'], edge_key=f"uniswap_v3:{e.get('fee_tier')}",
                         reserve0=float(e['reserve0']),
                         reserve1=float(e['reserve1']),
                         fee=float(e['fee_fraction']),
@@ -173,6 +188,10 @@ class UniswapV3SwapAction(ProtocolAction, _SwapPairsMixin):
                             'tick_upper': e.get('tick_upper'),
                             'tick_spacing': e.get('tick_spacing'),
                             'sqrtPriceX96': e.get('sqrtPriceX96'),
+                            'dex_key': f"uniswap_v3:{e.get('fee_tier')}",
+                            'fee_label': e.get('fee_label'),
+                            'tier_score': float(score),
+                            'selected': bool(best_pool and e['pool'] == best_pool),
                         }
                     )
                     updated += 2
@@ -742,6 +761,8 @@ class UniswapV3CollectFeesAction(ProtocolAction):
 
     def __init__(self, w3: Web3):
         self.collector = UniswapV3Collector(w3)
+        from src.data_storage import DataStorage
+        self.storage = DataStorage()
 
     async def update_graph(self, graph: DeFiMarketGraph, w3: Web3, tokens: Dict[str, str],
                            block_number: Optional[int] = None) -> int:
@@ -768,12 +789,17 @@ class UniswapV3CollectFeesAction(ProtocolAction):
                     fee0_per_L, fee1_per_L = await self.collector.estimate_fees_per_L(
                         pool, dec0, dec1, tick_lower, tick_upper, cur_tick
                     )
+                    # 통계 업데이트 (EMA)
+                    try:
+                        await self.storage.upsert_v3_fee_stats(pool, int(state.get('fee', 0)), fee0_per_L, fee1_per_L)
+                    except Exception:
+                        pass
                     # LP -> token0 (fees)
                     graph.add_trading_pair(
                         token0=lp_token,
                         token1=t0,
                         dex='uniswap_v3_fee_collect',
-                        pool_address=pool,
+                        pool_address=pool, edge_key=f"uniswap_v3:{fee}",
                         reserve0=base_liq,
                         reserve1=base_liq * float(fee0_per_L),
                         fee=0.0,
@@ -790,7 +816,7 @@ class UniswapV3CollectFeesAction(ProtocolAction):
                         token0=lp_token,
                         token1=t1,
                         dex='uniswap_v3_fee_collect',
-                        pool_address=pool,
+                        pool_address=pool, edge_key=f"uniswap_v3:{fee}",
                         reserve0=base_liq,
                         reserve1=base_liq * float(fee1_per_L),
                         fee=0.0,

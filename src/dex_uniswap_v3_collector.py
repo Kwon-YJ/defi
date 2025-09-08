@@ -15,6 +15,7 @@ class UniswapV3Collector:
 
     FACTORY_ADDRESS = "0x1F98431c8aD98523631AE4a59f267346ea31F984"
     FEE_TIERS = [500, 3000, 10000]  # 0.05%, 0.3%, 1%
+    FEE_LABELS = {500: "0.05%", 3000: "0.3%", 10000: "1%"}
 
     def __init__(self, web3_provider: Web3):
         self.w3 = web3_provider
@@ -305,6 +306,7 @@ class UniswapV3Collector:
                 'pool': pool,
                 'fee_fraction': state['fee'] / 1_000_000.0,
                 'fee_tier': int(state['fee']),
+                'fee_label': self.FEE_LABELS.get(int(state['fee']), str(int(state['fee']))),
                 'reserve0': reserve0,
                 'reserve1': reserve1,
                 'tick': cur_tick,

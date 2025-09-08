@@ -101,3 +101,42 @@ class DataStorage:
         except Exception as e:
             logger.error(f"가격 히스토리 조회 실패: {e}")
             return []
+
+    # --- V3 fee tier stats ---
+    async def upsert_v3_fee_stats(self, pool_address: str, fee_tier: int,
+                                  fee0_per_L: float, fee1_per_L: float,
+                                  alpha: float = 0.2) -> None:
+        """feeGrowth 기반 per-L 수수료 샘플로 EMA 통계 업데이트."""
+        try:
+            key = f"v3stats:{pool_address}:{int(fee_tier)}"
+            raw = self.redis_client.get(key)
+            now = datetime.now().isoformat()
+            if raw:
+                obj = json.loads(raw)
+            else:
+                obj = {"ema_fee0": 0.0, "ema_fee1": 0.0, "count": 0}
+            c = int(obj.get("count", 0))
+            ema0 = float(obj.get("ema_fee0", 0.0))
+            ema1 = float(obj.get("ema_fee1", 0.0))
+            ema0 = (1 - alpha) * ema0 + alpha * float(fee0_per_L)
+            ema1 = (1 - alpha) * ema1 + alpha * float(fee1_per_L)
+            obj.update({
+                "ema_fee0": ema0,
+                "ema_fee1": ema1,
+                "count": c + 1,
+                "updated_at": now,
+            })
+            self.redis_client.setex(key, 24 * 3600, json.dumps(obj))
+        except Exception as e:
+            logger.debug(f"V3 fee stats upsert 실패: {e}")
+
+    async def get_v3_fee_stats(self, pool_address: str, fee_tier: int) -> Optional[Dict]:
+        try:
+            key = f"v3stats:{pool_address}:{int(fee_tier)}"
+            raw = self.redis_client.get(key)
+            if not raw:
+                return None
+            return json.loads(raw)
+        except Exception as e:
+            logger.debug(f"V3 fee stats 조회 실패: {e}")
+            return None

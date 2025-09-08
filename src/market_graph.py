@@ -45,9 +45,9 @@ class DeFiMarketGraph:
             self.token_nodes.add(token_address)
             logger.debug(f"토큰 노드 추가: {symbol or token_address}")
     
-    def add_trading_pair(self, token0: str, token1: str, dex: str, 
+    def add_trading_pair(self, token0: str, token1: str, dex: str,
                         pool_address: str, reserve0: float, reserve1: float,
-                        fee: float = 0.003):
+                        fee: float = 0.003, edge_key: Optional[str] = None):
         """거래 쌍 추가 (양방향 엣지)"""
         # 토큰 노드 추가
         self.add_token(token0)
@@ -90,9 +90,13 @@ class DeFiMarketGraph:
             weight=weight_10
         )
         
-        # 그래프에 엣지 추가
-        self.graph.add_edge(token0, token1, **edge_01.__dict__)
-        self.graph.add_edge(token1, token0, **edge_10.__dict__)
+        # 그래프에 엣지 추가 (MultiDiGraph 지원: key로 fee tier 등 분리 가능)
+        if isinstance(self.graph, nx.MultiDiGraph):
+            self.graph.add_edge(token0, token1, key=edge_key, **edge_01.__dict__)
+            self.graph.add_edge(token1, token0, key=edge_key, **edge_10.__dict__)
+        else:
+            self.graph.add_edge(token0, token1, **edge_01.__dict__)
+            self.graph.add_edge(token1, token0, **edge_10.__dict__)
         
         logger.debug(f"거래 쌍 추가: {dex} {token0}-{token1}")
     
@@ -115,18 +119,30 @@ class DeFiMarketGraph:
     def update_pool_data(self, pool_address: str, reserve0: float, reserve1: float):
         """풀 데이터 업데이트"""
         # 해당 풀과 연관된 엣지들 찾아서 업데이트
-        for u, v, data in self.graph.edges(data=True):
-            if data.get('pool_address') == pool_address:
-                # 새로운 환율 계산
-                if data['from_token'] == u:
-                    new_rate = (reserve1 / reserve0) * (1 - data['fee'])
-                else:
-                    new_rate = (reserve0 / reserve1) * (1 - data['fee'])
-                
-                # 엣지 데이터 업데이트
-                data['exchange_rate'] = new_rate
-                data['weight'] = -math.log(new_rate) if new_rate > 0 else float('inf')
-                data['liquidity'] = min(reserve0, reserve1)
+        try:
+            if isinstance(self.graph, nx.MultiDiGraph):
+                iterator = self.graph.edges(keys=True, data=True)
+                for u, v, k, data in iterator:
+                    if isinstance(data, dict) and data.get('pool_address') == pool_address:
+                        if data.get('from_token') == u:
+                            new_rate = (reserve1 / reserve0) * (1 - data['fee'])
+                        else:
+                            new_rate = (reserve0 / reserve1) * (1 - data['fee'])
+                        data['exchange_rate'] = new_rate
+                        data['weight'] = -math.log(new_rate) if new_rate > 0 else float('inf')
+                        data['liquidity'] = min(reserve0, reserve1)
+            else:
+                for u, v, data in self.graph.edges(data=True):
+                    if data.get('pool_address') == pool_address:
+                        if data.get('from_token') == u:
+                            new_rate = (reserve1 / reserve0) * (1 - data['fee'])
+                        else:
+                            new_rate = (reserve0 / reserve1) * (1 - data['fee'])
+                        data['exchange_rate'] = new_rate
+                        data['weight'] = -math.log(new_rate) if new_rate > 0 else float('inf')
+                        data['liquidity'] = min(reserve0, reserve1)
+        except Exception:
+            pass
     
     def get_graph_stats(self) -> Dict:
         """그래프 통계 정보"""

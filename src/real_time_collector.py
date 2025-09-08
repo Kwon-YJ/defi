@@ -29,7 +29,14 @@ class RealTimeDataCollector:
             'Burn': '0xdccd412f0b1252819cb1fd330b93224ca42612892bb3f4f789976e6d81936496',
             # Uniswap V3 Pool Collect event
             # keccak256("Collect(address,address,int24,int24,uint128,uint256,uint256)")
-            'V3Collect': '0xf4ffc589144636c0d56f9ddc7c2399571e6401783c0aafedc9d34ab7cadad2ba'
+            'V3Collect': '0xf4ffc589144636c0d56f9ddc7c2399571e6401783c0aafedc9d34ab7cadad2ba',
+            # Uniswap V3 NonfungiblePositionManager events (position-level)
+            # keccak256("IncreaseLiquidity(uint256,uint128,uint256,uint256)")
+            'V3PMIncrease': '0x3067048beee31b25b2f1681f88dac838c8bba36af25bfb2b7cf7473a5847e35f',
+            # keccak256("DecreaseLiquidity(uint256,uint128,uint256,uint256)")
+            'V3PMDecrease': '0x26f6a048ee9138f2c0ce266f322cb99228e8d619ae2bff30c67f8dcf9d2377b4',
+            # keccak256("Collect(uint256,address,uint128,uint128)") (PositionManager)
+            'V3PMCollect': '0x4d8babf9b22e68d8f3c8653392a91073d3f3d246ad70593d8c8ed3fe381b3c96'
         }
         
     async def subscribe_to_blocks(self, callback: Callable):
@@ -194,6 +201,13 @@ class RealTimeDataCollector:
             # Uniswap V3 Collect 이벤트 처리 (수수료 수취)
             elif log_data['topics'][0] == self.monitored_events['V3Collect']:
                 await self._handle_v3_collect_event(log_data)
+            # Uniswap V3 PositionManager 이벤트 처리
+            elif log_data['topics'][0] in (
+                self.monitored_events['V3PMIncrease'],
+                self.monitored_events['V3PMDecrease'],
+                self.monitored_events['V3PMCollect'],
+            ):
+                await self._handle_v3_pm_event(log_data)
             
             # 구독자들에게 알림
             for callback in self.subscribers.get('logs', []):
@@ -271,6 +285,15 @@ class RealTimeDataCollector:
             # 실제 그래프 갱신은 상위 구독자(on_log_event)에서 처리
         except Exception as e:
             logger.error(f"V3 Collect 이벤트 처리 실패: {e}")
+
+    async def _handle_v3_pm_event(self, log_data: Dict):
+        """Uniswap V3 PositionManager 이벤트 처리 (증가/감소/수취)"""
+        try:
+            addr = log_data.get('address')
+            logger.debug(f"V3 PM 이벤트 감지: {addr} topic={log_data['topics'][0]}")
+            # 심화 처리는 BlockGraphUpdater에서 필요 시 구현
+        except Exception as e:
+            logger.error(f"V3 PM 이벤트 처리 실패: {e}")
     
     def stop(self):
         """데이터 수집 중지"""

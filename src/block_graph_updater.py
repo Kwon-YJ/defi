@@ -14,6 +14,7 @@ from src.graph_pruner import prune_graph
 from src.memory_compactor import compact_graph_attributes
 from src.synth_tokens import lp_v3
 from src.edge_meta import set_edge_meta
+from src.data_storage import DataStorage
 from config.config import config
 
 logger = setup_logger(__name__)
@@ -55,6 +56,8 @@ class BlockGraphUpdater:
         self.rt = RealTimeDataCollector()
         # V3 전용 수집기 (fee accrual 추정 등에 활용)
         self.v3_collector = UniswapV3Collector(self.w3)
+        # V3 통계 저장소(EMA)
+        self.storage = DataStorage()
         # Protocol Action Registry (확장성)
         self.registry: ActionRegistry = register_default_actions(self.w3)
 
@@ -154,6 +157,11 @@ class BlockGraphUpdater:
                             fee0_per_L, fee1_per_L = await self.v3_collector.estimate_fees_per_L(
                                 pool, dec0, dec1, tick_lower, tick_upper, cur_tick
                             )
+                            # 통계 업데이트 (EMA)
+                            try:
+                                await self.storage.upsert_v3_fee_stats(pool, int(state.get('fee', 0)), fee0_per_L, fee1_per_L)
+                            except Exception:
+                                pass
                             lp_token = lp_v3(pool)
                             base_liq = 20.0
                             # LP -> token0 (fees)
