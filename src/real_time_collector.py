@@ -1,6 +1,7 @@
 import asyncio
 import websockets
 import json
+import os
 from typing import Dict, List, Callable, Optional
 from web3 import Web3
 from src.logger import setup_logger
