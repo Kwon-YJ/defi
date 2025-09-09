@@ -13,6 +13,7 @@ class DataStorage:
         self.redis_client = redis.from_url(config.redis_url)
         self.pool_data_ttl = 300  # 5분
         self.price_data_ttl = 60   # 1분
+        self.price_hist_ttl = 30 * 24 * 3600  # 30일 보관
         
     async def store_pool_data(self, pool_address: str, pool_info: Dict):
         """풀 데이터 저장"""
@@ -75,6 +76,14 @@ class DataStorage:
             key = f"price:{token_address.lower()}"
             obj = {"price_usd": float(price_usd), "updated_at": datetime.now().isoformat()}
             self.redis_client.setex(key, self.price_data_ttl, json.dumps(obj))
+            # push to history (list capped to 100k)
+            try:
+                hkey = f"price_hist:{token_address.lower()}"
+                self.redis_client.lpush(hkey, json.dumps(obj))
+                self.redis_client.ltrim(hkey, 0, 100000)
+                self.redis_client.expire(hkey, self.price_hist_ttl)
+            except Exception:
+                pass
         except Exception as e:
             logger.debug(f"가격 저장 실패 {token_address[:6]}: {e}")
 
@@ -88,6 +97,21 @@ class DataStorage:
         except Exception as e:
             logger.debug(f"가격 조회 실패 {token_address[:6]}: {e}")
             return None
+
+    async def get_token_price_history(self, token_address: str, limit: int = 1000) -> List[Dict]:
+        try:
+            hkey = f"price_hist:{token_address.lower()}"
+            arr = self.redis_client.lrange(hkey, 0, max(0, int(limit) - 1))
+            out = []
+            for raw in arr:
+                try:
+                    out.append(json.loads(raw))
+                except Exception:
+                    continue
+            return out
+        except Exception as e:
+            logger.debug(f"가격 히스토리 조회 실패: {e}")
+            return []
     
     async def get_pool_price_history(self, pool_address: str, 
                                    hours: int = 24) -> List[Dict]:

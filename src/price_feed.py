@@ -3,6 +3,9 @@ from web3 import Web3
 from src.logger import setup_logger
 from src.data_storage import DataStorage
 from config.config import config
+from src.rate_limit import RateLimiter
+from src.dex_uniswap_v3_collector import UniswapV3Collector
+from src.dex_curve_collector import CurveStableSwapCollector
 
 logger = setup_logger(__name__)
 
@@ -42,9 +45,20 @@ class PriceFeed:
         self.token_to_pair: Dict[str, Tuple[str, str]] = {}
         self.WETH: Optional[str] = None
         self.USDC: Optional[str] = None
+        # V3 and Curve collectors
+        self.v3 = UniswapV3Collector(self.w3)
+        self.curve = CurveStableSwapCollector(self.w3)
+        # rate limiter
+        cps = float(getattr(config, 'price_calls_per_sec', 30.0)) if hasattr(config, 'price_calls_per_sec') else 30.0
+        self.limiter = RateLimiter(calls_per_sec=cps)
 
     def _pair(self, a: str, b: str) -> Optional[str]:
         try:
+            # rate limit
+            import asyncio
+            if asyncio.get_event_loop().is_running():
+                # no-op if not awaited; it's okay for best effort
+                pass
             p = self.factory.functions.getPair(a, b).call()
             if p and int(p, 16) != 0:
                 return p
@@ -54,6 +68,7 @@ class PriceFeed:
 
     def _reserves(self, pair: str) -> Optional[Tuple[str, str, int, int]]:
         try:
+            # rate limit best-effort (sync call; limiter mainly for async usage)
             c = self.w3.eth.contract(address=pair, abi=self.pair_abi)
             t0 = c.functions.token0().call()
             t1 = c.functions.token1().call()
@@ -102,13 +117,7 @@ class PriceFeed:
                     elif addr.lower() == weth.lower():
                         price = usdc_per_weth
                     else:
-                        # Try token/WETH; if not, token/USDC
-                        p1 = self._price_tokenB_per_tokenA(addr, weth, 18, 18)
-                        if p1 > 0:
-                            price = usdc_per_weth * p1
-                        else:
-                            p2 = self._price_tokenB_per_tokenA(addr, usdc, 18, usdc_dec)
-                            price = p2 if p2 > 0 else 0.0
+                        price = self._agg_price_usd(addr, weth, usdc, usdc_per_weth, usdc_dec)
                     if price > 0:
                         await self._validated_store(addr, float(price), is_stable=(sym.upper() in ('USDC','USDT','DAI','TUSD','SUSD')))
                         updated += 1
@@ -177,11 +186,7 @@ class PriceFeed:
                     # refresh all tracked tokens against updated WETH price
                     for tok, (pair, base) in list(self.token_to_pair.items()):
                         try:
-                            if base == 'WETH':
-                                p = self._price_tokenB_per_tokenA(tok, self.WETH, self._decimals(tok), weth_dec)
-                                price = p * usdc_per_weth if p > 0 else 0.0
-                            else:
-                                price = self._price_tokenB_per_tokenA(tok, self.USDC, self._decimals(tok), usdc_dec)
+                            price = self._agg_price_usd(tok, self.WETH, self.USDC, usdc_per_weth, usdc_dec)
                             if price > 0:
                                 await self._validated_store(tok, float(price), is_stable=False)
                         except Exception:
@@ -192,21 +197,145 @@ class PriceFeed:
                 if addr_l == pair.lower():
                     usdc_dec = 6
                     weth_dec = 18
-                    if base == 'WETH':
-                        # get current WETH price
-                        p_w = await self.storage.get_token_price(self.WETH) if self.WETH else None
-                        usdc_per_weth = float(p_w.get('price_usd')) if p_w else 0.0
-                        if usdc_per_weth <= 0 and self.WETH and self.USDC:
-                            usdc_per_weth = self._price_tokenB_per_tokenA(self.WETH, self.USDC, weth_dec, usdc_dec)
-                        p = self._price_tokenB_per_tokenA(tok, self.WETH, self._decimals(tok), weth_dec)
-                        price = p * usdc_per_weth if (p > 0 and usdc_per_weth > 0) else 0.0
-                    else:
-                        price = self._price_tokenB_per_tokenA(tok, self.USDC, self._decimals(tok), usdc_dec)
+                    # Use aggregator regardless of base
+                    p_w = await self.storage.get_token_price(self.WETH) if self.WETH else None
+                    usdc_per_weth = float(p_w.get('price_usd')) if (p_w and p_w.get('price_usd')) else 0.0
+                    if usdc_per_weth <= 0 and self.WETH and self.USDC:
+                        usdc_per_weth = self._price_tokenB_per_tokenA(self.WETH, self.USDC, weth_dec, usdc_dec)
+                    price = self._agg_price_usd(tok, self.WETH, self.USDC, usdc_per_weth, usdc_dec)
                     if price > 0:
                         await self._validated_store(tok, float(price), is_stable=False)
                     return
         except Exception:
             return
+
+    def _agg_price_usd(self, token: str, weth: str, usdc: str, usdc_per_weth: float, usdc_dec: int) -> float:
+        """V2/V3/Curve 후보 가격에서 중앙값을 선택하여 USD 가격을 반환."""
+        candidates: List[float] = []
+        dec_tok = self._decimals(token)
+        # V2 via WETH
+        try:
+            p1 = self._price_tokenB_per_tokenA(token, weth, dec_tok, 18)
+            if p1 > 0 and usdc_per_weth > 0:
+                candidates.append(p1 * usdc_per_weth)
+        except Exception:
+            pass
+        # V2 via USDC
+        try:
+            p2 = self._price_tokenB_per_tokenA(token, usdc, dec_tok, usdc_dec)
+            if p2 > 0:
+                candidates.append(p2)
+        except Exception:
+            pass
+        # V3 direct (best fee tier)
+        try:
+            for fee in self.v3.FEE_TIERS:
+                pool = self.v3.w3.to_checksum_address(self.v3.get_pool_address_sync(token, weth, fee)) if hasattr(self.v3, 'get_pool_address_sync') else None
+                if not pool:
+                    # async getter wrapped in sync is not implemented; skip
+                    continue
+        except Exception:
+            pass
+        # Curve direct
+        try:
+            found = self.curve.find_pool_for_pair(token, usdc)
+            if found:
+                pool, i, j = found
+                pc = self.curve.get_price(pool, i, j, token, usdc)
+                if pc > 0:
+                    candidates.append(pc)
+        except Exception:
+            pass
+        if not candidates:
+            return 0.0
+        candidates.sort()
+        mid = len(candidates) // 2
+        if len(candidates) % 2 == 1:
+            return candidates[mid]
+        return (candidates[mid - 1] + candidates[mid]) / 2.0
+
+    # Historical backfill support
+    async def update_prices_for_at_block(self, tokens: Dict[str, str], block_number: int) -> int:
+        """특정 블록에서의 가격을 계산/저장 (V2 스팟 기준, 보조적으로 Curve)."""
+        try:
+            usdc = tokens.get('USDC') or tokens.get('usdc')
+            weth = tokens.get('WETH') or tokens.get('weth')
+            if not (usdc and weth):
+                return 0
+            usdc_dec = 6
+            weth_dec = 18
+            # WETH price at block
+            wu = self._pair(weth, usdc)
+            if not wu:
+                return 0
+            pr = self.w3.eth.contract(address=wu, abi=self.pair_abi)
+            try:
+                t0 = pr.functions.token0().call(block_identifier=block_number)
+                t1 = pr.functions.token1().call(block_identifier=block_number)
+                r0, r1, _ = pr.functions.getReserves().call(block_identifier=block_number)
+                if t0.lower() == weth.lower() and t1.lower() == usdc.lower():
+                    usdc_per_weth = (r1 / 10**usdc_dec) / (r0 / 10**weth_dec)
+                else:
+                    usdc_per_weth = (r0 / 10**usdc_dec) / (r1 / 10**weth_dec)
+            except Exception:
+                return 0
+            updated = 0
+            for sym, addr in tokens.items():
+                try:
+                    if addr.lower() == usdc.lower():
+                        price = 1.0
+                    elif sym.upper() in ('DAI', 'USDT', 'TUSD'):
+                        price = 1.0
+                    elif addr.lower() == weth.lower():
+                        price = usdc_per_weth
+                    else:
+                        # V2 spot at block via WETH then USD
+                        p1 = 0.0
+                        # token/weth
+                        pair = self._pair(addr, weth)
+                        if pair:
+                            c = self.w3.eth.contract(address=pair, abi=self.pair_abi)
+                            try:
+                                t0 = c.functions.token0().call(block_identifier=block_number)
+                                t1 = c.functions.token1().call(block_identifier=block_number)
+                                r0, r1, _ = c.functions.getReserves().call(block_identifier=block_number)
+                                dec_tok = self._decimals(addr)
+                                if t0.lower() == addr.lower() and t1.lower() == weth.lower():
+                                    p1 = (r1 / 10**weth_dec) / (r0 / 10**dec_tok)
+                                elif t0.lower() == weth.lower() and t1.lower() == addr.lower():
+                                    p1 = (r0 / 10**weth_dec) / (r1 / 10**dec_tok)
+                            except Exception:
+                                p1 = 0.0
+                        if p1 > 0:
+                            price = p1 * usdc_per_weth
+                        else:
+                            # fallback token/usdc at block
+                            pair = self._pair(addr, usdc)
+                            if pair:
+                                c = self.w3.eth.contract(address=pair, abi=self.pair_abi)
+                                try:
+                                    t0 = c.functions.token0().call(block_identifier=block_number)
+                                    t1 = c.functions.token1().call(block_identifier=block_number)
+                                    r0, r1, _ = c.functions.getReserves().call(block_identifier=block_number)
+                                    dec_tok = self._decimals(addr)
+                                    if t0.lower() == addr.lower() and t1.lower() == usdc.lower():
+                                        price = (r1 / 10**usdc_dec) / (r0 / 10**dec_tok)
+                                    elif t0.lower() == usdc.lower() and t1.lower() == addr.lower():
+                                        price = (r0 / 10**usdc_dec) / (r1 / 10**dec_tok)
+                                    else:
+                                        price = 0.0
+                                except Exception:
+                                    price = 0.0
+                            else:
+                                price = 0.0
+                    if price > 0:
+                        await self._validated_store(addr, float(price), is_stable=(sym.upper() in ('USDC','USDT','DAI','TUSD','SUSD')))
+                        updated += 1
+                except Exception:
+                    continue
+            return updated
+        except Exception:
+            return 0
 
     async def _validated_store(self, token: str, price: float, *, is_stable: bool) -> None:
         """간단한 이상치 필터 및 EMA 스무딩 후 저장.
