@@ -75,6 +75,9 @@ class Config:
     price_stable_max_dev: float = float(os.getenv('PRICE_STABLE_MAX_DEV', '0.03'))  # 3% around $1
     # Graph building concurrency
     graph_build_concurrency: int = int(os.getenv('GRAPH_BUILD_CONCURRENCY', '16'))
+    # Memory compaction
+    memory_compact_meta: bool = os.getenv('MEMORY_COMPACT_META', '1') in ('1','true','True')
+    memory_meta_keep_keys: str = os.getenv('MEMORY_META_KEEP_KEYS', 'contract,fee_tier,source,confidence,lp_token,risk_fot,risk_rebase')
     
     def validate(self) -> bool:
         """설정 유효성 검사"""

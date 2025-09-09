@@ -392,36 +392,48 @@ class BalancerWeightedSwapAction(ProtocolAction, _SwapPairsMixin):
 
     async def update_graph(self, graph: DeFiMarketGraph, w3: Web3, tokens: Dict[str, str],
                            block_number: Optional[int] = None) -> int:
+        import asyncio
         updated = 0
-        for token0, token1 in self._major_pairs(tokens):
-            try:
-                pool = self.collector.find_pool_for_pair(token0, token1)
-                if not pool:
-                    continue
-                # read weights, balances and fee; compute effective rate at reference trade size
-                eff_rate, fee_frac, wi, wj, bi = self.collector.effective_rate_for_fraction(pool, token0, token1)
-                if eff_rate <= 0 or wi <= 0 or wj <= 0 or bi <= 0:
-                    continue
-                # set reserves so that exchange_rate ~= effective average price at ref size
-                reserve0 = 150.0
-                reserve1 = reserve0 * float(eff_rate)
-                graph.add_trading_pair(
-                    token0=token0,
-                    token1=token1,
-                    dex='balancer',
-                    pool_address=pool,
-                    reserve0=reserve0,
-                    reserve1=reserve1,
-                    fee=float(fee_frac),
-                )
-                set_edge_meta(
-                    graph.graph, token0, token1, dex='balancer', pool_address=pool,
-                    fee_tier=None, source='onchain', confidence=0.9,
-                    extra={'w_in': wi, 'w_out': wj, 'b_in': bi, 'ref_fraction': float(getattr(config, 'slippage_trade_fraction', 0.01)), 'eff_rate': float(eff_rate)}
-                )
-                updated += 2
-            except Exception as e:
-                logger.debug(f"Balancer update failed {token0[:6]}-{token1[:6]}: {e}")
+        pairs = self._major_pairs(tokens)
+        sem = asyncio.Semaphore(max(1, int(getattr(config, 'graph_build_concurrency', 16))))
+        lock = asyncio.Lock()
+
+        async def process(token0: str, token1: str) -> int:
+            async with sem:
+                try:
+                    pool = self.collector.find_pool_for_pair(token0, token1)
+                    if not pool:
+                        return 0
+                    eff_rate, fee_frac, wi, wj, bi = self.collector.effective_rate_for_fraction(pool, token0, token1)
+                    if eff_rate <= 0 or wi <= 0 or wj <= 0 or bi <= 0:
+                        return 0
+                    reserve0 = 150.0
+                    reserve1 = reserve0 * float(eff_rate)
+                    async with lock:
+                        graph.add_trading_pair(
+                            token0=token0,
+                            token1=token1,
+                            dex='balancer',
+                            pool_address=pool,
+                            reserve0=reserve0,
+                            reserve1=reserve1,
+                            fee=float(fee_frac),
+                        )
+                        set_edge_meta(
+                            graph.graph, token0, token1, dex='balancer', pool_address=pool,
+                            fee_tier=None, source='onchain', confidence=0.9,
+                            extra={'w_in': wi, 'w_out': wj, 'b_in': bi, 'ref_fraction': float(getattr(config, 'slippage_trade_fraction', 0.01)), 'eff_rate': float(eff_rate)}
+                        )
+                    return 2
+                except Exception as e:
+                    logger.debug(f"Balancer update failed {token0[:6]}-{token1[:6]}: {e}")
+                    return 0
+
+        tasks = [process(a, b) for a, b in pairs]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for r in results:
+            if isinstance(r, int):
+                updated += r
         return updated
 
 
@@ -1197,91 +1209,72 @@ class BalancerJoinPoolAction(ProtocolAction):
 
     async def update_graph(self, graph: DeFiMarketGraph, w3: Web3, tokens: Dict[str, str],
                            block_number: Optional[int] = None) -> int:
+        import asyncio
         updated = 0
         base_liq = 120.0
-        for token0, token1 in list(combinations(tokens.values(), 2)):
-            try:
-                pool = self.collector.find_pool_for_pair(token0, token1)
-                if not pool:
-                    continue
-                lp_token = bpt(pool)
-                # token0 -> LP (1 token0) — single-asset join (with fee on non-proportional part)
-                d0 = self.collector._decimals(token0)
-                bpt_per_t0 = self.collector.bpt_out_per_token_in(pool, token0, 1.0)
-                if bpt_per_t0 > 0:
-                    graph.add_trading_pair(
-                        token0=token0,
-                        token1=lp_token,
-                        dex='balancer_lp_join',
-                        pool_address=pool,
-                        reserve0=base_liq,
-                        reserve1=base_liq * float(bpt_per_t0),
-                        fee=0.0,
-                    )
-                    set_edge_meta(graph.graph, token0, lp_token, dex='balancer_lp_join', pool_address=pool,
-                                  fee_tier=None, source='onchain', confidence=0.88,
-                                  extra={'dec_in': d0})
-                    updated += 2
-                # token1 -> LP (1 token1) — single-asset join
-                d1 = self.collector._decimals(token1)
-                bpt_per_t1 = self.collector.bpt_out_per_token_in(pool, token1, 1.0)
-                if bpt_per_t1 > 0:
-                    graph.add_trading_pair(
-                        token0=token1,
-                        token1=lp_token,
-                        dex='balancer_lp_join',
-                        pool_address=pool,
-                        reserve0=base_liq,
-                        reserve1=base_liq * float(bpt_per_t1),
-                        fee=0.0,
-                    )
-                    set_edge_meta(graph.graph, token1, lp_token, dex='balancer_lp_join', pool_address=pool,
-                                  fee_tier=None, source='onchain', confidence=0.88,
-                                  extra={'dec_in': d1})
-                    updated += 2
+        pairs = list(combinations(tokens.values(), 2))
+        sem = asyncio.Semaphore(max(1, int(getattr(config, 'graph_build_concurrency', 16))))
+        lock = asyncio.Lock()
 
-                # Proportional join branch (no swap fee): BPT per 1 token = ts / balance_i
+        async def process(token0: str, token1: str) -> int:
+            async with sem:
                 try:
-                    bpt_dec, ts_raw = self.collector.get_bpt_info(pool)
-                    ts = float(ts_raw) / float(10 ** bpt_dec) if bpt_dec else float(ts_raw) / 1e18
-                    # token0 proportional
-                    wi0, _, bi0, _ = self.collector.get_weights_and_balances(pool, token0, token0)
-                    if ts > 0 and bi0 > 0:
-                        bpt_per_t0_prop = ts / float(bi0)
-                        graph.add_trading_pair(
-                            token0=token0,
-                            token1=lp_token,
-                            dex='balancer_lp_join_prop',
-                            pool_address=pool,
-                            reserve0=base_liq,
-                            reserve1=base_liq * float(bpt_per_t0_prop),
-                            fee=0.0,
-                        )
-                        set_edge_meta(graph.graph, token0, lp_token, dex='balancer_lp_join_prop', pool_address=pool,
-                                      fee_tier=None, source='onchain', confidence=0.85,
-                                      extra={'proportional': True, 'dec_in': d0})
-                        updated += 2
-                    # token1 proportional
-                    wi1, _, bi1, _ = self.collector.get_weights_and_balances(pool, token1, token1)
-                    if ts > 0 and bi1 > 0:
-                        bpt_per_t1_prop = ts / float(bi1)
-                        graph.add_trading_pair(
-                            token0=token1,
-                            token1=lp_token,
-                            dex='balancer_lp_join_prop',
-                            pool_address=pool,
-                            reserve0=base_liq,
-                            reserve1=base_liq * float(bpt_per_t1_prop),
-                            fee=0.0,
-                        )
-                        set_edge_meta(graph.graph, token1, lp_token, dex='balancer_lp_join_prop', pool_address=pool,
-                                      fee_tier=None, source='onchain', confidence=0.85,
-                                      extra={'proportional': True, 'dec_in': d1})
-                        updated += 2
-                except Exception:
-                    pass
-            except Exception as e:
-                logger.debug(f"Balancer join_pool update failed: {e}")
+                    pool = self.collector.find_pool_for_pair(token0, token1)
+                    if not pool:
+                        return 0
+                    lp_token = bpt(pool)
+                    d0 = self.collector._decimals(token0)
+                    d1 = self.collector._decimals(token1)
+                    bpt_per_t0 = self.collector.bpt_out_per_token_in(pool, token0, 1.0)
+                    bpt_per_t1 = self.collector.bpt_out_per_token_in(pool, token1, 1.0)
+                    # Proportional join info
+                    try:
+                        bpt_dec, ts_raw = self.collector.get_bpt_info(pool)
+                        ts = float(ts_raw) / float(10 ** bpt_dec) if bpt_dec else float(ts_raw) / 1e18
+                        wi0, _, bi0, _ = self.collector.get_weights_and_balances(pool, token0, token0)
+                        wi1, _, bi1, _ = self.collector.get_weights_and_balances(pool, token1, token1)
+                    except Exception:
+                        ts = 0.0; bi0 = 0.0; bi1 = 0.0
+                    added = 0
+                    async with lock:
+                        if bpt_per_t0 > 0:
+                            graph.add_trading_pair(token0=token0, token1=lp_token, dex='balancer_lp_join', pool_address=pool,
+                                                   reserve0=base_liq, reserve1=base_liq * float(bpt_per_t0), fee=0.0)
+                            set_edge_meta(graph.graph, token0, lp_token, dex='balancer_lp_join', pool_address=pool,
+                                          fee_tier=None, source='onchain', confidence=0.88, extra={'dec_in': d0})
+                            added += 2
+                        if bpt_per_t1 > 0:
+                            graph.add_trading_pair(token0=token1, token1=lp_token, dex='balancer_lp_join', pool_address=pool,
+                                                   reserve0=base_liq, reserve1=base_liq * float(bpt_per_t1), fee=0.0)
+                            set_edge_meta(graph.graph, token1, lp_token, dex='balancer_lp_join', pool_address=pool,
+                                          fee_tier=None, source='onchain', confidence=0.88, extra={'dec_in': d1})
+                            added += 2
+                        if ts > 0 and bi0 > 0:
+                            bpt_per_t0_prop = ts / float(bi0)
+                            graph.add_trading_pair(token0=token0, token1=lp_token, dex='balancer_lp_join_prop', pool_address=pool,
+                                                   reserve0=base_liq, reserve1=base_liq * float(bpt_per_t0_prop), fee=0.0)
+                            set_edge_meta(graph.graph, token0, lp_token, dex='balancer_lp_join_prop', pool_address=pool,
+                                          fee_tier=None, source='onchain', confidence=0.85,
+                                          extra={'proportional': True, 'dec_in': d0})
+                            added += 2
+                        if ts > 0 and bi1 > 0:
+                            bpt_per_t1_prop = ts / float(bi1)
+                            graph.add_trading_pair(token0=token1, token1=lp_token, dex='balancer_lp_join_prop', pool_address=pool,
+                                                   reserve0=base_liq, reserve1=base_liq * float(bpt_per_t1_prop), fee=0.0)
+                            set_edge_meta(graph.graph, token1, lp_token, dex='balancer_lp_join_prop', pool_address=pool,
+                                          fee_tier=None, source='onchain', confidence=0.85,
+                                          extra={'proportional': True, 'dec_in': d1})
+                            added += 2
+                    return added
+                except Exception as e:
+                    logger.debug(f"Balancer join_pool update failed: {e}")
+                    return 0
+
+        tasks = [process(a, b) for a, b in pairs]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for r in results:
+            if isinstance(r, int):
+                updated += r
         return updated
 
 
@@ -1294,85 +1287,69 @@ class BalancerExitPoolAction(ProtocolAction):
 
     async def update_graph(self, graph: DeFiMarketGraph, w3: Web3, tokens: Dict[str, str],
                            block_number: Optional[int] = None) -> int:
+        import asyncio
         updated = 0
         base_liq = 120.0
-        for token0, token1 in list(combinations(tokens.values(), 2)):
-            try:
-                pool = self.collector.find_pool_for_pair(token0, token1)
-                if not pool:
-                    continue
-                lp_token = bpt(pool)
-                # LP -> token0 (1 BPT) — single-asset exit (with fee on non-proportional part)
-                t0_per_bpt = self.collector.token_out_per_bpt_in(pool, token0, 1.0)
-                if t0_per_bpt > 0:
-                    graph.add_trading_pair(
-                        token0=lp_token,
-                        token1=token0,
-                        dex='balancer_lp_exit',
-                        pool_address=pool,
-                        reserve0=base_liq,
-                        reserve1=base_liq * float(t0_per_bpt),
-                        fee=0.0,
-                    )
-                    set_edge_meta(graph.graph, lp_token, token0, dex='balancer_lp_exit', pool_address=pool,
-                                  fee_tier=None, source='onchain', confidence=0.88)
-                    updated += 2
-                # LP -> token1 (1 BPT) — single-asset exit
-                t1_per_bpt = self.collector.token_out_per_bpt_in(pool, token1, 1.0)
-                if t1_per_bpt > 0:
-                    graph.add_trading_pair(
-                        token0=lp_token,
-                        token1=token1,
-                        dex='balancer_lp_exit',
-                        pool_address=pool,
-                        reserve0=base_liq,
-                        reserve1=base_liq * float(t1_per_bpt),
-                        fee=0.0,
-                    )
-                    set_edge_meta(graph.graph, lp_token, token1, dex='balancer_lp_exit', pool_address=pool,
-                                  fee_tier=None, source='onchain', confidence=0.88)
-                    updated += 2
+        pairs = list(combinations(tokens.values(), 2))
+        sem = asyncio.Semaphore(max(1, int(getattr(config, 'graph_build_concurrency', 16))))
+        lock = asyncio.Lock()
 
-                # Proportional exit branch (no swap fee): token per 1 BPT = balance_i / ts
+        async def process(token0: str, token1: str) -> int:
+            async with sem:
                 try:
-                    bpt_dec, ts_raw = self.collector.get_bpt_info(pool)
-                    ts = float(ts_raw) / float(10 ** bpt_dec) if bpt_dec else float(ts_raw) / 1e18
-                    wi0, _, bi0, _ = self.collector.get_weights_and_balances(pool, token0, token0)
-                    if ts > 0 and bi0 > 0:
-                        t0_per_bpt_prop = float(bi0) / ts
-                        graph.add_trading_pair(
-                            token0=lp_token,
-                            token1=token0,
-                            dex='balancer_lp_exit_prop',
-                            pool_address=pool,
-                            reserve0=base_liq,
-                            reserve1=base_liq * float(t0_per_bpt_prop),
-                            fee=0.0,
-                        )
-                        set_edge_meta(graph.graph, lp_token, token0, dex='balancer_lp_exit_prop', pool_address=pool,
-                                      fee_tier=None, source='onchain', confidence=0.85,
-                                      extra={'proportional': True})
-                        updated += 2
-                    wi1, _, bi1, _ = self.collector.get_weights_and_balances(pool, token1, token1)
-                    if ts > 0 and bi1 > 0:
-                        t1_per_bpt_prop = float(bi1) / ts
-                        graph.add_trading_pair(
-                            token0=lp_token,
-                            token1=token1,
-                            dex='balancer_lp_exit_prop',
-                            pool_address=pool,
-                            reserve0=base_liq,
-                            reserve1=base_liq * float(t1_per_bpt_prop),
-                            fee=0.0,
-                        )
-                        set_edge_meta(graph.graph, lp_token, token1, dex='balancer_lp_exit_prop', pool_address=pool,
-                                      fee_tier=None, source='onchain', confidence=0.85,
-                                      extra={'proportional': True})
-                        updated += 2
-                except Exception:
-                    pass
-            except Exception as e:
-                logger.debug(f"Balancer exit_pool update failed: {e}")
+                    pool = self.collector.find_pool_for_pair(token0, token1)
+                    if not pool:
+                        return 0
+                    lp_token = bpt(pool)
+                    t0_per_bpt = self.collector.token_out_per_bpt_in(pool, token0, 1.0)
+                    t1_per_bpt = self.collector.token_out_per_bpt_in(pool, token1, 1.0)
+                    try:
+                        bpt_dec, ts_raw = self.collector.get_bpt_info(pool)
+                        ts = float(ts_raw) / float(10 ** bpt_dec) if bpt_dec else float(ts_raw) / 1e18
+                        wi0, _, bi0, _ = self.collector.get_weights_and_balances(pool, token0, token0)
+                        wi1, _, bi1, _ = self.collector.get_weights_and_balances(pool, token1, token1)
+                    except Exception:
+                        ts = 0.0; bi0 = 0.0; bi1 = 0.0
+                    added = 0
+                    async with lock:
+                        if t0_per_bpt > 0:
+                            graph.add_trading_pair(token0=lp_token, token1=token0, dex='balancer_lp_exit', pool_address=pool,
+                                                   reserve0=base_liq, reserve1=base_liq * float(t0_per_bpt), fee=0.0)
+                            set_edge_meta(graph.graph, lp_token, token0, dex='balancer_lp_exit', pool_address=pool,
+                                          fee_tier=None, source='onchain', confidence=0.88)
+                            added += 2
+                        if t1_per_bpt > 0:
+                            graph.add_trading_pair(token0=lp_token, token1=token1, dex='balancer_lp_exit', pool_address=pool,
+                                                   reserve0=base_liq, reserve1=base_liq * float(t1_per_bpt), fee=0.0)
+                            set_edge_meta(graph.graph, lp_token, token1, dex='balancer_lp_exit', pool_address=pool,
+                                          fee_tier=None, source='onchain', confidence=0.88)
+                            added += 2
+                        if ts > 0 and bi0 > 0:
+                            t0_per_bpt_prop = float(bi0) / ts
+                            graph.add_trading_pair(token0=lp_token, token1=token0, dex='balancer_lp_exit_prop', pool_address=pool,
+                                                   reserve0=base_liq, reserve1=base_liq * float(t0_per_bpt_prop), fee=0.0)
+                            set_edge_meta(graph.graph, lp_token, token0, dex='balancer_lp_exit_prop', pool_address=pool,
+                                          fee_tier=None, source='onchain', confidence=0.85,
+                                          extra={'proportional': True})
+                            added += 2
+                        if ts > 0 and bi1 > 0:
+                            t1_per_bpt_prop = float(bi1) / ts
+                            graph.add_trading_pair(token0=lp_token, token1=token1, dex='balancer_lp_exit_prop', pool_address=pool,
+                                                   reserve0=base_liq, reserve1=base_liq * float(t1_per_bpt_prop), fee=0.0)
+                            set_edge_meta(graph.graph, lp_token, token1, dex='balancer_lp_exit_prop', pool_address=pool,
+                                          fee_tier=None, source='onchain', confidence=0.85,
+                                          extra={'proportional': True})
+                            added += 2
+                    return added
+                except Exception as e:
+                    logger.debug(f"Balancer exit_pool update failed: {e}")
+                    return 0
+
+        tasks = [process(a, b) for a, b in pairs]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for r in results:
+            if isinstance(r, int):
+                updated += r
         return updated
 
 
