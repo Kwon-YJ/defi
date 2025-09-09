@@ -2,6 +2,8 @@ import asyncio
 import websockets
 import json
 import os
+import time
+from collections import deque
 from typing import Dict, List, Callable, Optional
 from web3 import Web3
 from src.logger import setup_logger
@@ -28,6 +30,7 @@ class RealTimeDataCollector:
             # fallback to HTTP rpc via websocket proxy not available; keep placeholder
             self.ws_endpoints = [self.ws_url] if self.ws_url else []
         self.ws_index = 0
+        self.ws_multi = os.getenv('WS_MULTI', '0') in ('1','true','True')
         self.ws_idle_timeout = int(os.getenv('WS_IDLE_TIMEOUT', '20'))  # seconds without messages → rotate
         self.ws_backoff_min = float(os.getenv('WS_BACKOFF_MIN', '1.0'))
         self.ws_backoff_max = float(os.getenv('WS_BACKOFF_MAX', '10.0'))
@@ -37,6 +40,13 @@ class RealTimeDataCollector:
         self.running = False
         self.websocket = None
         self.log_addresses: Optional[List[str]] = None
+        # de-dup caches
+        self._seen_blocks_q = deque(maxlen=2048)
+        self._seen_blocks = set()
+        self._seen_logs_q = deque(maxlen=4096)
+        self._seen_logs = set()
+        self._seen_pend_q = deque(maxlen=4096)
+        self._seen_pend = set()
         
         # 모니터링할 이벤트들
         self.monitored_events = {
@@ -92,6 +102,10 @@ class RealTimeDataCollector:
         """WebSocket 리스너 시작"""
         self.running = True
         logger.info("WebSocket 연결 시작 (다중 소스 지원)")
+        if self.ws_multi and len(self.ws_endpoints) > 1:
+            logger.info(f"WS 멀티 엔드포인트 {len(self.ws_endpoints)} 동시 처리 활성화")
+            await self.start_websocket_listener_multi()
+            return
 
         last_message = 0.0
         backoff = self.ws_backoff_min
@@ -167,7 +181,7 @@ class RealTimeDataCollector:
             
         except Exception as e:
             logger.error(f"구독 설정 실패: {e}")
-    
+            
     async def _handle_message(self, message: str):
         """WebSocket 메시지 처리"""
         try:
@@ -204,6 +218,18 @@ class RealTimeDataCollector:
         """새 블록 처리"""
         try:
             block_number = int(block_data['number'], 16)
+            key = block_number
+            if key in self._seen_blocks:
+                return
+            self._seen_blocks.add(key)
+            self._seen_blocks_q.append(key)
+            if len(self._seen_blocks_q) == self._seen_blocks_q.maxlen:
+                # drop oldest
+                try:
+                    old = self._seen_blocks_q.popleft()
+                    self._seen_blocks.discard(old)
+                except Exception:
+                    pass
             block_hash = block_data['hash']
             
             logger.debug(f"새 블록: {block_number} ({block_hash})")
@@ -221,6 +247,17 @@ class RealTimeDataCollector:
     async def _handle_pending_transaction(self, tx_hash: str):
         """펜딩 트랜잭션 처리"""
         try:
+            key = tx_hash
+            if key in self._seen_pend:
+                return
+            self._seen_pend.add(key)
+            self._seen_pend_q.append(key)
+            if len(self._seen_pend_q) == self._seen_pend_q.maxlen:
+                try:
+                    old = self._seen_pend_q.popleft()
+                    self._seen_pend.discard(old)
+                except Exception:
+                    pass
             # 구독자들에게 알림
             for callback in self.subscribers.get('pending_txs', []):
                 try:
@@ -234,6 +271,28 @@ class RealTimeDataCollector:
     async def _handle_log_event(self, log_data: Dict):
         """로그 이벤트 처리"""
         try:
+            # dedupe by (txHash, logIndex) if present
+            key = None
+            try:
+                txh = log_data.get('transactionHash')
+                li = log_data.get('logIndex')
+                if txh is not None and li is not None:
+                    key = f"{txh}:{li}"
+                else:
+                    key = f"{log_data.get('address')}:{log_data.get('blockNumber')}:{log_data.get('data')[:16]}"
+            except Exception:
+                pass
+            if key and key in self._seen_logs:
+                return
+            if key:
+                self._seen_logs.add(key)
+                self._seen_logs_q.append(key)
+                if len(self._seen_logs_q) == self._seen_logs_q.maxlen:
+                    try:
+                        old = self._seen_logs_q.popleft()
+                        self._seen_logs.discard(old)
+                    except Exception:
+                        pass
             # Swap 이벤트인지 확인
             if log_data['topics'][0] == self.monitored_events['Swap']:
                 await self._handle_swap_event(log_data)
@@ -368,6 +427,49 @@ class RealTimeDataCollector:
         """데이터 수집 중지"""
         self.running = False
         logger.info("실시간 데이터 수집 중지")
+
+    # --- Multi-endpoint mode ---
+    async def start_websocket_listener_multi(self):
+        """여러 WS 엔드포인트에 동시 연결하여 중복 스트림을 처리(중복 제거)."""
+        self.running = True
+        tasks = []
+        for ep in self.ws_endpoints:
+            tasks.append(asyncio.create_task(self._ws_task(ep)))
+        logger.info(f"WS 멀티 태스크 시작: {len(tasks)}")
+        try:
+            await asyncio.gather(*tasks)
+        except Exception as e:
+            logger.error(f"WS 멀티 리스너 오류: {e}")
+
+    async def _ws_task(self, endpoint: str):
+        backoff = self.ws_backoff_min
+        while self.running:
+            try:
+                async with websockets.connect(endpoint) as ws:
+                    # Subscriptions
+                    await ws.send(json.dumps({"id": 1, "method": "eth_subscribe", "params": ["newHeads"]}))
+                    if 'pending_txs' in self.subscribers:
+                        await ws.send(json.dumps({"id": 2, "method": "eth_subscribe", "params": ["newPendingTransactions"]}))
+                    if 'logs' in self.subscribers:
+                        await ws.send(json.dumps({
+                            "id": 3,
+                            "method": "eth_subscribe",
+                            "params": [
+                                "logs",
+                                {"topics": [list(self.monitored_events.values())], **({"address": self.log_addresses} if self.log_addresses else {})}
+                            ]
+                        }))
+                    logger.info(f"WS 구독 설정 완료 (multi) @ {endpoint}")
+                    async for message in ws:
+                        try:
+                            await self._handle_message(message)
+                        except Exception as e:
+                            logger.debug(f"WS multi 메시지 처리 실패: {e}")
+                    backoff = self.ws_backoff_min
+            except Exception as e:
+                logger.error(f"WS multi 연결 실패 @ {endpoint}: {e}")
+                await asyncio.sleep(min(self.ws_backoff_max, backoff))
+                backoff = min(self.ws_backoff_max, backoff * 2)
 
 # 사용 예시
 async def main():

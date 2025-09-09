@@ -2,6 +2,7 @@ from typing import Dict, Optional, List, Tuple
 from web3 import Web3
 from src.logger import setup_logger
 from src.data_storage import DataStorage
+from config.config import config
 
 logger = setup_logger(__name__)
 
@@ -109,7 +110,7 @@ class PriceFeed:
                             p2 = self._price_tokenB_per_tokenA(addr, usdc, 18, usdc_dec)
                             price = p2 if p2 > 0 else 0.0
                     if price > 0:
-                        await self.storage.store_token_price(addr, float(price))
+                        await self._validated_store(addr, float(price), is_stable=(sym.upper() in ('USDC','USDT','DAI','TUSD','SUSD')))
                         updated += 1
                 except Exception:
                     continue
@@ -172,7 +173,7 @@ class PriceFeed:
                     return
                 usdc_per_weth = self._price_tokenB_per_tokenA(self.WETH, self.USDC, weth_dec, usdc_dec)
                 if usdc_per_weth > 0:
-                    await self.storage.store_token_price(self.WETH, float(usdc_per_weth))
+                    await self._validated_store(self.WETH, float(usdc_per_weth), is_stable=False)
                     # refresh all tracked tokens against updated WETH price
                     for tok, (pair, base) in list(self.token_to_pair.items()):
                         try:
@@ -182,7 +183,7 @@ class PriceFeed:
                             else:
                                 price = self._price_tokenB_per_tokenA(tok, self.USDC, self._decimals(tok), usdc_dec)
                             if price > 0:
-                                await self.storage.store_token_price(tok, float(price))
+                                await self._validated_store(tok, float(price), is_stable=False)
                         except Exception:
                             continue
                 return
@@ -202,7 +203,47 @@ class PriceFeed:
                     else:
                         price = self._price_tokenB_per_tokenA(tok, self.USDC, self._decimals(tok), usdc_dec)
                     if price > 0:
-                        await self.storage.store_token_price(tok, float(price))
+                        await self._validated_store(tok, float(price), is_stable=False)
                     return
         except Exception:
             return
+
+    async def _validated_store(self, token: str, price: float, *, is_stable: bool) -> None:
+        """간단한 이상치 필터 및 EMA 스무딩 후 저장.
+
+        - 급등락 캡: PRICE_JUMP_MAX_PCT (기본 20%)
+        - 스테이블코인 앵커: PRICE_STABLE_MAX_DEV (기본 3%)
+        - EMA 스무딩: PRICE_EMA_ALPHA (기본 0.2)
+        """
+        try:
+            alpha = float(getattr(config, 'price_ema_alpha', 0.2))
+            jump = float(getattr(config, 'price_jump_max_pct', 0.2))
+            sdev = float(getattr(config, 'price_stable_max_dev', 0.03))
+            prev = await self.storage.get_token_price(token)
+            prev_p = float(prev.get('price_usd')) if prev and 'price_usd' in prev else None
+            p = float(price)
+            if is_stable:
+                # clamp around $1
+                lo = 1.0 - sdev
+                hi = 1.0 + sdev
+                if p < lo:
+                    p = lo
+                elif p > hi:
+                    p = hi
+            if prev_p and prev_p > 0:
+                # cap sudden jumps
+                max_up = prev_p * (1.0 + jump)
+                max_dn = prev_p * (1.0 - jump)
+                if p > max_up:
+                    p = max_up
+                elif p < max_dn:
+                    p = max_dn
+                # EMA smoothing
+                p = alpha * p + (1.0 - alpha) * prev_p
+            await self.storage.store_token_price(token, float(p))
+        except Exception:
+            # fallback to raw store
+            try:
+                await self.storage.store_token_price(token, float(price))
+            except Exception:
+                pass

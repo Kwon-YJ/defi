@@ -69,6 +69,10 @@ class Config:
     curve_liq_scale_ref: float = float(os.getenv('CURVE_LIQ_SCALE_REF', '1000000'))  # reference LP totalSupply
     curve_liq_scale_min: float = float(os.getenv('CURVE_LIQ_SCALE_MIN', '0.25'))
     curve_liq_scale_max: float = float(os.getenv('CURVE_LIQ_SCALE_MAX', '3.0'))
+    # Price feed validation / smoothing
+    price_ema_alpha: float = float(os.getenv('PRICE_EMA_ALPHA', '0.2'))
+    price_jump_max_pct: float = float(os.getenv('PRICE_JUMP_MAX_PCT', '0.2'))  # 20% per tick cap
+    price_stable_max_dev: float = float(os.getenv('PRICE_STABLE_MAX_DEV', '0.03'))  # 3% around $1
     
     def validate(self) -> bool:
         """설정 유효성 검사"""
