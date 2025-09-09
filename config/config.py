@@ -40,6 +40,9 @@ class Config:
     interest_hold_blocks: int = int(os.getenv('INTEREST_HOLD_BLOCKS', '100'))
     # Compound Comptroller (mainnet default)
     compound_comptroller: str = os.getenv('COMPOUND_COMPTROLLER', '0x3d9819210A31b4961b30EF54bE2aeD79B9c9Cd3B')
+    # Maker PSM settings (optional override)
+    maker_psm_usdc: str = os.getenv('MAKER_PSM_USDC', '')
+    maker_hold_seconds: int = int(os.getenv('MAKER_HOLD_SECONDS', '3600'))
     
     def validate(self) -> bool:
         """설정 유효성 검사"""

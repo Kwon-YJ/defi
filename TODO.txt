@@ -103,8 +103,8 @@
 
 - [ ] MakerDAO 개선
   - [x] OSM/Vault(ilk)별 파라미터(spot, duty, line) 사용, 담보종류(WBTC 등) 확장
-  - [ ] PSM 실제 수수료(tin/tout) on-chain 반영
-  - [ ] Stability fee/interest 누적 효과 근사
+  - [x] PSM 실제 수수료(tin/tout) on-chain 반영
+  - [x] Stability fee/interest 누적 효과 근사
 
 - [ ] Synthetix 개선
   - [ ] SystemSettings target c-ratio/freezeFee/exchange fee per synth 반영

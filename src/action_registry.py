@@ -428,43 +428,60 @@ class MakerCdpAction(ProtocolAction):
                 if rate_ilk <= 0:
                     # fallback to price-based approximation
                     rate_ilk = collector.mintable_dai_per_weth(collateral_ratio=1.5, safety_factor=0.95)
+                # Apply stability fee penalty over hold seconds
+                hold_sec = int(getattr(config, 'maker_hold_seconds', 3600))
+                params = collector.get_ilk_params('ETH-A')
+                duty = float(params.get('duty', 0.0) or 0.0)
+                if hold_sec > 0 and duty > 0:
+                    try:
+                        penalty = (1.0 + duty) ** hold_sec - 1.0
+                        rate_ilk = rate_ilk / (1.0 + penalty)
+                    except Exception:
+                        pass
                 if rate_ilk > 0:
-                    base_liq = 200.0
-                    graph.add_trading_pair(
-                        token0=weth,
-                        token1=dai,
-                        dex='maker',
-                        pool_address='maker_cdp_weth',
-                        reserve0=base_liq,
-                        reserve1=base_liq * rate_ilk,
-                        fee=0.0005,
-                    )
-                    params = collector.get_ilk_params('ETH-A')
-                    set_edge_meta(graph.graph, weth, dai, dex='maker', pool_address='maker_cdp_weth',
-                                  fee_tier=None, source='onchain', confidence=0.8,
-                                  extra={'ilk': 'ETH-A', 'spot': params.get('spot'), 'duty': params.get('duty'), 'line': params.get('line')})
-                    updated += 2
+                        base_liq = 200.0
+                        graph.add_trading_pair(
+                            token0=weth,
+                            token1=dai,
+                            dex='maker',
+                            pool_address='maker_cdp_weth',
+                            reserve0=base_liq,
+                            reserve1=base_liq * rate_ilk,
+                            fee=0.0005,
+                        )
+                        set_edge_meta(graph.graph, weth, dai, dex='maker', pool_address='maker_cdp_weth',
+                                      fee_tier=None, source='onchain', confidence=0.8,
+                                  extra={'ilk': 'ETH-A', 'spot': params.get('spot'), 'duty': params.get('duty'), 'line': params.get('line'), 'holdSeconds': hold_sec})
+                        updated += 2
             # WBTC support if present
             wbtc = sym_to_addr.get('WBTC') or sym_to_addr.get('wbtc')
             if wbtc:
                 collector2 = MakerCollector(self.w3, weth=weth or '', dai=dai)
                 rate_ilk_btc = collector2.mintable_dai_per_collateral_via_ilk('WBTC-A', safety_factor=0.95)
+                hold_sec = int(getattr(config, 'maker_hold_seconds', 3600))
+                params2 = collector2.get_ilk_params('WBTC-A')
+                duty2 = float(params2.get('duty', 0.0) or 0.0)
+                if hold_sec > 0 and duty2 > 0:
+                    try:
+                        penalty2 = (1.0 + duty2) ** hold_sec - 1.0
+                        rate_ilk_btc = rate_ilk_btc / (1.0 + penalty2)
+                    except Exception:
+                        pass
                 if rate_ilk_btc > 0:
-                    base_liq = 200.0
-                    graph.add_trading_pair(
-                        token0=wbtc,
-                        token1=dai,
-                        dex='maker',
-                        pool_address='maker_cdp_wbtc',
-                        reserve0=base_liq,
-                        reserve1=base_liq * rate_ilk_btc,
-                        fee=0.0005,
-                    )
-                    params2 = collector2.get_ilk_params('WBTC-A')
-                    set_edge_meta(graph.graph, wbtc, dai, dex='maker', pool_address='maker_cdp_wbtc',
-                                  fee_tier=None, source='onchain', confidence=0.8,
-                                  extra={'ilk': 'WBTC-A', 'spot': params2.get('spot'), 'duty': params2.get('duty'), 'line': params2.get('line')})
-                    updated += 2
+                        base_liq = 200.0
+                        graph.add_trading_pair(
+                            token0=wbtc,
+                            token1=dai,
+                            dex='maker',
+                            pool_address='maker_cdp_wbtc',
+                            reserve0=base_liq,
+                            reserve1=base_liq * rate_ilk_btc,
+                            fee=0.0005,
+                        )
+                        set_edge_meta(graph.graph, wbtc, dai, dex='maker', pool_address='maker_cdp_wbtc',
+                                      fee_tier=None, source='onchain', confidence=0.8,
+                                  extra={'ilk': 'WBTC-A', 'spot': params2.get('spot'), 'duty': params2.get('duty'), 'line': params2.get('line'), 'holdSeconds': hold_sec})
+                        updated += 2
         except Exception as e:
             logger.debug(f"Maker CDP update failed: {e}")
         return updated
@@ -1593,7 +1610,7 @@ class MakerPsmSwapAction(ProtocolAction):
 
     def __init__(self, w3: Web3):
         self.w3 = w3
-        self.fee = 0.0001  # ~0.01%
+        self.fee = 0.0001  # fallback ~0.01%
 
     async def update_graph(self, graph: DeFiMarketGraph, w3: Web3, tokens: Dict[str, str],
                            block_number: Optional[int] = None) -> int:
@@ -1604,17 +1621,33 @@ class MakerPsmSwapAction(ProtocolAction):
             return 0
         base_liq = 500.0
         try:
+            # Read tin/tout from PSM if configured
+            from config.config import config
+            from src.maker_collectors import MakerCollector
+            psm_addr = getattr(config, 'maker_psm_usdc', '')
+            tin = tout = self.fee
+            if psm_addr:
+                try:
+                    mk = MakerCollector(self.w3, weth=usdc, dai=dai)
+                    fees = mk.get_psm_fees(psm_addr)
+                    if fees:
+                        tin, tout = fees
+                except Exception:
+                    pass
+            # Use conservative fee as max(tin, tout) due to symmetric edge limitation
+            fee_use = max(float(tin or 0.0), float(tout or 0.0), float(self.fee))
             graph.add_trading_pair(
                 token0=usdc,
                 token1=dai,
                 dex='maker_psm',
-                pool_address='maker_psm_usdc_dai',
+                pool_address=psm_addr or 'maker_psm_usdc_dai',
                 reserve0=base_liq,
                 reserve1=base_liq,
-                fee=self.fee,
+                fee=fee_use,
             )
-            set_edge_meta(graph.graph, usdc, dai, dex='maker_psm', pool_address='maker_psm_usdc_dai',
-                          fee_tier=None, source='approx', confidence=0.95)
+            set_edge_meta(graph.graph, usdc, dai, dex='maker_psm', pool_address=psm_addr or 'maker_psm_usdc_dai',
+                          fee_tier=None, source='onchain' if psm_addr else 'approx', confidence=0.95,
+                          extra={'psm_tin': float(tin), 'psm_tout': float(tout), 'psm_address': psm_addr or None})
             return 2
         except Exception as e:
             logger.debug(f"Maker PSM update failed: {e}")

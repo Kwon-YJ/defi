@@ -55,6 +55,10 @@ class MakerCollector:
             # underlying address(lower) -> ilk bytes32 (as hex string via web3.toBytes)
             # Minimal support for WETH, WBTC
         }
+        self.psm_abi = [
+            {"name": "tin", "inputs": [], "outputs": [{"internalType": "uint256", "name": "", "type": "uint256"}], "stateMutability": "view", "type": "function"},
+            {"name": "tout", "inputs": [], "outputs": [{"internalType": "uint256", "name": "", "type": "uint256"}], "stateMutability": "view", "type": "function"}
+        ]
 
     def _price_dai_per_weth(self) -> float:
         """Estimate DAI per WETH via Uniswap V2 WETH/USDC; fallback to 2000."""
@@ -115,3 +119,14 @@ class MakerCollector:
             return float(p['spot']) * max(0.0, min(safety_factor, 1.0))
         return 0.0
 
+    def get_psm_fees(self, psm_address: str) -> Optional[tuple]:
+        try:
+            if not self.w3 or not self.w3.is_connected() or not psm_address:
+                return None
+            c = self.w3.eth.contract(address=psm_address, abi=self.psm_abi)
+            tin = float(c.functions.tin().call()) / 1e18
+            tout = float(c.functions.tout().call()) / 1e18
+            return (max(0.0, tin), max(0.0, tout))
+        except Exception as e:
+            logger.debug(f"PSM fees read failed {psm_address[:6]}: {e}")
+            return None
