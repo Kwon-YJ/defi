@@ -5,7 +5,9 @@ DeFi Arbitrage Detector - Main execution script
 """
 
 import asyncio
-from typing import List, Dict
+import time
+import hashlib
+from typing import List, Dict, Optional
 from datetime import datetime
 from src.market_graph import DeFiMarketGraph
 from src.block_graph_updater import BlockGraphUpdater
@@ -22,6 +24,14 @@ class ArbitrageDetector:
         self.storage = DataStorage()
         self.running = False
         self.updater: BlockGraphUpdater = BlockGraphUpdater(self.market_graph)
+        # 상태 변화 감지/즉시 대응 구성
+        self._last_state_fingerprint: Optional[str] = None
+        self._detect_lock = asyncio.Lock()
+        self._event_debounce_sec = float(os.getenv('EVENT_DETECT_DEBOUNCE_SEC', '0.5')) if 'EVENT_DETECT_DEBOUNCE_SEC' in os.environ else 0.5
+        self._block_min_interval_sec = float(os.getenv('BLOCK_DETECT_MIN_INTERVAL_SEC', '0')) if 'BLOCK_DETECT_MIN_INTERVAL_SEC' in os.environ else 0.0
+        self._last_block_detect_ts: float = 0.0
+        self._event_task: Optional[asyncio.Task] = None
+        self._event_run_scheduled = False
         
         # 주요 토큰들 (차익거래 시작점)
         self.base_tokens = [
@@ -36,18 +46,43 @@ class ArbitrageDetector:
         self.running = True
         logger.info("차익거래 탐지 시작 - 블록 기반")
 
+        # BlockGraphUpdater 시작 (내부에서 블록/로그 구독 및 그래프 빌드/갱신 수행)
+        await self.updater.start()
+
+        # 블록 이벤트: 그래프 갱신 이후에 탐지 실행되도록 여기서 구독 (업데이터가 먼저 구독을 등록함)
         async def on_new_block(block_data: Dict):
             try:
                 bn = int(block_data['number'], 16)
             except Exception:
                 bn = None
-            await self._run_detection(block_number=bn)
+            # 블록 최소 간격 스로틀링(옵션)
+            now = time.time()
+            if self._block_min_interval_sec > 0 and (now - self._last_block_detect_ts) < self._block_min_interval_sec:
+                return
+            self._last_block_detect_ts = now
+            await self._run_detection(block_number=bn, reason='block')
 
-        # BlockGraphUpdater 시작 및 블록 구독
         await self.updater.rt.subscribe_to_blocks(on_new_block)
-        await self.updater.start()
-        # 초기 한번 실행
-        await self._run_detection(block_number=None)
+
+        # 로그 이벤트: 즉시 대응(디바운스) - 그래프는 BlockGraphUpdater가 실시간 갱신
+        async def on_log_event(_log: Dict):
+            # 너무 자주 호출되는 것을 방지하고, 짧은 시간 창에서 이벤트를 모아서 1회 실행
+            if self._event_run_scheduled:
+                return
+            self._event_run_scheduled = True
+            async def _delayed_run():
+                try:
+                    await asyncio.sleep(max(0.05, self._event_debounce_sec))
+                    await self._run_detection(block_number=None, reason='event')
+                finally:
+                    self._event_run_scheduled = False
+            # 백그라운드 태스크로 스케줄
+            self._event_task = asyncio.create_task(_delayed_run())
+
+        await self.updater.rt.subscribe_to_logs(on_log_event)
+
+        # 초기 한번 실행 (상태 지문 저장 포함)
+        await self._run_detection(block_number=None, reason='init')
         # 루프 유지
         while self.running:
             await asyncio.sleep(3600)
@@ -117,6 +152,81 @@ class ArbitrageDetector:
         """탐지 중지"""
         self.running = False
         logger.info("차익거래 탐지 중지")
+
+    # -------------------- 내부 유틸/핵심 로직 --------------------
+    def _compute_graph_fingerprint(self) -> str:
+        """현재 그래프 상태에 대한 지문(해시) 계산.
+        - 엣지의 (pool_address, from, to, exchange_rate, liquidity)를 정렬된 순서로 반영
+        - exchange_rate/liquidity는 과도한 민감도를 줄이기 위해 1e-6 정밀도로 반올림
+        """
+        items: List[bytes] = []
+        try:
+            if hasattr(self.market_graph.graph, 'edges'):
+                if self.market_graph.graph.is_multigraph():
+                    iterator = self.market_graph.graph.edges(keys=True, data=True)
+                    for u, v, k, data in iterator:
+                        if not isinstance(data, dict):
+                            continue
+                        pa = str(data.get('pool_address') or '')
+                        ex = float(data.get('exchange_rate') or 0.0)
+                        liq = float(data.get('liquidity') or 0.0)
+                        exr = round(ex, 6)
+                        liqr = round(liq, 6)
+                        items.append(f"{pa}|{u}|{v}|{exr}|{liqr}".encode())
+                else:
+                    for u, v, data in self.market_graph.graph.edges(data=True):
+                        if not isinstance(data, dict):
+                            continue
+                        pa = str(data.get('pool_address') or '')
+                        ex = float(data.get('exchange_rate') or 0.0)
+                        liq = float(data.get('liquidity') or 0.0)
+                        exr = round(ex, 6)
+                        liqr = round(liq, 6)
+                        items.append(f"{pa}|{u}|{v}|{exr}|{liqr}".encode())
+        except Exception:
+            pass
+        items.sort()
+        m = hashlib.sha256()
+        for b in items:
+            m.update(b)
+            m.update(b"\x00")
+        return m.hexdigest()
+
+    async def _run_detection(self, block_number: Optional[int] = None, reason: str = 'manual'):
+        """상태 변화 감지 후 차익거래 탐지 실행.
+        - reason: 'init' | 'block' | 'event' | 'manual'
+        - 동일 지문이면 블록 기반 탐지는 스킵 (중복 연산 방지)
+        - 이벤트 기반은 지문 동일하더라도 짧은 디바운스 이후 1회 실행하여 즉시성 보장
+        """
+        async with self._detect_lock:
+            try:
+                fp = self._compute_graph_fingerprint()
+            except Exception as e:
+                logger.debug(f"상태 지문 계산 실패: {e}")
+                fp = None
+
+            # 블록 기반: 상태 변화 없으면 스킵
+            if reason == 'block' and fp is not None and self._last_state_fingerprint is not None and fp == self._last_state_fingerprint:
+                logger.debug("블록 상태 변화 없음 → 탐지 스킵")
+                return
+
+            # 탐지 실행
+            try:
+                all_opps = []
+                for base in self.base_tokens:
+                    try:
+                        opps = self.bellman_ford.find_negative_cycles(base)
+                        if opps:
+                            all_opps.extend(opps)
+                    except Exception as e:
+                        logger.debug(f"탐지 실패(base={base[:6]}): {e}")
+                if all_opps:
+                    await self._process_opportunities(all_opps)
+                else:
+                    logger.debug(f"탐지 결과 없음 (reason={reason}, block={block_number})")
+            finally:
+                if fp is not None:
+                    self._last_state_fingerprint = fp
 
 async def main():
     """메인 실행 함수"""
