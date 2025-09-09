@@ -133,10 +133,11 @@
 - [x] DeFi ecosystem tokens: CRV, BAL, YFI, MKR
 - [x] Lending protocol tokens: cETH, cUSDC, aETH, aUSDC
 - [x] LP tokens: UNI-V2 pairs, Curve LP tokens
-- [ ] Synthetic assets: sUSD, sETH (Synthetix)
 - [x] Synthetic assets: sUSD, sETH (Synthetix)
 - [ ] 추가 주요 ERC-20 tokens (총 25개까지)
+- [x] 추가 주요 ERC-20 tokens (총 25개까지)
 - [ ] Real-time price feeds 구현
+- [x] Real-time price feeds 구현
 
 ### 2.3 실시간 데이터 수집 개선
 - [ ] WebSocket 연결을 통한 실시간 가격 업데이트

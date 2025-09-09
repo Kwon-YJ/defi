@@ -19,6 +19,7 @@ from src.edge_meta import set_edge_meta
 from src.data_storage import DataStorage
 from config.config import config
 from src.synthetix_collectors import SynthetixCollector
+from src.price_feed import PriceFeed
 from src.token_manager import TokenManager
 from src.paper_assets import load_paper_25_addresses, paper_25_symbols
 
@@ -99,6 +100,23 @@ class BlockGraphUpdater:
                     'BAL': _addr('BAL', '0xba100000625a3754423978a60c9317c58a424e3D'),
                     'YFI': _addr('YFI', '0x0bc529c00C6401aEF6D220BE8C6Ea1667F6Ad93e'),
                     'MKR': _addr('MKR', '0x9f8F72aA9304c8B593d555F12ef6589cC3A579A2'),
+                    'SNX': _addr('SNX', '0xC011a73ee8576Fb46F5E1c5751cA3B9Fe0af2a6F'),
+                }
+                for k, v in add.items():
+                    if v and k not in self.tokens:
+                        self.tokens[k] = v
+            if getattr(config, 'include_extra_tokens', False):
+                add = {
+                    'LINK': _addr('LINK', '0x514910771AF9Ca656af840dff83E8264EcF986CA'),
+                    'LDO': _addr('LDO', '0x5A98FcBEA516Cf06857215779Fd812CA3beF1B32'),
+                    '1INCH': _addr('1INCH', '0x111111111117dC0aa78b770fA6A738034120C302'),
+                    'GRT': _addr('GRT', '0xC944E90C64B2c07662A292be6244BDf05Cda44a7'),
+                    'MATIC': _addr('MATIC', '0x7D1AfA7B718fb893dB30A3abc0Cfc608AaCfeBB0'),
+                    'ZRX': _addr('ZRX', '0xE41d2489571d322189246DaFA5ebDe1F4699F498'),
+                    'LRC': _addr('LRC', '0xBBbbCA6A901c926F240b89EacB641d8Aec7AEafD'),
+                    'REN': _addr('REN', '0x408e41876cCCDC0F92210600ef50372656052a38'),
+                    'TUSD': _addr('TUSD', '0x0000000000085d4780B73119b644AE5ecd22b376'),
+                    'PAXG': _addr('PAXG', '0x45804880De22913dAFE09f4980848ECE6EcbAf78'),
                 }
                 for k, v in add.items():
                     if v and k not in self.tokens:
@@ -142,6 +160,8 @@ class BlockGraphUpdater:
         self.balancer = BalancerWeightedCollector(self.w3)
         self.aave = AaveV2Collector(self.w3)
         self.comp = CompoundCollector(self.w3)
+        # 가격 피드
+        self.price_feed = PriceFeed(self.w3, self.storage)
         # 이벤트 기반 미니 업데이트 큐
         self._mini_queues = {
             'v2_pools': set(),
@@ -187,6 +207,11 @@ class BlockGraphUpdater:
                 prune_graph(self.graph.graph, min_liquidity=0.1, keep_top_k=2)
                 # 메모리 절감을 위한 속성 정리
                 compact_graph_attributes(self.graph.graph)
+                # 실시간 가격 피드 업데이트 (주요 토큰 셋)
+                try:
+                    await self.price_feed.update_prices_for(self.tokens)
+                except Exception:
+                    pass
             except Exception as e:
                 logger.error(f"블록 갱신 실패: {e}")
 
@@ -525,6 +550,10 @@ class BlockGraphUpdater:
         asyncio.create_task(self.rt.start_websocket_listener())
         prune_graph(self.graph.graph, min_liquidity=0.1, keep_top_k=2)
         compact_graph_attributes(self.graph.graph)
+        try:
+            await self.price_feed.update_prices_for(self.tokens)
+        except Exception:
+            pass
 
     async def update_all_pairs(self, block_number: Optional[int] = None):
         """등록된 모든 DEX, 주요 페어에 대해 그래프 엣지 갱신"""

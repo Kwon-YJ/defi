@@ -67,6 +67,27 @@ class DataStorage:
         except Exception as e:
             logger.error(f"차익거래 기회 조회 실패: {e}")
             return []
+
+    # --- Price feeds ---
+    async def store_token_price(self, token_address: str, price_usd: float) -> None:
+        """토큰 USD 가격 저장 (TTL: price_data_ttl)."""
+        try:
+            key = f"price:{token_address.lower()}"
+            obj = {"price_usd": float(price_usd), "updated_at": datetime.now().isoformat()}
+            self.redis_client.setex(key, self.price_data_ttl, json.dumps(obj))
+        except Exception as e:
+            logger.debug(f"가격 저장 실패 {token_address[:6]}: {e}")
+
+    async def get_token_price(self, token_address: str) -> Optional[Dict]:
+        try:
+            key = f"price:{token_address.lower()}"
+            raw = self.redis_client.get(key)
+            if not raw:
+                return None
+            return json.loads(raw)
+        except Exception as e:
+            logger.debug(f"가격 조회 실패 {token_address[:6]}: {e}")
+            return None
     
     async def get_pool_price_history(self, pool_address: str, 
                                    hours: int = 24) -> List[Dict]:

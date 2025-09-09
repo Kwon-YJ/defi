@@ -66,6 +66,77 @@ class TokenManager:
                 decimals=18,
                 coingecko_id="ethereum"
             ),
+            # Extra major ERC-20 tokens
+            "0x514910771AF9Ca656af840dff83E8264EcF986CA": TokenInfo(
+                address="0x514910771AF9Ca656af840dff83E8264EcF986CA",
+                symbol="LINK",
+                name="Chainlink",
+                decimals=18,
+                coingecko_id="chainlink"
+            ),
+            "0x5A98FcBEA516Cf06857215779Fd812CA3beF1B32": TokenInfo(
+                address="0x5A98FcBEA516Cf06857215779Fd812CA3beF1B32",
+                symbol="LDO",
+                name="Lido DAO",
+                decimals=18,
+                coingecko_id="lido-dao"
+            ),
+            "0x111111111117dC0aa78b770fA6A738034120C302": TokenInfo(
+                address="0x111111111117dC0aa78b770fA6A738034120C302",
+                symbol="1INCH",
+                name="1inch",
+                decimals=18,
+                coingecko_id="1inch"
+            ),
+            "0xC944E90C64B2c07662A292be6244BDf05Cda44a7": TokenInfo(
+                address="0xC944E90C64B2c07662A292be6244BDf05Cda44a7",
+                symbol="GRT",
+                name="The Graph",
+                decimals=18,
+                coingecko_id="the-graph"
+            ),
+            "0x7D1AfA7B718fb893dB30A3abc0Cfc608AaCfeBB0": TokenInfo(
+                address="0x7D1AfA7B718fb893dB30A3abc0Cfc608AaCfeBB0",
+                symbol="MATIC",
+                name="Polygon",
+                decimals=18,
+                coingecko_id="matic-network"
+            ),
+            "0xE41d2489571d322189246DaFA5ebDe1F4699F498": TokenInfo(
+                address="0xE41d2489571d322189246DaFA5ebDe1F4699F498",
+                symbol="ZRX",
+                name="0x Protocol",
+                decimals=18,
+                coingecko_id="0x"
+            ),
+            "0xBBbbCA6A901c926F240b89EacB641d8Aec7AEafD": TokenInfo(
+                address="0xBBbbCA6A901c926F240b89EacB641d8Aec7AEafD",
+                symbol="LRC",
+                name="Loopring",
+                decimals=18,
+                coingecko_id="loopring"
+            ),
+            "0x408e41876cCCDC0F92210600ef50372656052a38": TokenInfo(
+                address="0x408e41876cCCDC0F92210600ef50372656052a38",
+                symbol="REN",
+                name="Ren",
+                decimals=18,
+                coingecko_id="republic-protocol"
+            ),
+            "0x0000000000085d4780B73119b644AE5ecd22b376": TokenInfo(
+                address="0x0000000000085d4780B73119b644AE5ecd22b376",
+                symbol="TUSD",
+                name="TrueUSD",
+                decimals=18,
+                coingecko_id="true-usd"
+            ),
+            "0x45804880De22913dAFE09f4980848ECE6EcbAf78": TokenInfo(
+                address="0x45804880De22913dAFE09f4980848ECE6EcbAf78",
+                symbol="PAXG",
+                name="PAX Gold",
+                decimals=18,
+                coingecko_id="pax-gold"
+            ),
             # Synthetix synths
             "0x57ab1e02fee23774580c119740129eac7081e9d3": TokenInfo(
                 address="0x57ab1e02fee23774580c119740129eac7081e9d3",
