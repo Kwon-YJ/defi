@@ -99,12 +99,29 @@ class CurveStableSwapCollector:
             {"name": "lp_token", "inputs": [], "outputs": [{"type":"address","name":""}], "stateMutability":"view", "type":"function"},
         ]
         # Pool whitelist from config (addresses only). Empty means allow all.
+        # Whitelist parsing: support names and addresses
         try:
             from config.config import config
             wl = getattr(config, 'curve_pool_whitelist', '') or ''
-            self.whitelist = {a.strip().lower() for a in wl.split(',') if a.strip()}
         except Exception:
-            self.whitelist = set()
+            wl = ''
+        # name → address map (extendable)
+        self.NAME_MAP = {
+            '3pool': '0xbEbc44782C7dB0a1A60Cb6fe97d0a2fEdcBcd44',
+            'susd': '0xA5407eAE9Ba41422680e2e00537571bcC53efBfD',
+            'susd': '0xA5407eAE9Ba41422680e2e00537571bcC53efBfD',
+        }
+        wl_set = set()
+        for raw in [x.strip() for x in wl.split(',') if x.strip()]:
+            if raw.startswith('0x') and len(raw) == 42:
+                wl_set.add(raw.lower())
+            else:
+                addr = self.NAME_MAP.get(raw.lower())
+                if addr:
+                    wl_set.add(addr.lower())
+                else:
+                    logger.warning(f"Curve whitelist 항목을 해석하지 못했습니다: {raw}")
+        self.whitelist = wl_set
 
     def _registry(self):
         try:
@@ -171,7 +188,13 @@ class CurveStableSwapCollector:
             if pools:
                 self.pools = pools
             elif not self.pools:
-                self.pools = list(self.FALLBACK_POOLS)
+                # apply whitelist on fallback as well (if set)
+                if self.whitelist:
+                    self.pools = [p for p in self.FALLBACK_POOLS if p['address'].lower() in self.whitelist]
+                    if not self.pools:
+                        self.pools = list(self.FALLBACK_POOLS)
+                else:
+                    self.pools = list(self.FALLBACK_POOLS)
             self._last_refresh = now
         except Exception as e:
             logger.debug(f"Curve registry refresh 실패: {e}")

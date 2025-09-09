@@ -301,10 +301,17 @@ class CurveStableSwapAction(ProtocolAction, _SwapPairsMixin):
                     lp_dec = self.collector.get_lp_decimals(lp_addr) if lp_addr else 18
                     lp_ts_raw = self.collector.get_lp_total_supply(lp_addr) if lp_addr else 0
                     lp_ts = float(lp_ts_raw) / float(10 ** lp_dec) if lp_dec else float(lp_ts_raw) / 1e18
-                    # scale in [0.5, 2.0] using sqrt(ts) normalized by heuristic 1e6
+                    # configurable sqrt-based scaling with clamp
                     import math
-                    scale = math.sqrt(max(0.0, lp_ts) / 1e6)
-                    scale = max(0.5, min(2.0, float(scale)))
+                    ref = float(getattr(config, 'curve_liq_scale_ref', 1_000_000.0))
+                    smin = float(getattr(config, 'curve_liq_scale_min', 0.25))
+                    smax = float(getattr(config, 'curve_liq_scale_max', 3.0))
+                    if ref <= 0:
+                        ref = 1_000_000.0
+                    scale = math.sqrt(max(0.0, lp_ts) / ref)
+                    if not (scale >= 0):
+                        scale = 1.0
+                    scale = max(smin, min(smax, float(scale)))
                 except Exception:
                     scale = 1.0
                     lp_addr = None

@@ -65,6 +65,29 @@ class TokenManager:
                 decimals=18,
                 coingecko_id="ethereum"
             ),
+            # Compound cTokens (selected)
+            "0x39AA39c021dfbaE8faC545936693aC917d5E7563": TokenInfo(
+                address="0x39AA39c021dfbaE8faC545936693aC917d5E7563",
+                symbol="cUSDC",
+                name="Compound USD Coin",
+                decimals=8,
+                coingecko_id="compound-usd-coin"
+            ),
+            "0x4DdC2D193948926d02f9B1fE9e1daa0718270ED5": TokenInfo(
+                address="0x4DdC2D193948926d02f9B1fE9e1daa0718270ED5",
+                symbol="cETH",
+                name="Compound Ether",
+                decimals=8,
+                coingecko_id="compound-ether"
+            ),
+            # Aave aTokens (selected)
+            "0xBcca60bB61934080951369a648Fb03DF4F96263C": TokenInfo(
+                address="0xBcca60bB61934080951369a648Fb03DF4F96263C",
+                symbol="aUSDC",
+                name="Aave interest bearing USDC",
+                decimals=6,
+                coingecko_id="aave-usdc"
+            ),
             # 주요/디파이 에코 토큰들
             "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599": TokenInfo(
                 address="0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599",

@@ -2,6 +2,7 @@ import json
 from typing import Dict, Optional, Tuple
 from web3 import Web3
 from src.logger import setup_logger
+from src.constants import ETH_NATIVE_ADDRESS
 from config.config import config
 
 logger = setup_logger(__name__)
@@ -22,6 +23,9 @@ class CompoundCollector:
         "0x6B175474E89094C44Da98b954EedeAC495271d0F": "0x5d3a536E4D6DbD6114cc1Ead35777bAB948E3643",
         # USDC
         "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48": "0x39AA39c021dfbaE8faC545936693aC917d5E7563",
+        # ETH native and WETH → cETH (approximate mapping for modeling)
+        ETH_NATIVE_ADDRESS.lower(): "0x4DdC2D193948926d02f9B1fE9e1daa0718270ED5",
+        "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2".lower(): "0x4DdC2D193948926d02f9B1fE9e1daa0718270ED5",
     }
 
     def __init__(self, w3: Web3):
