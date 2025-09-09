@@ -8,6 +8,7 @@ import asyncio
 from typing import List, Dict
 from datetime import datetime
 from src.market_graph import DeFiMarketGraph
+from src.block_graph_updater import BlockGraphUpdater
 from src.bellman_ford_arbitrage import BellmanFordArbitrage
 from src.data_storage import DataStorage
 from src.logger import setup_logger
@@ -20,6 +21,7 @@ class ArbitrageDetector:
         self.bellman_ford = BellmanFordArbitrage(self.market_graph)
         self.storage = DataStorage()
         self.running = False
+        self.updater: BlockGraphUpdater = BlockGraphUpdater(self.market_graph)
         
         # 주요 토큰들 (차익거래 시작점)
         self.base_tokens = [
@@ -30,36 +32,25 @@ class ArbitrageDetector:
         ]
         
     async def start_detection(self):
-        """차익거래 탐지 시작"""
+        """차익거래 탐지 시작 (블록 기반 루프)"""
         self.running = True
-        logger.info("차익거래 탐지 시작")
-        
-        while self.running:
+        logger.info("차익거래 탐지 시작 - 블록 기반")
+
+        async def on_new_block(block_data: Dict):
             try:
-                # 1. 시장 데이터 업데이트
-                await self._update_market_data()
-                
-                # 2. 각 기준 토큰에서 차익거래 기회 탐색
-                all_opportunities = []
-                
-                for base_token in self.base_tokens:
-                    opportunities = self.bellman_ford.find_negative_cycles(base_token)
-                    
-                    # 3. 기회 최적화 및 필터링
-                    for opp in opportunities:
-                        if opp.net_profit > 0.001:  # 최소 수익 임계값
-                            all_opportunities.append(opp)
-                
-                # 4. 기회 저장 및 알림
-                if all_opportunities:
-                    await self._process_opportunities(all_opportunities)
-                
-                # 5. 잠시 대기 (너무 자주 실행하지 않도록)
-                await asyncio.sleep(5)  # 5초 간격
-                
-            except Exception as e:
-                logger.error(f"탐지 루프 오류: {e}")
-                await asyncio.sleep(10)
+                bn = int(block_data['number'], 16)
+            except Exception:
+                bn = None
+            await self._run_detection(block_number=bn)
+
+        # BlockGraphUpdater 시작 및 블록 구독
+        await self.updater.rt.subscribe_to_blocks(on_new_block)
+        await self.updater.start()
+        # 초기 한번 실행
+        await self._run_detection(block_number=None)
+        # 루프 유지
+        while self.running:
+            await asyncio.sleep(3600)
     
     async def _update_market_data(self):
         """시장 데이터 업데이트"""

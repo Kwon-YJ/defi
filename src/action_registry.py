@@ -877,70 +877,62 @@ class UniswapV3AddLiquidityAction(ProtocolAction):
 
     async def update_graph(self, graph: DeFiMarketGraph, w3: Web3, tokens: Dict[str, str],
                            block_number: Optional[int] = None) -> int:
+        import asyncio
         updated = 0
         base_liq = 80.0
-        for token0, token1 in list(combinations(tokens.values(), 2)):
-            for fee in self.collector.FEE_TIERS:
+        pairs = list(combinations(tokens.values(), 2))
+        fees = list(self.collector.FEE_TIERS)
+        sem = asyncio.Semaphore(max(1, int(getattr(config, 'graph_build_concurrency', 16))))
+        lock = asyncio.Lock()
+
+        async def process(token0: str, token1: str, fee: int) -> int:
+            async with sem:
                 try:
                     pool = await self.collector.get_pool_address(token0, token1, fee)
                     if not pool:
-                        continue
+                        return 0
                     state = await self.collector.get_pool_core_state(pool)
                     if not state:
-                        continue
+                        return 0
                     t0 = state['token0']; t1 = state['token1']
                     lp_token = lp_v3(pool)
-                    # Tick-range: 현재 tick 기준 한 칸 밴드
                     ts = int(state.get('tickSpacing', 60) or 60)
                     cur_tick = int(state.get('tick', 0) or 0)
                     tick_lower = (cur_tick // ts) * ts
                     tick_upper = tick_lower + ts
-                    # 정규화된 sqrt 가격들 계산
                     sqrtP = self.collector.sqrt_from_x96_normalized(state['sqrtPriceX96'], state['dec0'], state['dec1'])
                     sqrtA = self.collector.sqrt_from_tick_normalized(tick_lower, state['dec0'], state['dec1'])
                     sqrtB = self.collector.sqrt_from_tick_normalized(tick_upper, state['dec0'], state['dec1'])
                     if sqrtP <= 0 or sqrtA <= 0 or sqrtB <= 0:
-                        continue
-                    # L per 1 token
+                        return 0
                     lp_per_t0 = max(0.0, float(self.collector.liquidity_per_token0(sqrtP, sqrtA, sqrtB)))
                     lp_per_t1 = max(0.0, float(self.collector.liquidity_per_token1(sqrtP, sqrtA, sqrtB)))
-                    # token0 -> LP
-                    graph.add_trading_pair(
-                        token0=t0,
-                        token1=lp_token,
-                        dex='uniswap_v3_lp_add',
-                        pool_address=pool,
-                        reserve0=base_liq,
-                        reserve1=base_liq * lp_per_t0,
-                        fee=0.0,
-                    )
-                    set_edge_meta(
-                        graph.graph, t0, lp_token, dex='uniswap_v3_lp_add', pool_address=pool,
-                        fee_tier=fee, source='approx', confidence=0.8,
-                        extra={'tick': cur_tick, 'tick_lower': tick_lower, 'tick_upper': tick_upper, 'tick_spacing': ts, 't0': t0, 't1': t1,
-                               'sqrtP': sqrtP, 'sqrtA': sqrtA, 'sqrtB': sqrtB, 'lp_per_t0': lp_per_t0}
-                    )
-                    updated += 2
-                    # token1 -> LP
-                    if lp_per_t1 > 0:
-                        graph.add_trading_pair(
-                            token0=t1,
-                            token1=lp_token,
-                            dex='uniswap_v3_lp_add',
-                            pool_address=pool,
-                            reserve0=base_liq,
-                            reserve1=base_liq * lp_per_t1,
-                            fee=0.0,
-                        )
-                        set_edge_meta(
-                            graph.graph, t1, lp_token, dex='uniswap_v3_lp_add', pool_address=pool,
-                            fee_tier=fee, source='approx', confidence=0.8,
-                            extra={'tick': cur_tick, 'tick_lower': tick_lower, 'tick_upper': tick_upper, 'tick_spacing': ts, 't0': t0, 't1': t1,
-                                   'sqrtP': sqrtP, 'sqrtA': sqrtA, 'sqrtB': sqrtB, 'lp_per_t1': lp_per_t1}
-                        )
-                        updated += 2
+                    async with lock:
+                        graph.add_trading_pair(token0=t0, token1=lp_token, dex='uniswap_v3_lp_add', pool_address=pool,
+                                               reserve0=base_liq, reserve1=base_liq * lp_per_t0, fee=0.0)
+                        set_edge_meta(graph.graph, t0, lp_token, dex='uniswap_v3_lp_add', pool_address=pool,
+                                      fee_tier=fee, source='approx', confidence=0.8,
+                                      extra={'tick': cur_tick, 'tick_lower': tick_lower, 'tick_upper': tick_upper, 'tick_spacing': ts, 't0': t0, 't1': t1,
+                                             'sqrtP': sqrtP, 'sqrtA': sqrtA, 'sqrtB': sqrtB, 'lp_per_t0': lp_per_t0})
+                        added = 2
+                        if lp_per_t1 > 0:
+                            graph.add_trading_pair(token0=t1, token1=lp_token, dex='uniswap_v3_lp_add', pool_address=pool,
+                                                   reserve0=base_liq, reserve1=base_liq * lp_per_t1, fee=0.0)
+                            set_edge_meta(graph.graph, t1, lp_token, dex='uniswap_v3_lp_add', pool_address=pool,
+                                          fee_tier=fee, source='approx', confidence=0.8,
+                                          extra={'tick': cur_tick, 'tick_lower': tick_lower, 'tick_upper': tick_upper, 'tick_spacing': ts, 't0': t0, 't1': t1,
+                                                 'sqrtP': sqrtP, 'sqrtA': sqrtA, 'sqrtB': sqrtB, 'lp_per_t1': lp_per_t1})
+                            added += 2
+                    return added
                 except Exception as e:
                     logger.debug(f"UniswapV3 addLiquidity failed {token0[:6]}-{token1[:6]}: {e}")
+                    return 0
+
+        tasks = [process(a, b, f) for a, b in pairs for f in fees]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for r in results:
+            if isinstance(r, int):
+                updated += r
         return updated
 
 
