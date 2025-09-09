@@ -42,6 +42,13 @@ class RealTimeDataCollector:
             # ERC20 Transfer (for LP mint/burn detection)
             # keccak256("Transfer(address,address,uint256)")
             'ERC20Transfer': '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'
+            ,
+            # Balancer V2 Vault PoolBalanceChanged
+            'BalancerPoolBalanceChanged': '0xe5ce249087ce04f05a957192435400fd97868dba0e6a4b4c049abf8af80dae78',
+            # Compound cToken AccrueInterest
+            'CompoundAccrueInterest': '0x4dec04e750ca11537cabcd8a9eab06494de08da3735bc8871cd41250e190bc04',
+            # Aave v2 LendingPool ReserveDataUpdated
+            'AaveReserveDataUpdated': '0x804c9b842b2748a22bb64b345453a3de7ca54a6ca45ce00d415894979e22897a'
         }
         
     async def subscribe_to_blocks(self, callback: Callable):

@@ -8,6 +8,8 @@ from src.logger import setup_logger
 from src.market_graph import DeFiMarketGraph
 from src.dex_data_collector import UniswapV2Collector, SushiSwapCollector
 from src.dex_uniswap_v3_collector import UniswapV3Collector
+from src.dex_balancer_collector import BalancerWeightedCollector
+from src.lending_collectors import AaveV2Collector, CompoundCollector
 from src.action_registry import register_default_actions, ActionRegistry
 from src.real_time_collector import RealTimeDataCollector
 from src.graph_pruner import prune_graph
@@ -62,6 +64,9 @@ class BlockGraphUpdater:
         self.storage = DataStorage()
         # Protocol Action Registry (확장성)
         self.registry: ActionRegistry = register_default_actions(self.w3)
+        self.balancer = BalancerWeightedCollector(self.w3)
+        self.aave = AaveV2Collector(self.w3)
+        self.comp = CompoundCollector(self.w3)
 
     def _major_pairs(self) -> List[Tuple[str, str]]:
         """모든 토큰 조합에서 페어 생성"""
@@ -208,6 +213,80 @@ class BlockGraphUpdater:
                             compact_graph_attributes(self.graph.graph)
                         except Exception as _:
                             pass
+                # Balancer: PoolBalanceChanged
+                elif log_data.get('topics') and log_data['topics'][0] == self.rt.monitored_events.get('BalancerPoolBalanceChanged'):
+                    try:
+                        # Recompute all balancer edges (pool balance changed in vault)
+                        if isinstance(self.graph.graph, nx.MultiDiGraph):
+                            for u, v, k, data in list(self.graph.graph.edges(keys=True, data=True)):
+                                if data.get('dex') == 'balancer':
+                                    pool = data.get('pool_address')
+                                    if not pool:
+                                        continue
+                                    try:
+                                        wi, wj, bi, bj = self.balancer.get_weights_and_balances(pool, u, v)
+                                        price, fee = self.balancer.get_spot_price_and_fee(pool, u, v)
+                                        if price > 0 and wi > 0 and wj > 0:
+                                            self.graph.graph[u][v][k]['exchange_rate'] = price
+                                            self.graph.graph[u][v][k]['fee'] = float(fee)
+                                            set_edge_meta(self.graph.graph, u, v, dex='balancer', pool_address=pool,
+                                                          fee_tier=None, source='event', confidence=0.92,
+                                                          extra={'w_in': wi, 'w_out': wj, 'b_in': bi, 'b_out': bj})
+                                    except Exception:
+                                        continue
+                        compact_graph_attributes(self.graph.graph)
+                    except Exception:
+                        pass
+                # Compound: AccrueInterest on cToken
+                elif log_data.get('topics') and log_data['topics'][0] == self.rt.monitored_events.get('CompoundAccrueInterest'):
+                    try:
+                        ctoken = log_data.get('address')
+                        rates = self.comp.get_rates_per_block(ctoken) or {}
+                        cf = self.comp.get_collateral_factor(ctoken)
+                        # Update edges referencing this cToken
+                        if isinstance(self.graph.graph, nx.MultiDiGraph):
+                            for u, v, k, data in list(self.graph.graph.edges(keys=True, data=True)):
+                                if data.get('pool_address') == ctoken and data.get('dex') in ('compound', 'compound_borrow', 'compound_repay'):
+                                    # Update meta and, for borrow, adjust reserve1 for new interest penalty
+                                    from config.config import config as _cfg
+                                    if data.get('dex') == 'compound_borrow':
+                                        hold_blocks = int(getattr(_cfg, 'interest_hold_blocks', 100))
+                                        ip = self.comp.approx_interest_penalty(ctoken, hold_blocks)
+                                        eff = 1.0 / (1.0 + ip) if ip > 0 else 1.0
+                                        data['exchange_rate'] = eff
+                                    set_edge_meta(self.graph.graph, u, v, dex=data.get('dex'), pool_address=ctoken,
+                                                  fee_tier=None, source='event', confidence=0.9,
+                                                  extra={'collateralFactor': cf, 'borrowRatePerBlock': rates.get('borrowRatePerBlock'),
+                                                         'supplyRatePerBlock': rates.get('supplyRatePerBlock')})
+                        compact_graph_attributes(self.graph.graph)
+                    except Exception:
+                        pass
+                # Aave: ReserveDataUpdated(asset,...)
+                elif log_data.get('topics') and log_data['topics'][0] == self.rt.monitored_events.get('AaveReserveDataUpdated'):
+                    try:
+                        topics = log_data.get('topics', [])
+                        if len(topics) >= 2:
+                            asset = '0x' + topics[1][-40:]
+                            addrs = self.aave.get_reserve_tokens(asset)
+                            rates = self.aave.get_reserve_rates(asset) or {}
+                            cfg = self.aave.get_reserve_configuration(asset) or {}
+                            emode = self.aave.get_emode_category(asset)
+                            if addrs:
+                                atoken, sdebt, vdebt = addrs
+                            else:
+                                atoken = sdebt = vdebt = None
+                            # Update edges related to this asset
+                            if isinstance(self.graph.graph, nx.MultiDiGraph):
+                                for u, v, k, data in list(self.graph.graph.edges(keys=True, data=True)):
+                                    if asset.lower() in (u.lower(), v.lower()) or (data.get('pool_address') in (atoken, sdebt, vdebt)):
+                                        set_edge_meta(self.graph.graph, u, v, dex=data.get('dex'), pool_address=data.get('pool_address'),
+                                                      fee_tier=None, source='event', confidence=0.92,
+                                                      extra={'ltv': cfg.get('ltv'), 'liquidationThreshold': cfg.get('liquidationThreshold'),
+                                                             'variableBorrowRate': rates.get('variableBorrowRate'), 'stableBorrowRate': rates.get('stableBorrowRate'),
+                                                             'liquidityRate': rates.get('liquidityRate'), 'eModeCategory': emode})
+                        compact_graph_attributes(self.graph.graph)
+                    except Exception:
+                        pass
                 # Curve LP mint/burn via ERC20 Transfer on LP token (address-filtered)
                 elif log_data.get('topics') and log_data['topics'][0] == self.rt.monitored_events.get('ERC20Transfer'):
                     try:
