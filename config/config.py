@@ -34,6 +34,8 @@ class Config:
     # V3 tier 선택 로직 가중치
     v3_score_weight_ema: float = float(os.getenv('V3_SCORE_W_EMA', '1.0'))
     v3_score_weight_liq: float = float(os.getenv('V3_SCORE_W_LIQ', '0.001'))
+    # Aave v3 eMode LTV overrides mapping like "1:0.97,2:0.98"
+    aave_emode_ltv_overrides: str = os.getenv('AAVE_EMODE_LTV_OVERRIDES', '')
     # Interest/constraint modeling
     interest_hold_blocks: int = int(os.getenv('INTEREST_HOLD_BLOCKS', '100'))
     # Compound Comptroller (mainnet default)

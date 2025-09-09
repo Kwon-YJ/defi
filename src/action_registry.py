@@ -413,34 +413,61 @@ class MakerCdpAction(ProtocolAction):
 
     async def update_graph(self, graph: DeFiMarketGraph, w3: Web3, tokens: Dict[str, str],
                            block_number: Optional[int] = None) -> int:
-        # Focus on WETH -> DAI minting
+        # Support WETH/DAI and WBTC/DAI minting using Vat/Jug ilk params when possible
         sym_to_addr = tokens or {}
-        weth = sym_to_addr.get('WETH') or sym_to_addr.get('weth')
         dai = sym_to_addr.get('DAI') or sym_to_addr.get('dai')
-        if not weth or not dai:
+        if not dai:
             return 0
+        updated = 0
         try:
-            collector = MakerCollector(self.w3, weth=weth, dai=dai)
-            rate = collector.mintable_dai_per_weth(collateral_ratio=1.5, safety_factor=0.95)
-            if rate <= 0:
-                return 0
-            base_liq = 200.0
-            # Add pair representing CDP minting capacity
-            graph.add_trading_pair(
-                token0=weth,
-                token1=dai,
-                dex='maker',
-                pool_address='maker_cdp_weth',
-                reserve0=base_liq,
-                reserve1=base_liq * rate,
-                fee=0.0005,  # represent minor costs
-            )
-            set_edge_meta(graph.graph, weth, dai, dex='maker', pool_address='maker_cdp_weth',
-                          fee_tier=None, source='approx', confidence=0.7)
-            return 2
+            weth = sym_to_addr.get('WETH') or sym_to_addr.get('weth')
+            if weth:
+                collector = MakerCollector(self.w3, weth=weth, dai=dai)
+                # Prefer VAT/JUG spot via ETH-A
+                rate_ilk = collector.mintable_dai_per_collateral_via_ilk('ETH-A', safety_factor=0.95)
+                if rate_ilk <= 0:
+                    # fallback to price-based approximation
+                    rate_ilk = collector.mintable_dai_per_weth(collateral_ratio=1.5, safety_factor=0.95)
+                if rate_ilk > 0:
+                    base_liq = 200.0
+                    graph.add_trading_pair(
+                        token0=weth,
+                        token1=dai,
+                        dex='maker',
+                        pool_address='maker_cdp_weth',
+                        reserve0=base_liq,
+                        reserve1=base_liq * rate_ilk,
+                        fee=0.0005,
+                    )
+                    params = collector.get_ilk_params('ETH-A')
+                    set_edge_meta(graph.graph, weth, dai, dex='maker', pool_address='maker_cdp_weth',
+                                  fee_tier=None, source='onchain', confidence=0.8,
+                                  extra={'ilk': 'ETH-A', 'spot': params.get('spot'), 'duty': params.get('duty'), 'line': params.get('line')})
+                    updated += 2
+            # WBTC support if present
+            wbtc = sym_to_addr.get('WBTC') or sym_to_addr.get('wbtc')
+            if wbtc:
+                collector2 = MakerCollector(self.w3, weth=weth or '', dai=dai)
+                rate_ilk_btc = collector2.mintable_dai_per_collateral_via_ilk('WBTC-A', safety_factor=0.95)
+                if rate_ilk_btc > 0:
+                    base_liq = 200.0
+                    graph.add_trading_pair(
+                        token0=wbtc,
+                        token1=dai,
+                        dex='maker',
+                        pool_address='maker_cdp_wbtc',
+                        reserve0=base_liq,
+                        reserve1=base_liq * rate_ilk_btc,
+                        fee=0.0005,
+                    )
+                    params2 = collector2.get_ilk_params('WBTC-A')
+                    set_edge_meta(graph.graph, wbtc, dai, dex='maker', pool_address='maker_cdp_wbtc',
+                                  fee_tier=None, source='onchain', confidence=0.8,
+                                  extra={'ilk': 'WBTC-A', 'spot': params2.get('spot'), 'duty': params2.get('duty'), 'line': params2.get('line')})
+                    updated += 2
         except Exception as e:
             logger.debug(f"Maker CDP update failed: {e}")
-            return 0
+        return updated
 
 
 class YearnVaultAction(ProtocolAction):
@@ -1613,7 +1640,7 @@ class CompoundSupplyBorrowAction(ProtocolAction):
                 mi = self.collector.get_market_info(ctoken) or {}
                 if not mi.get('isListed', True):
                     continue
-                rate = self.collector.get_deposit_rate_underlying_to_ctoken(ctoken)  # cToken per underlying
+                rate = self.collector.get_deposit_rate_underlying_to_ctoken(ctoken, underlying)  # precise cToken per underlying
                 reserve0 = base_liq
                 reserve1 = base_liq * rate
                 graph.add_trading_pair(

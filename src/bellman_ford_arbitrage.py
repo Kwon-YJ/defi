@@ -10,6 +10,7 @@ from src.slippage import (
     amount_out_cpmm,
 )
 from src.logger import setup_logger
+from config.config import config
 
 logger = setup_logger(__name__)
 
@@ -477,6 +478,25 @@ class BellmanFordArbitrage:
                 if dex == 'aave':
                     # supply: treat as depositing `amount` units; add to capacity with liquidationThreshold
                     lt = float(meta.get('liquidationThreshold', 0.5) or 0.5)
+                    # eMode override mapping (optional)
+                    try:
+                        mapping = getattr(config, 'aave_emode_ltv_overrides', '') or ''
+                        mp = {}
+                        if mapping:
+                            for item in mapping.split(','):
+                                if ':' in item:
+                                    k, v = item.split(':')
+                                    mp[int(k.strip())] = float(v.strip())
+                        cat = meta.get('eModeCategory')
+                        if cat is not None:
+                            try:
+                                cat = int(cat)
+                                if cat in mp:
+                                    lt = max(lt, mp[cat])
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
                     uac = bool(meta.get('usageAsCollateralEnabled', True))
                     if uac:
                         aave_capacity += max(0.0, amount) * max(0.0, min(lt, 1.0))

@@ -58,21 +58,28 @@ class CompoundCollector:
     def get_ctoken(self, underlying: str) -> Optional[str]:
         return self.CTOKENS.get(underlying.lower())
 
-    def get_deposit_rate_underlying_to_ctoken(self, ctoken: str) -> float:
-        """Return cToken per 1 underlying. Fallback to 1.0 if RPC not available.
+    def get_deposit_rate_underlying_to_ctoken(self, ctoken: str, underlying: Optional[str] = None) -> float:
+        """Return cToken per 1 underlying precisely using decimals normalization.
 
-        exchangeRateStored ~= underlying per 1 cToken scaled by 1e18;
-        cToken per underlying ~= 1e18 / exchangeRateStored
+        exchangeRateStored has scale of 1e(18 + underlyingDecimals - cTokenDecimals).
+        underlyingPerCToken = exchangeRateStored / 1e(18 + uDec - cDec)
+        cTokenPerUnderlying = 1 / underlyingPerCToken
         """
         try:
             if not self.w3 or not self.w3.is_connected():
                 return 1.0
             c = self.w3.eth.contract(address=ctoken, abi=self.ctoken_abi)
-            ex = c.functions.exchangeRateStored().call()
-            ex = float(ex)
+            ex = float(c.functions.exchangeRateStored().call())
             if ex <= 0:
                 return 1.0
-            return float(1e18) / ex
+            # decimals
+            udec = self._decimals(underlying) if underlying else 18
+            cdec = self._decimals(ctoken)
+            scale = 10 ** (18 + udec - cdec)
+            under_per_c = ex / scale
+            if under_per_c <= 0:
+                return 1.0
+            return 1.0 / under_per_c
         except Exception as e:
             logger.debug(f"Compound exchangeRateStored read failed for {ctoken[:6]}: {e}")
             return 1.0
