@@ -18,6 +18,7 @@ from src.synth_tokens import lp_v3
 from src.edge_meta import set_edge_meta
 from src.data_storage import DataStorage
 from config.config import config
+from src.synthetix_collectors import SynthetixCollector
 from src.token_manager import TokenManager
 from src.paper_assets import load_paper_25_addresses, paper_25_symbols
 
@@ -102,6 +103,17 @@ class BlockGraphUpdater:
                 for k, v in add.items():
                     if v and k not in self.tokens:
                         self.tokens[k] = v
+        except Exception:
+            pass
+        # 옵션: Synthetix synths 포함(sUSD, sETH)
+        try:
+            if getattr(config, 'include_synth_tokens', False):
+                sc = SynthetixCollector(self.w3)
+                synths = sc.get_synths()
+                for sym in ('sUSD', 'sETH'):
+                    addr = synths.get(sym)
+                    if addr and sym not in self.tokens:
+                        self.tokens[sym] = addr
         except Exception:
             pass
         self.dexes = dexes or ['uniswap_v2', 'sushiswap']

@@ -63,6 +63,7 @@ class Config:
     # 주요 토큰/디파이 토큰 자동 포함 플래그
     include_major_tokens: bool = os.getenv('INCLUDE_MAJOR_TOKENS', '1') in ('1','true','True')
     include_defi_tokens: bool = os.getenv('INCLUDE_DEFI_TOKENS', '1') in ('1','true','True')
+    include_synth_tokens: bool = os.getenv('INCLUDE_SYNTH_TOKENS', '1') in ('1','true','True')
     # Curve liquidity scaling tuning
     curve_liq_scale_ref: float = float(os.getenv('CURVE_LIQ_SCALE_REF', '1000000'))  # reference LP totalSupply
     curve_liq_scale_min: float = float(os.getenv('CURVE_LIQ_SCALE_MIN', '0.25'))

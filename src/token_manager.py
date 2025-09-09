@@ -6,6 +6,7 @@ from web3 import Web3
 from src.logger import setup_logger
 from config.config import config
 from src.constants import ETH_NATIVE_ADDRESS
+from src.synthetix_collectors import SynthetixCollector
 
 logger = setup_logger(__name__)
 
@@ -64,6 +65,21 @@ class TokenManager:
                 name="Ether (native)",
                 decimals=18,
                 coingecko_id="ethereum"
+            ),
+            # Synthetix synths
+            "0x57ab1e02fee23774580c119740129eac7081e9d3": TokenInfo(
+                address="0x57ab1e02fee23774580c119740129eac7081e9d3",
+                symbol="sUSD",
+                name="Synth sUSD",
+                decimals=18,
+                coingecko_id="nusd"
+            ),
+            "0x5e74c9036fb86bd7ecdcb084a0673efc32ea31cb": TokenInfo(
+                address="0x5e74c9036fb86bd7ecdcb084a0673efc32ea31cb",
+                symbol="sETH",
+                name="Synth sETH",
+                decimals=18,
+                coingecko_id="seth"
             ),
             # Compound cTokens (selected)
             "0x39AA39c021dfbaE8faC545936693aC917d5E7563": TokenInfo(

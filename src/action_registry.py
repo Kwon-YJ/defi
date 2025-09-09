@@ -1765,6 +1765,7 @@ class StablecoinAggregatorAction(ProtocolAction):
     def __init__(self):
         # 보수적 기본 수수료 (집계 라우팅/브릿지, CEX-온체인 조합 근사)
         self.fee = 0.0005
+        self.fee_susd = 0.001  # sUSD 경로는 더 보수적
         self.base_liq = 1_000.0
 
     async def update_graph(self, graph: DeFiMarketGraph, w3: Web3, tokens: Dict[str, str],
@@ -1773,6 +1774,7 @@ class StablecoinAggregatorAction(ProtocolAction):
         usdc = tokens.get('USDC') or tokens.get('usdc')
         usdt = tokens.get('USDT') or tokens.get('usdt')
         dai = tokens.get('DAI') or tokens.get('dai')
+        susd = tokens.get('sUSD') or tokens.get('susd')
         stables = [t for t in (usdc, usdt, dai) if t]
         if len(stables) < 2:
             return 0
@@ -1783,8 +1785,17 @@ class StablecoinAggregatorAction(ProtocolAction):
             pairs.append((usdc, dai, 'stable_agg_usdc_dai'))
         if usdt and dai:
             pairs.append((usdt, dai, 'stable_agg_usdt_dai'))
+        # sUSD 경로 추가(옵션)
+        if susd:
+            if usdc:
+                pairs.append((susd, usdc, 'stable_agg_susd_usdc'))
+            if usdt:
+                pairs.append((susd, usdt, 'stable_agg_susd_usdt'))
+            if dai:
+                pairs.append((susd, dai, 'stable_agg_susd_dai'))
         for a, b, key in pairs:
             try:
+                fee_use = self.fee_susd if (a == susd or b == susd) else self.fee
                 graph.add_trading_pair(
                     token0=a,
                     token1=b,
@@ -1792,7 +1803,7 @@ class StablecoinAggregatorAction(ProtocolAction):
                     pool_address=key,
                     reserve0=self.base_liq,
                     reserve1=self.base_liq,
-                    fee=self.fee,
+                    fee=fee_use,
                 )
                 set_edge_meta(graph.graph, a, b, dex='stable_agg', pool_address=key,
                               fee_tier=None, source='approx', confidence=0.85,
