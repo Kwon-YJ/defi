@@ -67,6 +67,13 @@ class BlockGraphUpdater:
         self.balancer = BalancerWeightedCollector(self.w3)
         self.aave = AaveV2Collector(self.w3)
         self.comp = CompoundCollector(self.w3)
+        # 이벤트 기반 미니 업데이트 큐
+        self._mini_queues = {
+            'v2_pools': set(),
+            'balancer_pools': set(),
+            'compound_ctokens': set(),
+            'aave_assets': set(),
+        }
 
     def _major_pairs(self) -> List[Tuple[str, str]]:
         """모든 토큰 조합에서 페어 생성"""
@@ -94,6 +101,11 @@ class BlockGraphUpdater:
                 # 구독 주소 갱신(가능 시)
                 try:
                     self.rt.log_addresses = self._compute_log_addresses()
+                except Exception:
+                    pass
+                # 프루닝/컴팩션 전에 이벤트 기반 미니 업데이트 적용
+                try:
+                    await self._apply_event_minis()
                 except Exception:
                     pass
                 # 블록 단위로 프루닝 수행 (너무 작은 유동성/지배된 엣지 제거)
@@ -134,6 +146,10 @@ class BlockGraphUpdater:
                         logger.debug(f"Sync 반영: {pool} r0={reserve0} r1={reserve1}")
                         # 메모리 절감을 위한 속성 정리
                         compact_graph_attributes(self.graph.graph)
+                        pool_addr = log_data.get('address')
+                        if pool_addr:
+                            self._mini_queues['balancer_pools'].add(pool_addr)
+                        self._mini_queues['v2_pools'].add(pool)
                 # Swap/Mint/Burn 이벤트: 최신 리저브를 on-chain에서 조회하여 반영
                 elif log_data.get('topics') and log_data['topics'][0] in (
                     self.rt.monitored_events.get('Swap'),
@@ -150,6 +166,7 @@ class BlockGraphUpdater:
                                 self.graph.update_pool_data(pool, float(r0), float(r1))
                                 logger.debug(f"Event-triggered reserve refresh: {pool} r0={r0} r1={r1}")
                                 compact_graph_attributes(self.graph.graph)
+                                self._mini_queues['v2_pools'].add(pool)
                         except Exception as _:
                             pass
                 # Uniswap V3 Collect: 수수료 수취 이벤트 감지 시 해당 풀의 fee-collect 엣지 즉시 갱신
@@ -235,6 +252,9 @@ class BlockGraphUpdater:
                                     except Exception:
                                         continue
                         compact_graph_attributes(self.graph.graph)
+                        ctoken = log_data.get('address')
+                        if ctoken:
+                            self._mini_queues['compound_ctokens'].add(ctoken)
                     except Exception:
                         pass
                 # Compound: AccrueInterest on cToken
@@ -259,6 +279,10 @@ class BlockGraphUpdater:
                                                   extra={'collateralFactor': cf, 'borrowRatePerBlock': rates.get('borrowRatePerBlock'),
                                                          'supplyRatePerBlock': rates.get('supplyRatePerBlock')})
                         compact_graph_attributes(self.graph.graph)
+                        topics = log_data.get('topics', [])
+                        if len(topics) >= 2:
+                            asset = '0x' + topics[1][-40:]
+                            self._mini_queues['aave_assets'].add(asset)
                     except Exception:
                         pass
                 # Aave: ReserveDataUpdated(asset,...)
@@ -418,6 +442,11 @@ class BlockGraphUpdater:
             self.rt.log_addresses = self._compute_log_addresses()
         except Exception:
             pass
+        # 프루닝/컴팩션 전에 이벤트 기반 미니 업데이트 적용
+        try:
+            await self._apply_event_minis()
+        except Exception:
+            pass
         asyncio.create_task(self.rt.start_websocket_listener())
         prune_graph(self.graph.graph, min_liquidity=0.1, keep_top_k=2)
         compact_graph_attributes(self.graph.graph)
@@ -471,6 +500,70 @@ class BlockGraphUpdater:
             else f"그래프 초기 빌드 완료(액션): {updated}개 엣지 추가"
         )
         logger.info(msg)
+
+    async def _apply_event_minis(self):
+        """이벤트 큐에 쌓인 최소 업데이트를 일괄 적용 (프루닝/컴팩션 전에 호출)."""
+        # Uniswap V2 pools
+        try:
+            if self._mini_queues.get('v2_pools'):
+                v2c = UniswapV2Collector(self.w3)
+                for pool in list(self._mini_queues['v2_pools']):
+                    try:
+                        r0, r1, _ = await v2c.get_pool_reserves(pool)
+                        if r0 and r1:
+                            self.graph.update_pool_data(pool, float(r0), float(r1))
+                    except Exception:
+                        pass
+                self._mini_queues['v2_pools'].clear()
+        except Exception:
+            pass
+        # Balancer pools meta
+        try:
+            if self._mini_queues.get('balancer_pools') and isinstance(self.graph.graph, nx.MultiDiGraph):
+                for pool in list(self._mini_queues['balancer_pools']):
+                    for u, v, k, data in list(self.graph.graph.edges(keys=True, data=True)):
+                        if data.get('dex') == 'balancer' and data.get('pool_address') == pool:
+                            try:
+                                wi, wj, bi, bj = self.balancer.get_weights_and_balances(pool, u, v)
+                                set_edge_meta(self.graph.graph, u, v, dex='balancer', pool_address=pool,
+                                              fee_tier=None, source='event', confidence=0.9,
+                                              extra={'w_in': wi, 'w_out': wj, 'b_in': bi, 'b_out': bj})
+                            except Exception:
+                                continue
+                self._mini_queues['balancer_pools'].clear()
+        except Exception:
+            pass
+        # Compound cTokens
+        try:
+            if self._mini_queues.get('compound_ctokens') and isinstance(self.graph.graph, nx.MultiDiGraph):
+                for ctoken in list(self._mini_queues['compound_ctokens']):
+                    rates = self.comp.get_rates_per_block(ctoken) or {}
+                    for u, v, k, data in list(self.graph.graph.edges(keys=True, data=True)):
+                        if data.get('pool_address') == ctoken and data.get('dex') in ('compound','compound_borrow','compound_repay'):
+                            set_edge_meta(self.graph.graph, u, v, dex=data.get('dex'), pool_address=ctoken,
+                                          fee_tier=None, source='event', confidence=0.9,
+                                          extra={'borrowRatePerBlock': rates.get('borrowRatePerBlock'),
+                                                 'supplyRatePerBlock': rates.get('supplyRatePerBlock')})
+                self._mini_queues['compound_ctokens'].clear()
+        except Exception:
+            pass
+        # Aave assets
+        try:
+            if self._mini_queues.get('aave_assets') and isinstance(self.graph.graph, nx.MultiDiGraph):
+                for asset in list(self._mini_queues['aave_assets']):
+                    rates = self.aave.get_reserve_rates(asset) or {}
+                    cfg = self.aave.get_reserve_configuration(asset) or {}
+                    emode = self.aave.get_emode_category(asset)
+                    for u, v, k, data in list(self.graph.graph.edges(keys=True, data=True)):
+                        if asset.lower() in (u.lower(), v.lower()):
+                            set_edge_meta(self.graph.graph, u, v, dex=data.get('dex'), pool_address=data.get('pool_address'),
+                                          fee_tier=None, source='event', confidence=0.9,
+                                          extra={'ltv': cfg.get('ltv'), 'liquidationThreshold': cfg.get('liquidationThreshold'),
+                                                 'variableBorrowRate': rates.get('variableBorrowRate'), 'stableBorrowRate': rates.get('stableBorrowRate'),
+                                                 'liquidityRate': rates.get('liquidityRate'), 'eModeCategory': emode})
+                self._mini_queues['aave_assets'].clear()
+        except Exception:
+            pass
 
     def _compute_log_addresses(self) -> List[str]:
         addrs = set()
