@@ -118,7 +118,7 @@
 
 #### 2.1B 실시간/데이터 동기화 강화
   - [x] 프로토콜별 이벤트 구독(예: V2 Sync/Mint/Burn, V3 Increase/Decrease/Collect, Curve Add/Remove, Balancer PoolTokens/BPT 변경, Aave/Compound Accrue/Reserve 업데이트)
-- [ ] WS 다중 소스 폴백/리던던시 구성 및 지연/에러 처리 로직
+  - [x] WS 다중 소스 폴백/리던던시 구성 및 지연/에러 처리 로직
 - [ ] Pruning/Compaction 이전에 이벤트 기반 미니 업데이트 적용
 
 ### 2.2 자산 지원 확장 (현재 4개 base tokens → 논문의 25개 assets)

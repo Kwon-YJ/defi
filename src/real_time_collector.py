@@ -12,6 +12,24 @@ logger = setup_logger(__name__)
 class RealTimeDataCollector:
     def __init__(self):
         self.ws_url = config.ethereum_mainnet_ws
+        # WS 다중 소스 구성 (쉼표 구분 목록 지원)
+        raw_eps = []
+        try:
+            env_eps = os.getenv('WS_ENDPOINTS', '')
+            if env_eps:
+                raw_eps = [e.strip() for e in env_eps.split(',') if e.strip()]
+        except Exception:
+            raw_eps = []
+        self.ws_endpoints: List[str] = [e for e in raw_eps if e]
+        if self.ws_url and self.ws_url not in self.ws_endpoints:
+            self.ws_endpoints.insert(0, self.ws_url)
+        if not self.ws_endpoints:
+            # fallback to HTTP rpc via websocket proxy not available; keep placeholder
+            self.ws_endpoints = [self.ws_url] if self.ws_url else []
+        self.ws_index = 0
+        self.ws_idle_timeout = int(os.getenv('WS_IDLE_TIMEOUT', '20'))  # seconds without messages → rotate
+        self.ws_backoff_min = float(os.getenv('WS_BACKOFF_MIN', '1.0'))
+        self.ws_backoff_max = float(os.getenv('WS_BACKOFF_MAX', '10.0'))
         self.w3 = Web3(Web3.HTTPProvider(config.ethereum_mainnet_rpc))
         self.storage = DataStorage()
         self.subscribers: Dict[str, List[Callable]] = {}
@@ -72,26 +90,44 @@ class RealTimeDataCollector:
     async def start_websocket_listener(self):
         """WebSocket 리스너 시작"""
         self.running = True
-        logger.info("WebSocket 연결 시작")
-        
+        logger.info("WebSocket 연결 시작 (다중 소스 지원)")
+
+        last_message = 0.0
+        backoff = self.ws_backoff_min
         while self.running:
+            ep = None
             try:
-                async with websockets.connect(self.ws_url) as websocket:
+                if not self.ws_endpoints:
+                    logger.error("WS 엔드포인트가 구성되지 않았습니다.")
+                    await asyncio.sleep(5)
+                    continue
+                ep = self.ws_endpoints[self.ws_index % len(self.ws_endpoints)]
+                logger.info(f"WS 연결 시도: {ep}")
+                async with websockets.connect(ep, ping_interval=15, ping_timeout=10) as websocket:
                     self.websocket = websocket
-                    
+                    last_message = asyncio.get_event_loop().time()
+                    backoff = self.ws_backoff_min
                     # 구독 설정
                     await self._setup_subscriptions()
-                    
                     # 메시지 수신 루프
                     async for message in websocket:
                         await self._handle_message(message)
-                        
+                        last_message = asyncio.get_event_loop().time()
+                        # 유휴 타임아웃 검사 → 다른 엔드포인트로 회전
+                        if self.ws_idle_timeout > 0 and (asyncio.get_event_loop().time() - last_message) > self.ws_idle_timeout:
+                            logger.warning("WS 유휴 타임아웃, 엔드포인트 회전")
+                            self.ws_index = (self.ws_index + 1) % len(self.ws_endpoints)
+                            break
             except websockets.exceptions.ConnectionClosed:
-                logger.warning("WebSocket 연결 끊김, 재연결 시도...")
-                await asyncio.sleep(5)
+                logger.warning("WebSocket 연결 끊김, 재연결/회전 시도...")
+                self.ws_index = (self.ws_index + 1) % len(self.ws_endpoints)
+                await asyncio.sleep(backoff)
+                backoff = min(self.ws_backoff_max, backoff * 1.5)
             except Exception as e:
                 logger.error(f"WebSocket 연결 오류: {e}")
-                await asyncio.sleep(10)
+                self.ws_index = (self.ws_index + 1) % len(self.ws_endpoints)
+                await asyncio.sleep(backoff)
+                backoff = min(self.ws_backoff_max, backoff * 1.5)
     
     async def _setup_subscriptions(self):
         """구독 설정"""
