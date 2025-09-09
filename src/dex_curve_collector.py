@@ -32,6 +32,21 @@ class CurveStableSwapCollector:
                 '0xdAC17F958D2ee523a2206206994597C13D831ec7',  # USDT
                 '0x57ab1ec28d129707052df4df418d58a2d46d5f51',  # sUSD
             ]
+        },
+        {
+            'address': '0xDcEF968d416a41Cdac0eD8702fAC8128A64241A2',  # FRAXBP (FRAX/USDC)
+            'coins': [
+                '0x853d955aCEf822Db058eb8505911ED77F175b99e',  # FRAX
+                '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',  # USDC
+            ]
+        },
+        {
+            'address': '0xd51a44d3fae010294c616388b506acda1bfaae46',  # TriCrypto2 (USDT/WBTC/WETH)
+            'coins': [
+                '0xdAC17F958D2ee523a2206206994597C13D831ec7',  # USDT
+                '0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599',  # WBTC
+                '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',  # WETH
+            ]
         }
     ]
 
@@ -109,7 +124,9 @@ class CurveStableSwapCollector:
         self.NAME_MAP = {
             '3pool': '0xbEbc44782C7dB0a1A60Cb6fe97d0a2fEdcBcd44',
             'susd': '0xA5407eAE9Ba41422680e2e00537571bcC53efBfD',
-            'susd': '0xA5407eAE9Ba41422680e2e00537571bcC53efBfD',
+            'frax': '0xDcEF968d416a41Cdac0eD8702fAC8128A64241A2',  # FRAXBP (FRAX/USDC)
+            'tricrypto': '0xd51a44d3fae010294c616388b506acda1bfaae46',  # TriCrypto2 (USDT/WBTC/WETH)
+            'tricrypto2': '0xd51a44d3fae010294c616388b506acda1bfaae46',
         }
         wl_set = set()
         for raw in [x.strip() for x in wl.split(',') if x.strip()]:

@@ -295,7 +295,7 @@ class CurveStableSwapAction(ProtocolAction, _SwapPairsMixin):
                 price01 = self.collector.get_price(pool, i, j, token0, token1)
                 if price01 <= 0:
                     continue
-                # Liquidity proxy scaling using LP totalSupply (best-effort)
+                # Liquidity proxy scaling using LP totalSupply (best-effort), fee-adjusted
                 try:
                     lp_addr = self.collector.get_lp_token(pool)
                     lp_dec = self.collector.get_lp_decimals(lp_addr) if lp_addr else 18
@@ -311,6 +311,12 @@ class CurveStableSwapAction(ProtocolAction, _SwapPairsMixin):
                     scale = math.sqrt(max(0.0, lp_ts) / ref)
                     if not (scale >= 0):
                         scale = 1.0
+                    # fee-based dampening (favor lower-fee pools)
+                    try:
+                        f = float(params.get('fee', 0.0))
+                        scale *= max(0.25, 1.0 - f)
+                    except Exception:
+                        pass
                     scale = max(smin, min(smax, float(scale)))
                 except Exception:
                     scale = 1.0
