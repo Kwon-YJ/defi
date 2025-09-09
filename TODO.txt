@@ -123,6 +123,10 @@
 
 ### 2.2 자산 지원 확장 (현재 4개 base tokens → 논문의 25개 assets)
 - [ ] **CRITICAL**: 논문에서 사용한 정확한 25개 자산 식별 및 구현
+  - [x] (분할) 25개 자산 심볼 식별 및 문서화 (docs/paper_25_assets.md)
+  - [x] (분할) 실행 옵션 추가: `USE_PAPER_25_ASSETS=1` 시 JSON 로드/적용
+  - [ ] (분할) 메인넷 주소/decimals 정확 매핑 보완(config/paper_assets_25.json)
+  - [ ] (분할) 25자산 기준 주요 페어 수집/빌드 벤치마크 및 튜닝
 - [ ] ETH, WETH (native and wrapped Ether)
 - [ ] Stablecoins: USDC, USDT, DAI (현재 있음, 확장 필요)  
 - [ ] Major tokens: WBTC, UNI, SUSHI, COMP, AAVE

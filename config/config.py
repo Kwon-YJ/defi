@@ -56,6 +56,9 @@ class Config:
     dydx_max_leverage: float = float(os.getenv('DYDX_MAX_LEVERAGE', '10'))
     dydx_desired_leverage: float = float(os.getenv('DYDX_DESIRED_LEVERAGE', '3'))
     
+    # 논문(2103.02228) 25자산 사용 모드
+    use_paper_25_assets: bool = os.getenv('USE_PAPER_25_ASSETS', '0') in ('1', 'true', 'True')
+    
     def validate(self) -> bool:
         """설정 유효성 검사"""
         required_fields = [

@@ -1,0 +1,36 @@
+{
+  "ETH": {
+    "symbol": "WETH",
+    "address": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+    "decimals": 18,
+    "note": "Use WETH for on-chain interactions"
+  },
+  "DAI": {
+    "symbol": "DAI",
+    "address": "0x6B175474E89094C44Da98b954EedeAC495271d0F",
+    "decimals": 18
+  },
+  "MKR": { "symbol": "MKR", "address": "", "decimals": 18 },
+  "BAT": { "symbol": "BAT", "address": "", "decimals": 18 },
+  "KNC": { "symbol": "KNC", "address": "", "decimals": 18 },
+  "GNO": { "symbol": "GNO", "address": "", "decimals": 18 },
+  "ENJ": { "symbol": "ENJ", "address": "", "decimals": 18 },
+  "MANA": { "symbol": "MANA", "address": "", "decimals": 18 },
+  "BNT": { "symbol": "BNT", "address": "", "decimals": 18 },
+  "AMPL": { "symbol": "AMPL", "address": "", "decimals": 9 },
+  "SAI": { "symbol": "SAI", "address": "", "decimals": 18 },
+  "RLC": { "symbol": "RLC", "address": "", "decimals": 18 },
+  "SNT": { "symbol": "SNT", "address": "", "decimals": 18 },
+  "DATA": { "symbol": "DATA", "address": "", "decimals": 18 },
+  "AMN": { "symbol": "AMN", "address": "", "decimals": 18 },
+  "FXC": { "symbol": "FXC", "address": "", "decimals": 18 },
+  "HEDG": { "symbol": "HEDG", "address": "", "decimals": 18 },
+  "POA20": { "symbol": "POA20", "address": "", "decimals": 18 },
+  "RCN": { "symbol": "RCN", "address": "", "decimals": 18 },
+  "RDN": { "symbol": "RDN", "address": "", "decimals": 18 },
+  "SAN": { "symbol": "SAN", "address": "", "decimals": 18 },
+  "TKN": { "symbol": "TKN", "address": "", "decimals": 18 },
+  "TRST": { "symbol": "TRST", "address": "", "decimals": 18 },
+  "UBT": { "symbol": "UBT", "address": "", "decimals": 18 }
+}
+

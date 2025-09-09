@@ -18,6 +18,7 @@ from src.synth_tokens import lp_v3
 from src.edge_meta import set_edge_meta
 from src.data_storage import DataStorage
 from config.config import config
+from src.paper_assets import load_paper_25_addresses, paper_25_symbols
 
 logger = setup_logger(__name__)
 
@@ -34,13 +35,45 @@ class BlockGraphUpdater:
         self.fees: Dict[str, float] = {}
         self.running = False
 
-        # 기본 토큰 셋 (메이저 4)
-        self.tokens = tokens or {
-            'WETH': '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
-            'USDC': '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
-            'DAI':  '0x6B175474E89094C44Da98b954EedeAC495271d0F',
-            'USDT': '0xdAC17F958D2ee523a2206206994597C13D831ec7',
-        }
+        # 기본 토큰 셋 (메이저 4) 또는 논문 25자산 모드
+        if tokens is not None:
+            self.tokens = tokens
+        elif getattr(config, 'use_paper_25_assets', False):
+            # JSON에서 심볼→주소 매핑 로드
+            mapping = load_paper_25_addresses()
+            # ETH는 내부적으로 WETH 주소를 사용
+            # 미기재 토큰은 스킵
+            # 순서를 유지하고 싶다면 OrderedDict를 사용해도 무방
+            tmap = {}
+            for sym in paper_25_symbols():
+                addr = mapping.get(sym)
+                if sym == 'ETH':
+                    # ETH 항목은 WETH 주소 사용
+                    addr = addr or '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2'
+                    tmap['WETH'] = addr
+                elif addr:
+                    tmap[sym] = addr
+                else:
+                    # 주소가 제공되지 않은 심볼은 경고만 남기고 제외
+                    logger.warning(f"논문 25자산 중 주소 미설정: {sym} → 제외")
+            if len(tmap) < 2:
+                logger.warning("논문 25자산 로드 결과가 부족하여 기본 4자산으로 대체")
+                self.tokens = {
+                    'WETH': '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
+                    'USDC': '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+                    'DAI':  '0x6B175474E89094C44Da98b954EedeAC495271d0F',
+                    'USDT': '0xdAC17F958D2ee523a2206206994597C13D831ec7',
+                }
+            else:
+                self.tokens = tmap
+                logger.info(f"논문 25자산 모드 활성화: {len(self.tokens)}개 로드")
+        else:
+            self.tokens = {
+                'WETH': '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
+                'USDC': '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+                'DAI':  '0x6B175474E89094C44Da98b954EedeAC495271d0F',
+                'USDT': '0xdAC17F958D2ee523a2206206994597C13D831ec7',
+            }
         self.dexes = dexes or ['uniswap_v2', 'sushiswap']
 
         # (역호환) DEX 수집기 초기화 - 유지
