@@ -101,6 +101,17 @@ class UniswapV3Collector:
             logger.debug(f"UniswapV3 getPool 실패 {token0[:6]}-{token1[:6]} fee={fee}: {e}")
             return None
 
+    def get_pool_address_sync(self, token0: str, token1: str, fee: int) -> Optional[str]:
+        """동기 컨텍스트에서 풀 주소 조회."""
+        try:
+            pool = self.factory.functions.getPool(token0, token1, int(fee)).call()
+            if pool == "0x0000000000000000000000000000000000000000":
+                return None
+            return pool
+        except Exception as e:
+            logger.debug(f"UniswapV3 getPool(sync) 실패 {token0[:6]}-{token1[:6]} fee={fee}: {e}")
+            return None
+
     async def get_pool_core_state(self, pool_address: str) -> Optional[Dict]:
         try:
             pool = self.w3.eth.contract(address=pool_address, abi=self.pool_abi)
@@ -130,6 +141,39 @@ class UniswapV3Collector:
         except Exception as e:
             logger.debug(f"UniswapV3 풀 상태 조회 실패 {pool_address[:6]}: {e}")
             return None
+
+    def price_tokenB_per_tokenA_v3(self, tokenA: str, tokenB: str, fee: int) -> float:
+        """주어진 fee tier 풀에서 tokenA 1개당 tokenB 수량을 가격으로 반환.
+
+        - slot0.sqrtPriceX96와 token0/token1, decimals로 계산.
+        """
+        try:
+            pool = self.get_pool_address_sync(tokenA, tokenB, int(fee))
+            if not pool:
+                # order might be reversed
+                pool = self.get_pool_address_sync(tokenB, tokenA, int(fee))
+            if not pool:
+                return 0.0
+            c = self.w3.eth.contract(address=pool, abi=self.pool_abi)
+            t0 = c.functions.token0().call()
+            t1 = c.functions.token1().call()
+            dec0 = self._get_decimals(t0)
+            dec1 = self._get_decimals(t1)
+            slot0 = c.functions.slot0().call()
+            sqrtP = int(slot0[0])
+            # price of token1 per token0
+            p_1_per_0 = self.price_from_sqrtX96(sqrtP, dec0, dec1)
+            if p_1_per_0 <= 0:
+                return 0.0
+            if t0.lower() == tokenA.lower() and t1.lower() == tokenB.lower():
+                return float(p_1_per_0)
+            if t0.lower() == tokenB.lower() and t1.lower() == tokenA.lower():
+                return 1.0 / float(p_1_per_0) if p_1_per_0 > 0 else 0.0
+            # If neither matches strictly (shouldn't happen), return 0
+            return 0.0
+        except Exception as e:
+            logger.debug(f"UniswapV3 가격 계산 실패 fee={fee}: {e}")
+            return 0.0
 
     def _get_decimals(self, token_addr: str) -> int:
         try:

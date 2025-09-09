@@ -227,13 +227,15 @@ class PriceFeed:
                 candidates.append(p2)
         except Exception:
             pass
-        # V3 direct (best fee tier)
+        # V3 direct: token/WETH and token/USDC across fee tiers
         try:
-            for fee in self.v3.FEE_TIERS:
-                pool = self.v3.w3.to_checksum_address(self.v3.get_pool_address_sync(token, weth, fee)) if hasattr(self.v3, 'get_pool_address_sync') else None
-                if not pool:
-                    # async getter wrapped in sync is not implemented; skip
-                    continue
+            for fee in getattr(self.v3, 'FEE_TIERS', [500, 3000, 10000]):
+                p_tw = self.v3.price_tokenB_per_tokenA_v3(token, weth, int(fee))
+                if p_tw > 0 and usdc_per_weth > 0:
+                    candidates.append(p_tw * usdc_per_weth)
+                p_tu = self.v3.price_tokenB_per_tokenA_v3(token, usdc, int(fee))
+                if p_tu > 0:
+                    candidates.append(p_tu)
         except Exception:
             pass
         # Curve direct
