@@ -536,23 +536,58 @@ class SynthetixExchangeAction(ProtocolAction):
             synths = self.collector.get_synths()
             sUSD = synths["sUSD"]
             sETH = synths["sETH"]
-            price = self.collector.price_susd_per_seth()
-            fee = self.collector.get_exchange_fee()
-            if price <= 0:
-                return 0
+            sBTC = synths.get("sBTC")
             base_liq = 200.0
-            graph.add_trading_pair(
-                token0=sETH,
-                token1=sUSD,
-                dex='synthetix',
-                pool_address='synthetix_exchange_seth_susd',
-                reserve0=base_liq,
-                reserve1=base_liq * price,
-                fee=fee,
-            )
-            set_edge_meta(graph.graph, sETH, sUSD, dex='synthetix', pool_address='synthetix_exchange_seth_susd',
-                          fee_tier=None, source='onchain', confidence=0.85)
-            return 2
+            updated = 0
+            # target c-ratio (issuanceRatio) and total debt
+            ir = self.collector.get_issuance_ratio()
+            total_debt = self.collector.get_total_debt()
+            # sETH -> sUSD
+            price = self.collector.price_susd_per_seth()
+            # per-synth fee: use conservative max of src/dst fees
+            fee_src = self.collector.get_exchange_fee_for('sETH') or self.collector.get_exchange_fee()
+            fee_dst = self.collector.get_exchange_fee_for('sUSD') or self.collector.get_exchange_fee()
+            fee = max(float(fee_src), float(fee_dst))
+            if price > 0:
+                graph.add_trading_pair(
+                    token0=sETH,
+                    token1=sUSD,
+                    dex='synthetix',
+                    pool_address='synthetix_exchange_seth_susd',
+                    reserve0=base_liq,
+                    reserve1=base_liq * price,
+                    fee=fee,
+                )
+                set_edge_meta(
+                    graph.graph, sETH, sUSD, dex='synthetix', pool_address='synthetix_exchange_seth_susd',
+                    fee_tier=None, source='onchain', confidence=0.88,
+                    extra={'issuanceRatio': ir, 'targetCRatio': (1.0 / ir) if ir else None, 'totalDebt': total_debt,
+                           'fee_src': float(fee_src), 'fee_dst': float(fee_dst)}
+                )
+                updated += 2
+            # sBTC -> sUSD route
+            if sBTC:
+                p_btc = self.collector.price_susd_per_sbtc()
+                fee_src2 = self.collector.get_exchange_fee_for('sBTC') or self.collector.get_exchange_fee()
+                fee2 = max(float(fee_src2), float(fee_dst))
+                if p_btc > 0:
+                    graph.add_trading_pair(
+                        token0=sBTC,
+                        token1=sUSD,
+                        dex='synthetix',
+                        pool_address='synthetix_exchange_sbtc_susd',
+                        reserve0=base_liq,
+                        reserve1=base_liq * p_btc,
+                        fee=fee2,
+                    )
+                    set_edge_meta(
+                        graph.graph, sBTC, sUSD, dex='synthetix', pool_address='synthetix_exchange_sbtc_susd',
+                        fee_tier=None, source='onchain', confidence=0.86,
+                        extra={'issuanceRatio': ir, 'targetCRatio': (1.0 / ir) if ir else None, 'totalDebt': total_debt,
+                               'fee_src': float(fee_src2), 'fee_dst': float(fee_dst)}
+                    )
+                    updated += 2
+            return updated
         except Exception as e:
             logger.debug(f"Synthetix update failed: {e}")
             return 0

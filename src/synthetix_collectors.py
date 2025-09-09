@@ -1,7 +1,8 @@
 import json
-from typing import Dict
+from typing import Dict, Optional
 from web3 import Web3
 from src.logger import setup_logger
+from config.config import config
 
 logger = setup_logger(__name__)
 
@@ -16,9 +17,11 @@ class SynthetixCollector:
 
     SUSD = "0x57ab1e02fee23774580c119740129eac7081e9d3"  # sUSD Proxy (18)
     SETH = "0x5e74c9036fb86bd7ecdcb084a0673efc32ea31cb"  # sETH Proxy (18)
+    SBTC = "0xfE18be6b3Bd88A2D2A7f928d00292E7a9963CfC6"  # sBTC Proxy (18)
     SNX  = "0xC011a73ee8576Fb46F5E1c5751cA3B9Fe0af2a6F"  # SNX (18)
     WETH = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
     USDC = "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
+    WBTC = "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599"  # 8 decimals
 
     def __init__(self, w3: Web3):
         self.w3 = w3
@@ -46,12 +49,63 @@ class SynthetixCollector:
             {"constant": True, "inputs": [], "name": "token1", "outputs": [{"name": "", "type": "address"}], "type": "function"},
         ]
         self.v2_factory = self.w3.eth.contract(address=self.v2_factory_address, abi=self.v2_factory_abi)
+        # Synthetix core contracts (optionally overridden by config)
+        self.system_settings = getattr(config, 'snx_system_settings', '')
+        self.debt_cache = getattr(config, 'snx_debt_cache', '')
+        self.sys_abi = [
+            {"name": "issuanceRatio", "inputs": [], "outputs": [{"type": "uint256", "name": ""}], "stateMutability": "view", "type": "function"},
+            {"name": "exchangeFeeRate", "inputs": [{"type": "bytes32", "name": "currencyKey"}], "outputs": [{"type": "uint256", "name": ""}], "stateMutability": "view", "type": "function"}
+        ]
+        self.debt_abi = [
+            {"name": "currentDebt", "inputs": [], "outputs": [{"type": "uint256", "name": "debt"}, {"type": "bool", "name": "anyRateIsInvalid"}], "stateMutability": "view", "type": "function"},
+            {"name": "cachedDebt", "inputs": [], "outputs": [{"type": "uint256", "name": "debt"}], "stateMutability": "view", "type": "function"}
+        ]
 
     def get_synths(self) -> Dict[str, str]:
-        return {"sUSD": self.SUSD, "sETH": self.SETH, "SNX": self.SNX}
+        return {"sUSD": self.SUSD, "sETH": self.SETH, "sBTC": self.SBTC, "SNX": self.SNX}
+
+    def _key(self, sym: str) -> bytes:
+        return Web3.to_bytes(text=sym)
+
+    def get_issuance_ratio(self) -> Optional[float]:
+        try:
+            if not self.system_settings:
+                return None
+            c = self.w3.eth.contract(address=self.system_settings, abi=self.sys_abi)
+            ir = c.functions.issuanceRatio().call()
+            return float(ir) / 1e18
+        except Exception as e:
+            logger.debug(f"SNX issuanceRatio read failed: {e}")
+            return None
+
+    def get_exchange_fee_for(self, synth_symbol: str) -> Optional[float]:
+        try:
+            if not self.system_settings:
+                return None
+            c = self.w3.eth.contract(address=self.system_settings, abi=self.sys_abi)
+            fr = c.functions.exchangeFeeRate(self._key(synth_symbol)).call()
+            return float(fr) / 1e18
+        except Exception as e:
+            logger.debug(f"SNX exchangeFeeRate read failed for {synth_symbol}: {e}")
+            return None
+
+    def get_total_debt(self) -> Optional[float]:
+        try:
+            if not self.debt_cache:
+                return None
+            c = self.w3.eth.contract(address=self.debt_cache, abi=self.debt_abi)
+            try:
+                d, _ = c.functions.currentDebt().call()
+            except Exception:
+                d = c.functions.cachedDebt().call()
+            return float(d) / 1e18
+        except Exception as e:
+            logger.debug(f"SNX debt read failed: {e}")
+            return None
 
     def get_exchange_fee(self) -> float:
-        return 0.003  # 0.3%
+        # Fallback average fee
+        return 0.003
 
     def price_susd_per_seth(self) -> float:
         """Estimate sUSD/1 sETH using V2 WETH/USDC reserves; fallback to 2000."""
@@ -70,6 +124,23 @@ class SynthetixCollector:
         except Exception as e:
             logger.debug(f"Synthetix price fetch failed; using fallback 2000: {e}")
         return 2000.0
+
+    def price_susd_per_sbtc(self) -> float:
+        try:
+            pair = self.v2_factory.functions.getPair(self.WBTC, self.USDC).call()
+            if pair and pair != "0x0000000000000000000000000000000000000000":
+                c = self.w3.eth.contract(address=pair, abi=self.v2_pair_abi)
+                t0 = c.functions.token0().call()
+                t1 = c.functions.token1().call()
+                r0, r1, _ = c.functions.getReserves().call()
+                # WBTC 8, USDC 6
+                if t0.lower() == self.WBTC.lower() and t1.lower() == self.USDC.lower():
+                    return (r1 / 1e6) / (r0 / 1e8)
+                elif t0.lower() == self.USDC.lower() and t1.lower() == self.WBTC.lower():
+                    return (r0 / 1e6) / (r1 / 1e8)
+        except Exception as e:
+            logger.debug(f"sBTC price fetch failed; fallback 30000: {e}")
+        return 30000.0
 
     def _price_tokenB_per_tokenA_v2(self, tokenA: str, tokenB: str, decA: int, decB: int) -> float:
         """Generic Uniswap V2 price for tokenB per 1 tokenA with known decimals"""

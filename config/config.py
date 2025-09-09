@@ -43,6 +43,9 @@ class Config:
     # Maker PSM settings (optional override)
     maker_psm_usdc: str = os.getenv('MAKER_PSM_USDC', '')
     maker_hold_seconds: int = int(os.getenv('MAKER_HOLD_SECONDS', '3600'))
+    # Synthetix
+    snx_system_settings: str = os.getenv('SNX_SYSTEM_SETTINGS', '')
+    snx_debt_cache: str = os.getenv('SNX_DEBT_CACHE', '')
     
     def validate(self) -> bool:
         """설정 유효성 검사"""

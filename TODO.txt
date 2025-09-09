@@ -107,9 +107,9 @@
   - [x] Stability fee/interest 누적 효과 근사
 
 - [ ] Synthetix 개선
-  - [ ] SystemSettings target c-ratio/freezeFee/exchange fee per synth 반영
-  - [ ] DebtCache/전체 부채 풀 변동 반영 및 L2 지원
-  - [ ] 추가 synth(sBTC 등) 확장 및 환전 경로 확대
+  - [x] SystemSettings target c-ratio/freezeFee/exchange fee per synth 반영
+  - [x] DebtCache/전체 부채 풀 변동 반영 및 L2 지원
+  - [x] 추가 synth(sBTC 등) 확장 및 환전 경로 확대
 
 - [ ] dYdX 개선
   - [ ] 공식 API/온체인 파라미터 연동(펀딩비, 마진 요구치, 레버리지 한도)
