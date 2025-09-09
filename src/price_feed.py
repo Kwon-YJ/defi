@@ -33,6 +33,14 @@ class PriceFeed:
             {"constant": True, "inputs": [], "name": "token0", "outputs": [{"name": "", "type": "address"}], "type": "function"},
             {"constant": True, "inputs": [], "name": "token1", "outputs": [{"name": "", "type": "address"}], "type": "function"}
         ]
+        # ERC20 decimals ABI (minimal)
+        self.erc20_abi = [{"constant": True, "inputs": [], "name": "decimals", "outputs": [{"name": "", "type": "uint8"}], "type": "function"}]
+        # caches
+        self.token_pairs: Dict[str, Tuple[str, str]] = {}
+        # token -> (pair_addr, base_token_label: 'WETH'|'USDC')
+        self.token_to_pair: Dict[str, Tuple[str, str]] = {}
+        self.WETH: Optional[str] = None
+        self.USDC: Optional[str] = None
 
     def _pair(self, a: str, b: str) -> Optional[str]:
         try:
@@ -110,3 +118,91 @@ class PriceFeed:
             logger.debug(f"가격 업데이트 실패: {e}")
             return 0
 
+    def _decimals(self, addr: str, default: int = 18) -> int:
+        try:
+            c = self.w3.eth.contract(address=addr, abi=self.erc20_abi)
+            return int(c.functions.decimals().call())
+        except Exception:
+            return default
+
+    def build_pairs(self, tokens: Dict[str, str]) -> None:
+        """가격 피드가 추적할 V2 pair 주소들을 미리 계산해 캐시한다."""
+        try:
+            self.USDC = tokens.get('USDC') or tokens.get('usdc')
+            self.WETH = tokens.get('WETH') or tokens.get('weth')
+            if not (self.USDC and self.WETH):
+                return
+            # Cache WETH/USDC
+            wu = self._pair(self.WETH, self.USDC)
+            if wu:
+                self.token_pairs['WETH/USDC'] = (wu, 'spot')
+            # For each token, prefer token/WETH then token/USDC
+            for sym, addr in tokens.items():
+                if sym.upper() in ('USDC', 'WETH'):
+                    continue
+                pair = self._pair(addr, self.WETH)
+                base = 'WETH'
+                if not pair:
+                    pair = self._pair(addr, self.USDC)
+                    base = 'USDC'
+                if pair:
+                    self.token_to_pair[addr.lower()] = (pair, base)
+        except Exception:
+            return
+
+    async def handle_log(self, log: Dict) -> None:
+        """Swap/Sync 이벤트를 받아 관련 토큰 USD 가격을 갱신한다."""
+        try:
+            addr = log.get('address')
+            if not isinstance(addr, str):
+                return
+            topics = log.get('topics') or []
+            if not topics:
+                return
+            # only react to Swap/Sync
+            t0 = topics[0]
+            # hashed topics from RealTimeDataCollector: we'll accept any event if address matches a tracked pair
+            addr_l = addr.lower()
+            # WETH/USDC pair update → refresh WETH price and dependent tokens
+            if any(addr_l == p[0].lower() for p in self.token_pairs.values()):
+                # update WETH price
+                usdc_dec = 6
+                weth_dec = 18
+                if not (self.WETH and self.USDC):
+                    return
+                usdc_per_weth = self._price_tokenB_per_tokenA(self.WETH, self.USDC, weth_dec, usdc_dec)
+                if usdc_per_weth > 0:
+                    await self.storage.store_token_price(self.WETH, float(usdc_per_weth))
+                    # refresh all tracked tokens against updated WETH price
+                    for tok, (pair, base) in list(self.token_to_pair.items()):
+                        try:
+                            if base == 'WETH':
+                                p = self._price_tokenB_per_tokenA(tok, self.WETH, self._decimals(tok), weth_dec)
+                                price = p * usdc_per_weth if p > 0 else 0.0
+                            else:
+                                price = self._price_tokenB_per_tokenA(tok, self.USDC, self._decimals(tok), usdc_dec)
+                            if price > 0:
+                                await self.storage.store_token_price(tok, float(price))
+                        except Exception:
+                            continue
+                return
+            # If log comes from a token pair we track, update that token price only
+            for tok, (pair, base) in list(self.token_to_pair.items()):
+                if addr_l == pair.lower():
+                    usdc_dec = 6
+                    weth_dec = 18
+                    if base == 'WETH':
+                        # get current WETH price
+                        p_w = await self.storage.get_token_price(self.WETH) if self.WETH else None
+                        usdc_per_weth = float(p_w.get('price_usd')) if p_w else 0.0
+                        if usdc_per_weth <= 0 and self.WETH and self.USDC:
+                            usdc_per_weth = self._price_tokenB_per_tokenA(self.WETH, self.USDC, weth_dec, usdc_dec)
+                        p = self._price_tokenB_per_tokenA(tok, self.WETH, self._decimals(tok), weth_dec)
+                        price = p * usdc_per_weth if (p > 0 and usdc_per_weth > 0) else 0.0
+                    else:
+                        price = self._price_tokenB_per_tokenA(tok, self.USDC, self._decimals(tok), usdc_dec)
+                    if price > 0:
+                        await self.storage.store_token_price(tok, float(price))
+                    return
+        except Exception:
+            return

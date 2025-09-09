@@ -217,6 +217,11 @@ class BlockGraphUpdater:
 
         async def on_log_event(log_data):
             try:
+                # 가격 피드: Swap/Sync/Mint/Burn 이벤트에 즉시 반응
+                try:
+                    await self.price_feed.handle_log(log_data)
+                except Exception:
+                    pass
                 # Sync 이벤트: 풀 리저브 업데이트 즉시 반영
                 if log_data.get('topics') and log_data['topics'][0] == self.rt.monitored_events.get('Sync'):
                     pool = log_data.get('address')
@@ -540,6 +545,11 @@ class BlockGraphUpdater:
         await self.update_via_actions()
         try:
             self.rt.log_addresses = self._compute_log_addresses()
+        except Exception:
+            pass
+        # 가격 피드가 추적할 페어 사전 구축 (WETH/USDC 및 토큰별)
+        try:
+            self.price_feed.build_pairs(self.tokens)
         except Exception:
             pass
         # 프루닝/컴팩션 전에 이벤트 기반 미니 업데이트 적용
