@@ -240,6 +240,15 @@ class RealTimeDataCollector:
                     await callback(block_data)
                 except Exception as e:
                     logger.error(f"블록 콜백 실행 실패: {e}")
+            # Redis alert/publish (옵션)
+            try:
+                from config.config import config as _cfg
+                if getattr(_cfg, 'enable_block_alerts', True):
+                    payload = {'number': block_number, 'hash': block_hash}
+                    await self.storage.store_recent_block(payload)
+                    await self.storage.publish_block(payload)
+            except Exception:
+                pass
                     
         except Exception as e:
             logger.error(f"블록 처리 실패: {e}")

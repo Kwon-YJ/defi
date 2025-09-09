@@ -79,6 +79,11 @@ class Config:
     price_ttl_sec: int = int(os.getenv('PRICE_TTL_SEC', '60'))
     price_hist_ttl_sec: int = int(os.getenv('PRICE_HIST_TTL_SEC', str(30 * 24 * 3600)))
     price_hist_maxlen: int = int(os.getenv('PRICE_HIST_MAXLEN', '100000'))
+    # Block alert settings
+    enable_block_alerts: bool = os.getenv('ENABLE_BLOCK_ALERTS', '1') in ('1','true','True')
+    block_alert_channel: str = os.getenv('BLOCK_ALERT_CHANNEL', 'blocks')
+    blocks_recent_key: str = os.getenv('BLOCKS_RECENT_KEY', 'blocks_recent')
+    blocks_recent_maxlen: int = int(os.getenv('BLOCKS_RECENT_MAXLEN', '1000'))
     # Graph building concurrency
     graph_build_concurrency: int = int(os.getenv('GRAPH_BUILD_CONCURRENCY', '16'))
     # Memory compaction

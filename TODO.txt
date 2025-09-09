@@ -158,7 +158,7 @@
 - [x] **CRITICAL**: 블록별 처리 루프 구현 (현재 5초 delay → 블록 기반)  
 - [ ] Ethereum block time (13.5초) 내 처리 보장
 - [x] Ethereum block time (13.5초) 내 처리 보장
-- [ ] 새 블록 알림 시스템 구현
+- [x] 새 블록 알림 시스템 구현
 - [ ] State change detection 및 즉시 대응
 - [ ] Transaction pool monitoring
 
