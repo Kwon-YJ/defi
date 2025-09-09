@@ -50,7 +50,9 @@ class CompoundCollector:
                     {"name": "isComped", "type": "bool"}
                 ],
                 "type": "function"
-            }
+            },
+            {"constant": True, "inputs": [], "name": "closeFactorMantissa", "outputs": [{"name": "", "type": "uint256"}], "type": "function"},
+            {"constant": True, "inputs": [], "name": "liquidationIncentiveMantissa", "outputs": [{"name": "", "type": "uint256"}], "type": "function"}
         ]
 
     def get_ctoken(self, underlying: str) -> Optional[str]:
@@ -97,6 +99,39 @@ class CompoundCollector:
             return float(cf) / 1e18
         except Exception as e:
             logger.debug(f"Compound collateral factor read failed {ctoken[:6]}: {e}")
+            return None
+
+    def get_market_info(self, ctoken: str) -> Optional[Dict]:
+        try:
+            if not self.w3 or not self.w3.is_connected() or not self.comptroller_address:
+                return None
+            comp = self.w3.eth.contract(address=self.comptroller_address, abi=self.comptroller_abi)
+            isListed, cf, _ = comp.functions.markets(ctoken).call()
+            return {"isListed": bool(isListed), "collateralFactor": float(cf) / 1e18}
+        except Exception as e:
+            logger.debug(f"Compound market info failed {ctoken[:6]}: {e}")
+            return None
+
+    def get_close_factor(self) -> Optional[float]:
+        try:
+            if not self.w3 or not self.w3.is_connected() or not self.comptroller_address:
+                return None
+            comp = self.w3.eth.contract(address=self.comptroller_address, abi=self.comptroller_abi)
+            cf = comp.functions.closeFactorMantissa().call()
+            return float(cf) / 1e18
+        except Exception as e:
+            logger.debug(f"Compound closeFactor read failed: {e}")
+            return None
+
+    def get_liquidation_incentive(self) -> Optional[float]:
+        try:
+            if not self.w3 or not self.w3.is_connected() or not self.comptroller_address:
+                return None
+            comp = self.w3.eth.contract(address=self.comptroller_address, abi=self.comptroller_abi)
+            li = comp.functions.liquidationIncentiveMantissa().call()
+            return float(li) / 1e18
+        except Exception as e:
+            logger.debug(f"Compound liquidationIncentive read failed: {e}")
             return None
 
     def approx_interest_penalty(self, ctoken: str, hold_blocks: int) -> float:

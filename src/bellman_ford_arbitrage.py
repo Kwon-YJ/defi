@@ -417,6 +417,8 @@ class BellmanFordArbitrage:
         # Compound HF 근사 상태
         comp_capacity = 0.0
         comp_debt = 0.0
+        comp_incent = 1.0
+        comp_close = 0.5
 
         for e in edges:
             dex = (e.dex or '').lower()
@@ -504,7 +506,15 @@ class BellmanFordArbitrage:
                 elif dex == 'compound':
                     # supply underlying -> cToken: add to capacity using collateralFactor
                     cf = float(meta.get('collateralFactor', 0.5) or 0.5)
-                    comp_capacity += max(0.0, amount) * max(0.0, min(cf, 1.0))
+                    li = float(meta.get('liquidationIncentive', 1.0) or 1.0)
+                    comp_incent = li if li > 0 else 1.0
+                    try:
+                        comp_close = float(meta.get('closeFactor', comp_close) or comp_close)
+                    except Exception:
+                        pass
+                    # conservative: adjust capacity by liquidation incentive (require margin)
+                    cap_add = max(0.0, amount) * max(0.0, min(cf, 1.0)) / max(1.0, comp_incent)
+                    comp_capacity += cap_add
                     amount = self._amount_out_with_slippage(amount, e)
                 elif dex == 'compound_borrow':
                     if not have_supply.get('compound', False):

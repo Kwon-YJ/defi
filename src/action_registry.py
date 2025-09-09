@@ -1441,7 +1441,11 @@ class CompoundRepayAction(ProtocolAction):
         base_liq = 100.0
         for sym, underlying in tokens.items():
             try:
-                if not self.collector.get_ctoken(underlying):
+                ctoken = self.collector.get_ctoken(underlying)
+                if not ctoken:
+                    continue
+                mi = self.collector.get_market_info(ctoken) or {}
+                if not mi.get('isListed', True):
                     continue
                 debt = self._debt_token_id(underlying)
                 graph.add_trading_pair(
@@ -1453,8 +1457,17 @@ class CompoundRepayAction(ProtocolAction):
                     reserve1=base_liq * 1.0,
                     fee=self.fee,
                 )
-                set_edge_meta(graph.graph, underlying, debt, dex='compound_repay', pool_address=f"compound_repay_{underlying[:6]}",
-                              fee_tier=None, source='approx', confidence=0.8)
+                rates = self.collector.get_rates_per_block(ctoken) or {}
+                closef = self.collector.get_close_factor()
+                liqinc = self.collector.get_liquidation_incentive()
+                cf = mi.get('collateralFactor') if mi else self.collector.get_collateral_factor(ctoken)
+                set_edge_meta(
+                    graph.graph, underlying, debt, dex='compound_repay', pool_address=f"compound_repay_{underlying[:6]}",
+                    fee_tier=None, source='onchain', confidence=0.85,
+                    extra={'collateralFactor': cf, 'borrowRatePerBlock': rates.get('borrowRatePerBlock'),
+                           'supplyRatePerBlock': rates.get('supplyRatePerBlock'), 'isListed': mi.get('isListed'),
+                           'closeFactor': closef, 'liquidationIncentive': liqinc}
+                )
                 updated += 2
             except Exception as e:
                 logger.debug(f"Compound repay update failed {sym}: {e}")
@@ -1597,6 +1610,9 @@ class CompoundSupplyBorrowAction(ProtocolAction):
                 ctoken = self.collector.get_ctoken(underlying)
                 if not ctoken:
                     continue
+                mi = self.collector.get_market_info(ctoken) or {}
+                if not mi.get('isListed', True):
+                    continue
                 rate = self.collector.get_deposit_rate_underlying_to_ctoken(ctoken)  # cToken per underlying
                 reserve0 = base_liq
                 reserve1 = base_liq * rate
@@ -1609,8 +1625,17 @@ class CompoundSupplyBorrowAction(ProtocolAction):
                     reserve1=reserve1,
                     fee=0.0,
                 )
-                set_edge_meta(graph.graph, underlying, ctoken, dex='compound', pool_address=ctoken,
-                              fee_tier=None, source='onchain', confidence=0.9)
+                cf = mi.get('collateralFactor') if mi else self.collector.get_collateral_factor(ctoken)
+                rates = self.collector.get_rates_per_block(ctoken) or {}
+                closef = self.collector.get_close_factor()
+                liqinc = self.collector.get_liquidation_incentive()
+                set_edge_meta(
+                    graph.graph, underlying, ctoken, dex='compound', pool_address=ctoken,
+                    fee_tier=None, source='onchain', confidence=0.9,
+                    extra={'collateralFactor': cf, 'borrowRatePerBlock': rates.get('borrowRatePerBlock'),
+                           'supplyRatePerBlock': rates.get('supplyRatePerBlock'), 'isListed': mi.get('isListed'),
+                           'closeFactor': closef, 'liquidationIncentive': liqinc}
+                )
                 updated += 2
             except Exception as e:
                 logger.debug(f"Compound update failed {sym}: {e}")

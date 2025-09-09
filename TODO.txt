@@ -98,7 +98,7 @@
 
 - [ ] Compound 개선
   - [x] borrowRatePerBlock/supplyRatePerBlock 반영(이자 누적 효과 근사)
-  - [ ] Comptroller 기반 collateral factor/market 지원여부 확인 후 엣지 반영
+  - [x] Comptroller 기반 collateral factor/market 지원여부 확인 후 엣지 반영
   - [ ] cToken decimals/exchangeRateStored 정밀 처리
 
 - [ ] MakerDAO 개선
