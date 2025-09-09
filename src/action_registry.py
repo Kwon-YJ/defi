@@ -1877,12 +1877,19 @@ class ActionRegistry:
     async def update_all(self, graph: DeFiMarketGraph, w3: Web3, tokens: Dict[str, str],
                          block_number: Optional[int] = None) -> int:
         total = 0
-        for action in self.list_enabled():
-            try:
-                updated = await action.update_graph(graph, w3, tokens, block_number)
-                total += updated
-            except Exception as e:
-                logger.error(f"Action {action.name} failed: {e}")
+        actions = self.list_enabled()
+        # 병렬 실행하여 전체 업데이트 시간 단축
+        import asyncio
+        tasks = [a.update_graph(graph, w3, tokens, block_number) for a in actions]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for act, res in zip(actions, results):
+            if isinstance(res, Exception):
+                logger.error(f"Action {act.name} failed: {res}")
+            else:
+                try:
+                    total += int(res or 0)
+                except Exception:
+                    pass
         return total
 
 

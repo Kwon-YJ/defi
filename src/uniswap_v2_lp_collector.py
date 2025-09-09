@@ -19,6 +19,7 @@ class UniswapV2LPCollector:
         self.factory_abi = self._factory_abi()
         self.pair_abi = self._pair_abi()
         self.factory = self.w3.eth.contract(address=self.FACTORY_ADDRESS, abi=self.factory_abi)
+        self._pair_cache: Dict[tuple, Optional[str]] = {}
 
     def _factory_abi(self) -> List[Dict]:
         return [
@@ -55,9 +56,14 @@ class UniswapV2LPCollector:
 
     async def get_pair_address(self, token0: str, token1: str) -> Optional[str]:
         try:
+            k = tuple(sorted((token0.lower(), token1.lower())))
+            if k in self._pair_cache:
+                return self._pair_cache[k]
             pair = self.factory.functions.getPair(token0, token1).call()
             if pair == "0x0000000000000000000000000000000000000000":
+                self._pair_cache[k] = None
                 return None
+            self._pair_cache[k] = pair
             return pair
         except Exception as e:
             logger.debug(f"V2 LP getPair failed {token0[:6]}-{token1[:6]}: {e}")

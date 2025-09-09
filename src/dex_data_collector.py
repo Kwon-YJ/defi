@@ -29,6 +29,7 @@ class UniswapV2Collector:
             abi=self.factory_abi
         )
         self.pools: Dict[str, PoolInfo] = {}
+        self._pair_cache: Dict[tuple, Optional[str]] = {}
         
     def _get_factory_abi(self) -> List[Dict]:
         """Factory ABI 로드"""
@@ -88,12 +89,16 @@ class UniswapV2Collector:
     async def get_pair_address(self, token0: str, token1: str) -> Optional[str]:
         """토큰 쌍의 풀 주소 조회"""
         try:
+            k = tuple(sorted((token0.lower(), token1.lower())))
+            if k in self._pair_cache:
+                return self._pair_cache[k]
             pair_address = self.factory_contract.functions.getPair(token0, token1).call()
             
             # 0x0 주소는 풀이 존재하지 않음을 의미
             if pair_address == "0x0000000000000000000000000000000000000000":
+                self._pair_cache[k] = None
                 return None
-                
+            self._pair_cache[k] = pair_address
             return pair_address
             
         except Exception as e:

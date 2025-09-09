@@ -11,6 +11,7 @@ from src.slippage import (
 )
 from src.logger import setup_logger
 from config.config import config
+from functools import lru_cache
 
 logger = setup_logger(__name__)
 
@@ -130,38 +131,71 @@ class BellmanFordArbitrage:
     
     def _bellman_ford(self, source: str, max_iterations: int) -> bool:
         """Bellman-Ford 알고리즘 실행"""
-        # 초기화
-        self.distances = {node: float('inf') for node in self.graph.graph.nodes}
-        self.predecessors = {node: None for node in self.graph.graph.nodes}
+        # 초기화 (source와 관련된 노드/엣지로 축소)
+        # 인접/역인접 리스트 빌드
+        adj: Dict[str, List[Tuple[str, float]]] = defaultdict(list)
+        radj: Dict[str, List[str]] = defaultdict(list)
+        nodes = set()
+        for u, v, data in self.graph.graph.edges(data=True):
+            rate = data.get('exchange_rate', 0.0)
+            if not rate or rate <= 0:
+                continue
+            w = -math.log(rate)
+            adj[u].append((v, w))
+            radj[v].append(u)
+            nodes.add(u); nodes.add(v)
+        # source에서 도달 가능 + source로 도달 가능한 교집합만 유지
+        reach_out = set()
+        from collections import deque
+        dq = deque([source])
+        while dq:
+            u = dq.popleft()
+            if u in reach_out:
+                continue
+            reach_out.add(u)
+            for v, _ in adj.get(u, []):
+                dq.append(v)
+        reach_in = set()
+        dq = deque([source])
+        while dq:
+            u = dq.popleft()
+            if u in reach_in:
+                continue
+            reach_in.add(u)
+            for v in radj.get(u, []):
+                dq.append(v)
+        cand_nodes = list(reach_out & reach_in) if reach_out and reach_in else list(nodes)
+        if source not in cand_nodes:
+            cand_nodes.append(source)
+        # 거리/선행자 초기화
+        self.distances = {node: float('inf') for node in cand_nodes}
+        self.predecessors = {node: None for node in cand_nodes}
         self.distances[source] = 0
-        
+        # Cand edges 목록
+        cand_edges: List[Tuple[str, str, float]] = []
+        cand_set = set(cand_nodes)
+        for u in cand_nodes:
+            for v, w in adj.get(u, []):
+                if v in cand_set:
+                    cand_edges.append((u, v, w))
+
         # 거리 완화 (Relaxation)
         for _ in range(max_iterations):
             updated = False
-            
-            for u, v, data in self.graph.graph.edges(data=True):
-                # 논문 방식: weight = -log(exchange_rate)
-                rate = data.get('exchange_rate', 0.0)
-                weight = -math.log(rate) if rate and rate > 0 else float('inf')
-                
-                if self.distances[u] != float('inf'):
-                    new_distance = self.distances[u] + weight
-                    
-                    if new_distance < self.distances[v]:
-                        self.distances[v] = new_distance
+            for u, v, w in cand_edges:
+                if self.distances.get(u, float('inf')) != float('inf'):
+                    nd = self.distances[u] + w
+                    if nd < self.distances.get(v, float('inf')):
+                        self.distances[v] = nd
                         self.predecessors[v] = u
                         updated = True
             
             if not updated:
                 break
-        
-        # 음의 사이클 검사
-        for u, v, data in self.graph.graph.edges(data=True):
-            rate = data.get('exchange_rate', 0.0)
-            weight = -math.log(rate) if rate and rate > 0 else float('inf')
-            
-            if (self.distances[u] != float('inf') and 
-                self.distances[u] + weight < self.distances[v]):
+        # 음의 사이클 검사 (축소된 엣지 집합)
+        for u, v, w in cand_edges:
+            if (self.distances.get(u, float('inf')) != float('inf') and 
+                self.distances[u] + w < self.distances.get(v, float('inf'))):
                 return False  # 음의 사이클 존재
         
         return True  # 음의 사이클 없음
