@@ -607,11 +607,18 @@ class BlockGraphUpdater:
 
     async def update_via_actions(self, block_number: Optional[int] = None):
         """Action Registry를 통한 확장형 그래프 갱신 (96개 actions까지 확장 가능)"""
-        updated = await self.registry.update_all(self.graph, self.w3, self.tokens, block_number)
+        import time
+        t0 = time.perf_counter()
+        try:
+            budget = float(getattr(config, 'block_time_budget_sec', 10.8))
+        except Exception:
+            budget = None
+        updated = await self.registry.update_all(self.graph, self.w3, self.tokens, block_number, budget_seconds=budget)
+        dt = time.perf_counter() - t0
         msg = (
-            f"블록 {block_number} 그래프 갱신(액션): {updated}개 엣지 업데이트"
+            f"블록 {block_number} 그래프 갱신(액션): {updated}개 엣지 업데이트 (dt={dt:.3f}s)"
             if block_number is not None
-            else f"그래프 초기 빌드 완료(액션): {updated}개 엣지 추가"
+            else f"그래프 초기 빌드 완료(액션): {updated}개 엣지 추가 (dt={dt:.3f}s)"
         )
         logger.info(msg)
 

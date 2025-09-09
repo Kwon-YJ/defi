@@ -905,15 +905,21 @@ class UniswapV3AddLiquidityAction(ProtocolAction):
                     sqrtB = self.collector.sqrt_from_tick_normalized(tick_upper, state['dec0'], state['dec1'])
                     if sqrtP <= 0 or sqrtA <= 0 or sqrtB <= 0:
                         return 0
-                    lp_per_t0 = max(0.0, float(self.collector.liquidity_per_token0(sqrtP, sqrtA, sqrtB)))
-                    lp_per_t1 = max(0.0, float(self.collector.liquidity_per_token1(sqrtP, sqrtA, sqrtB)))
+                    # Scale by observed band weight from storage (EMA of activity)
+                    try:
+                        bw = await self.storage.get_v3_band_weight(pool, tick_lower, tick_upper)
+                        bw = max(0.1, float(bw))
+                    except Exception:
+                        bw = 1.0
+                    lp_per_t0 = max(0.0, float(self.collector.liquidity_per_token0(sqrtP, sqrtA, sqrtB))) * bw
+                    lp_per_t1 = max(0.0, float(self.collector.liquidity_per_token1(sqrtP, sqrtA, sqrtB))) * bw
                     async with lock:
                         graph.add_trading_pair(token0=t0, token1=lp_token, dex='uniswap_v3_lp_add', pool_address=pool,
                                                reserve0=base_liq, reserve1=base_liq * lp_per_t0, fee=0.0)
                         set_edge_meta(graph.graph, t0, lp_token, dex='uniswap_v3_lp_add', pool_address=pool,
                                       fee_tier=fee, source='approx', confidence=0.8,
                                       extra={'tick': cur_tick, 'tick_lower': tick_lower, 'tick_upper': tick_upper, 'tick_spacing': ts, 't0': t0, 't1': t1,
-                                             'sqrtP': sqrtP, 'sqrtA': sqrtA, 'sqrtB': sqrtB, 'lp_per_t0': lp_per_t0})
+                                             'sqrtP': sqrtP, 'sqrtA': sqrtA, 'sqrtB': sqrtB, 'lp_per_t0': lp_per_t0, 'band_weight': float(bw)})
                         added = 2
                         if lp_per_t1 > 0:
                             graph.add_trading_pair(token0=t1, token1=lp_token, dex='uniswap_v3_lp_add', pool_address=pool,
@@ -921,7 +927,7 @@ class UniswapV3AddLiquidityAction(ProtocolAction):
                             set_edge_meta(graph.graph, t1, lp_token, dex='uniswap_v3_lp_add', pool_address=pool,
                                           fee_tier=fee, source='approx', confidence=0.8,
                                           extra={'tick': cur_tick, 'tick_lower': tick_lower, 'tick_upper': tick_upper, 'tick_spacing': ts, 't0': t0, 't1': t1,
-                                                 'sqrtP': sqrtP, 'sqrtA': sqrtA, 'sqrtB': sqrtB, 'lp_per_t1': lp_per_t1})
+                                                 'sqrtP': sqrtP, 'sqrtA': sqrtA, 'sqrtB': sqrtB, 'lp_per_t1': lp_per_t1, 'band_weight': float(bw)})
                             added += 2
                     return added
                 except Exception as e:
@@ -968,8 +974,13 @@ class UniswapV3RemoveLiquidityAction(ProtocolAction):
                     if sqrtP <= 0 or sqrtA <= 0 or sqrtB <= 0:
                         continue
                     t0_per_lp, t1_per_lp = self.collector.amounts_per_liquidity(sqrtP, sqrtA, sqrtB)
-                    t0_per_lp = max(0.0, float(t0_per_lp))
-                    t1_per_lp = max(0.0, float(t1_per_lp))
+                    try:
+                        bw = await self.storage.get_v3_band_weight(pool, tick_lower, tick_upper)
+                        bw = max(0.1, float(bw))
+                    except Exception:
+                        bw = 1.0
+                    t0_per_lp = max(0.0, float(t0_per_lp)) * bw
+                    t1_per_lp = max(0.0, float(t1_per_lp)) * bw
                     # LP -> token0
                     graph.add_trading_pair(
                         token0=lp_token,
@@ -984,7 +995,7 @@ class UniswapV3RemoveLiquidityAction(ProtocolAction):
                         graph.graph, lp_token, t0, dex='uniswap_v3_lp_remove', pool_address=pool,
                         fee_tier=fee, source='approx', confidence=0.8,
                         extra={'tick': cur_tick, 'tick_lower': tick_lower, 'tick_upper': tick_upper, 'tick_spacing': ts, 't0': t0, 't1': t1,
-                               'sqrtP': sqrtP, 'sqrtA': sqrtA, 'sqrtB': sqrtB, 't0_per_lp': t0_per_lp}
+                               'sqrtP': sqrtP, 'sqrtA': sqrtA, 'sqrtB': sqrtB, 't0_per_lp': t0_per_lp, 'band_weight': float(bw)}
                     )
                     updated += 2
                     # LP -> token1
@@ -1001,7 +1012,7 @@ class UniswapV3RemoveLiquidityAction(ProtocolAction):
                         graph.graph, lp_token, t1, dex='uniswap_v3_lp_remove', pool_address=pool,
                         fee_tier=fee, source='approx', confidence=0.8,
                         extra={'tick': cur_tick, 'tick_lower': tick_lower, 'tick_upper': tick_upper, 'tick_spacing': ts, 't0': t0, 't1': t1,
-                               'sqrtP': sqrtP, 'sqrtA': sqrtA, 'sqrtB': sqrtB, 't1_per_lp': t1_per_lp}
+                               'sqrtP': sqrtP, 'sqrtA': sqrtA, 'sqrtB': sqrtB, 't1_per_lp': t1_per_lp, 'band_weight': float(bw)}
                     )
                     updated += 2
                 except Exception as e:
@@ -1874,12 +1885,20 @@ class ActionRegistry:
         return [a for a in self.actions.values() if getattr(a, 'enabled', False)]
 
     async def update_all(self, graph: DeFiMarketGraph, w3: Web3, tokens: Dict[str, str],
-                         block_number: Optional[int] = None) -> int:
+                         block_number: Optional[int] = None, budget_seconds: Optional[float] = None) -> int:
         total = 0
         actions = self.list_enabled()
         # 병렬 실행하여 전체 업데이트 시간 단축
         import asyncio
-        tasks = [a.update_graph(graph, w3, tokens, block_number) for a in actions]
+        tasks = []
+        timeout = None
+        if budget_seconds and budget_seconds > 0 and len(actions) > 0:
+            timeout = max(0.5, float(budget_seconds) / float(len(actions)))
+        for a in actions:
+            coro = a.update_graph(graph, w3, tokens, block_number)
+            if timeout:
+                coro = asyncio.wait_for(coro, timeout=timeout)
+            tasks.append(coro)
         results = await asyncio.gather(*tasks, return_exceptions=True)
         for act, res in zip(actions, results):
             if isinstance(res, Exception):

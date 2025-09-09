@@ -11,9 +11,20 @@ logger = setup_logger(__name__)
 class DataStorage:
     def __init__(self):
         self.redis_client = redis.from_url(config.redis_url)
-        self.pool_data_ttl = 300  # 5분
-        self.price_data_ttl = 60   # 1분
-        self.price_hist_ttl = 30 * 24 * 3600  # 30일 보관
+        self.pool_data_ttl = 300  # 5분 (고정)
+        # 가격 TTL/히스토리는 설정에서 읽음
+        try:
+            self.price_data_ttl = int(getattr(config, 'price_ttl_sec', 60))
+        except Exception:
+            self.price_data_ttl = 60
+        try:
+            self.price_hist_ttl = int(getattr(config, 'price_hist_ttl_sec', 30 * 24 * 3600))
+        except Exception:
+            self.price_hist_ttl = 30 * 24 * 3600
+        try:
+            self.price_hist_maxlen = int(getattr(config, 'price_hist_maxlen', 100000))
+        except Exception:
+            self.price_hist_maxlen = 100000
         
     async def store_pool_data(self, pool_address: str, pool_info: Dict):
         """풀 데이터 저장"""
@@ -80,7 +91,7 @@ class DataStorage:
             try:
                 hkey = f"price_hist:{token_address.lower()}"
                 self.redis_client.lpush(hkey, json.dumps(obj))
-                self.redis_client.ltrim(hkey, 0, 100000)
+                self.redis_client.ltrim(hkey, 0, max(0, int(self.price_hist_maxlen) - 1))
                 self.redis_client.expire(hkey, self.price_hist_ttl)
             except Exception:
                 pass

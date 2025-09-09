@@ -69,15 +69,23 @@ class Config:
     curve_liq_scale_ref: float = float(os.getenv('CURVE_LIQ_SCALE_REF', '1000000'))  # reference LP totalSupply
     curve_liq_scale_min: float = float(os.getenv('CURVE_LIQ_SCALE_MIN', '0.25'))
     curve_liq_scale_max: float = float(os.getenv('CURVE_LIQ_SCALE_MAX', '3.0'))
+    # Uniswap V3 band tuning
+    v3_band_hops: int = int(os.getenv('V3_BAND_HOPS', '0'))  # 0=active only, 1=±1 bands
     # Price feed validation / smoothing
     price_ema_alpha: float = float(os.getenv('PRICE_EMA_ALPHA', '0.2'))
     price_jump_max_pct: float = float(os.getenv('PRICE_JUMP_MAX_PCT', '0.2'))  # 20% per tick cap
     price_stable_max_dev: float = float(os.getenv('PRICE_STABLE_MAX_DEV', '0.03'))  # 3% around $1
+    # Price TTL / history policy
+    price_ttl_sec: int = int(os.getenv('PRICE_TTL_SEC', '60'))
+    price_hist_ttl_sec: int = int(os.getenv('PRICE_HIST_TTL_SEC', str(30 * 24 * 3600)))
+    price_hist_maxlen: int = int(os.getenv('PRICE_HIST_MAXLEN', '100000'))
     # Graph building concurrency
     graph_build_concurrency: int = int(os.getenv('GRAPH_BUILD_CONCURRENCY', '16'))
     # Memory compaction
     memory_compact_meta: bool = os.getenv('MEMORY_COMPACT_META', '1') in ('1','true','True')
     memory_meta_keep_keys: str = os.getenv('MEMORY_META_KEEP_KEYS', 'contract,fee_tier,source,confidence,lp_token,risk_fot,risk_rebase')
+    # Block processing budget (must be < 13.5s)
+    block_time_budget_sec: float = float(os.getenv('BLOCK_TIME_BUDGET_SEC', '10.8'))
     
     def validate(self) -> bool:
         """설정 유효성 검사"""
