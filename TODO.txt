@@ -159,7 +159,7 @@
 - [x] Ethereum block time (13.5초) 내 처리 보장
 - [x] 새 블록 알림 시스템 구현
 - [x] State change detection 및 즉시 대응
-- [ ] Transaction pool monitoring
+- [x] Transaction pool monitoring
 
 ## 4. 검증 및 테스팅 - 논문 결과 재현 (Validation & Testing)
 

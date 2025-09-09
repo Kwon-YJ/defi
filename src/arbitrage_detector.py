@@ -7,6 +7,7 @@ DeFi Arbitrage Detector - Main execution script
 import asyncio
 import time
 import hashlib
+import os
 from typing import List, Dict, Optional
 from datetime import datetime
 from src.market_graph import DeFiMarketGraph
@@ -46,10 +47,9 @@ class ArbitrageDetector:
         self.running = True
         logger.info("차익거래 탐지 시작 - 블록 기반")
 
-        # BlockGraphUpdater 시작 (내부에서 블록/로그 구독 및 그래프 빌드/갱신 수행)
-        await self.updater.start()
-
-        # 블록 이벤트: 그래프 갱신 이후에 탐지 실행되도록 여기서 구독 (업데이터가 먼저 구독을 등록함)
+        # 블록/로그/펜딩 이벤트 콜백을 먼저 구독한 뒤 WS를 시작하여,
+        # 초기 WS 구독 단계에서 pending 포함 모든 구독이 설정되도록 함.
+        # 블록 이벤트: 그래프 갱신 이후 탐지 실행
         async def on_new_block(block_data: Dict):
             try:
                 bn = int(block_data['number'], 16)
@@ -80,6 +80,71 @@ class ArbitrageDetector:
             self._event_task = asyncio.create_task(_delayed_run())
 
         await self.updater.rt.subscribe_to_logs(on_log_event)
+
+        # 펜딩 트랜잭션 모니터링: 관련 주소(풀/라우터)로 향하는 트랜잭션 감지 시 즉시 탐지
+        self._mempool_run_scheduled = False
+        self._mempool_task: Optional[asyncio.Task] = None
+        self._mempool_debounce_sec = float(os.getenv('MEMPOOL_DEBOUNCE_SEC', '0.4'))
+
+        async def on_pending_tx(tx_hash: str):
+            try:
+                # 트랜잭션 상세 조회 (HTTP RPC)
+                w3 = getattr(self.updater, 'w3', None)
+                if w3 is None:
+                    return
+                tx = None
+                try:
+                    tx = w3.eth.get_transaction(tx_hash)
+                except Exception:
+                    return
+                if not tx:
+                    return
+                to_addr = tx.get('to') if isinstance(tx, dict) else getattr(tx, 'to', None)
+                if not to_addr:
+                    return  # 컨트랙트 생성 등은 스킵
+                to_addr = to_addr.lower()
+
+                # 관심 주소 집합: (1) 그래프 기반 풀/LP, (2) 주요 라우터/볼트
+                try:
+                    pool_addrs = set([a.lower() for a in self.updater._compute_log_addresses()])
+                except Exception:
+                    pool_addrs = set()
+                router_like = {
+                    # Uniswap V2 Router02
+                    '0x7a250d5630b4cf539739df2c5dacb4c659f2488d',
+                    # SushiSwap Router
+                    '0xd9e1ce17f2641f24ae83637ab66a2cca9c378b9f',
+                    # Uniswap V3 SwapRouter
+                    '0xe592427a0aece92de3edee1f18e0157c05861564',
+                    # Uniswap V3 NonfungiblePositionManager
+                    '0xc36442b4a4522e871399cd717abdd847ab11fe88',
+                    # Balancer V2 Vault
+                    '0xba12222222228d8ba445958a75a0704d566bf2c8',
+                }
+                interesting = (to_addr in pool_addrs) or (to_addr in router_like)
+                if not interesting:
+                    return
+
+                # 디바운스 스케줄링으로 탐지 실행
+                if self._mempool_run_scheduled:
+                    return
+                self._mempool_run_scheduled = True
+
+                async def _delayed_mempool_run():
+                    try:
+                        await asyncio.sleep(max(0.05, self._mempool_debounce_sec))
+                        await self._run_detection(block_number=None, reason='mempool')
+                    finally:
+                        self._mempool_run_scheduled = False
+
+                self._mempool_task = asyncio.create_task(_delayed_mempool_run())
+            except Exception as e:
+                logger.debug(f"mempool 모니터링 처리 실패: {e}")
+
+        await self.updater.rt.subscribe_to_pending_transactions(on_pending_tx)
+
+        # BlockGraphUpdater 시작 (내부에서 블록/로그 구독 및 그래프 빌드/갱신 수행)
+        await self.updater.start()
 
         # 초기 한번 실행 (상태 지문 저장 포함)
         await self._run_detection(block_number=None, reason='init')
