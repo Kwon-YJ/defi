@@ -18,6 +18,7 @@ from src.synth_tokens import lp_v3
 from src.edge_meta import set_edge_meta
 from src.data_storage import DataStorage
 from config.config import config
+from src.token_manager import TokenManager
 from src.paper_assets import load_paper_25_addresses, paper_25_symbols
 
 logger = setup_logger(__name__)
@@ -74,6 +75,35 @@ class BlockGraphUpdater:
                 'DAI':  '0x6B175474E89094C44Da98b954EedeAC495271d0F',
                 'USDT': '0xdAC17F958D2ee523a2206206994597C13D831ec7',
             }
+        # 옵션: 주요/디파이 토큰 자동 포함
+        try:
+            tm = TokenManager()
+            def _addr(sym: str, fallback: str = None) -> str:
+                a = tm.get_address_by_symbol(sym)
+                return a or fallback
+            if getattr(config, 'include_major_tokens', False):
+                add = {
+                    'WBTC': _addr('WBTC', '0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599'),
+                    'UNI': _addr('UNI', '0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984'),
+                    'SUSHI': _addr('SUSHI', '0x6B3595068778DD592e39A122f4f5a5cF09C90fE2'),
+                    'COMP': _addr('COMP', '0xc00e94Cb662C3520282E6f5717214004A7f26888'),
+                    'AAVE': _addr('AAVE', '0x7Fc66500c84A76Ad7e9c93437bFc5Ac33E2DDaE9'),
+                }
+                for k, v in add.items():
+                    if v and k not in self.tokens:
+                        self.tokens[k] = v
+            if getattr(config, 'include_defi_tokens', False):
+                add = {
+                    'CRV': _addr('CRV', '0xD533a949740bb3306d119CC777fa900bA034cd52'),
+                    'BAL': _addr('BAL', '0xba100000625a3754423978a60c9317c58a424e3D'),
+                    'YFI': _addr('YFI', '0x0bc529c00C6401aEF6D220BE8C6Ea1667F6Ad93e'),
+                    'MKR': _addr('MKR', '0x9f8F72aA9304c8B593d555F12ef6589cC3A579A2'),
+                }
+                for k, v in add.items():
+                    if v and k not in self.tokens:
+                        self.tokens[k] = v
+        except Exception:
+            pass
         self.dexes = dexes or ['uniswap_v2', 'sushiswap']
 
         # (역호환) DEX 수집기 초기화 - 유지

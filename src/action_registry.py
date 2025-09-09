@@ -295,8 +295,22 @@ class CurveStableSwapAction(ProtocolAction, _SwapPairsMixin):
                 price01 = self.collector.get_price(pool, i, j, token0, token1)
                 if price01 <= 0:
                     continue
-                reserve0 = base_liq
-                reserve1 = base_liq * price01
+                # Liquidity proxy scaling using LP totalSupply (best-effort)
+                try:
+                    lp_addr = self.collector.get_lp_token(pool)
+                    lp_dec = self.collector.get_lp_decimals(lp_addr) if lp_addr else 18
+                    lp_ts_raw = self.collector.get_lp_total_supply(lp_addr) if lp_addr else 0
+                    lp_ts = float(lp_ts_raw) / float(10 ** lp_dec) if lp_dec else float(lp_ts_raw) / 1e18
+                    # scale in [0.5, 2.0] using sqrt(ts) normalized by heuristic 1e6
+                    import math
+                    scale = math.sqrt(max(0.0, lp_ts) / 1e6)
+                    scale = max(0.5, min(2.0, float(scale)))
+                except Exception:
+                    scale = 1.0
+                    lp_addr = None
+                    lp_ts = 0.0
+                reserve0 = base_liq * float(scale)
+                reserve1 = reserve0 * price01
                 graph.add_trading_pair(
                     token0=token0,
                     token1=token1,
@@ -327,6 +341,9 @@ class CurveStableSwapAction(ProtocolAction, _SwapPairsMixin):
                         'admin_fee': params.get('admin_fee', None),
                         'dec_in': d0,
                         'dec_out': d1,
+                        'lp_token': lp_addr,
+                        'lp_total_supply': float(lp_ts),
+                        'liq_scale': float(scale),
                     }
                 )
                 updated += 2

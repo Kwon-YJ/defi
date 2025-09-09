@@ -65,6 +65,42 @@ class TokenManager:
                 decimals=18,
                 coingecko_id="ethereum"
             ),
+            # 주요/디파이 에코 토큰들
+            "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599": TokenInfo(
+                address="0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599",
+                symbol="WBTC",
+                name="Wrapped Bitcoin",
+                decimals=8,
+                coingecko_id="wrapped-bitcoin"
+            ),
+            "0xc00e94Cb662C3520282E6f5717214004A7f26888": TokenInfo(
+                address="0xc00e94Cb662C3520282E6f5717214004A7f26888",
+                symbol="COMP",
+                name="Compound",
+                decimals=18,
+                coingecko_id="compound-governance-token"
+            ),
+            "0xD533a949740bb3306d119CC777fa900bA034cd52": TokenInfo(
+                address="0xD533a949740bb3306d119CC777fa900bA034cd52",
+                symbol="CRV",
+                name="Curve DAO Token",
+                decimals=18,
+                coingecko_id="curve-dao-token"
+            ),
+            "0xba100000625a3754423978a60c9317c58a424e3D": TokenInfo(
+                address="0xba100000625a3754423978a60c9317c58a424e3D",
+                symbol="BAL",
+                name="Balancer",
+                decimals=18,
+                coingecko_id="balancer"
+            ),
+            "0x0bc529c00C6401aEF6D220BE8C6Ea1667F6Ad93e": TokenInfo(
+                address="0x0bc529c00C6401aEF6D220BE8C6Ea1667F6Ad93e",
+                symbol="YFI",
+                name="yearn.finance",
+                decimals=18,
+                coingecko_id="yearn-finance"
+            ),
             # 메인 토큰들
             "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2": TokenInfo(
                 address="0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",

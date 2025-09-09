@@ -8,8 +8,9 @@ Stablecoin Support (USDC, USDT, DAI)
 
 환경변수
 - `MAKER_PSM_USDC`: Maker PSM(USDC/DAI) 컨트랙트 주소를 지정하면 tin/tout을 사용(없으면 보수적 기본 수수료 사용).
+- `CURVE_POOL_WHITELIST`: 쉼표로 구분된 Curve 풀 주소 목록. 지정 시 해당 풀만 사용(예: 3Pool, sUSD 풀 기본값 내장).
 
 주의사항
 - Fallback 경로(`stable_agg`)는 근사값으로, 프루닝 시 다른 더 낮은 수수료/정확 경로가 있으면 지배되어 제거될 수 있습니다.
 - 실시간 업데이트는 V2/V3/Curve 이벤트 기반으로 반영되며, PSM은 주기적 재빌드에서 수수료를 갱신합니다.
-
+- Curve는 화이트리스트가 지정되면 해당 풀만 탐색하며, LP totalSupply를 유동성 프록시로 사용해 엣지 유동성 스케일링을 적용합니다.

@@ -14,7 +14,7 @@ class CurveStableSwapCollector:
     - Falls back to 1.0 price if calls fail or RPC unavailable.
     """
 
-    # Known mainnet pools (3pool) fallback
+    # Known mainnet pools fallback (3pool, sUSD pool)
     FALLBACK_POOLS = [
         {
             'address': '0xbEbc44782C7dB0a1A60Cb6fe97d0a2fEdcBcd44',  # 3pool (DAI/USDC/USDT)
@@ -22,6 +22,15 @@ class CurveStableSwapCollector:
                 '0x6B175474E89094C44Da98b954EedeAC495271d0F',  # DAI
                 '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',  # USDC
                 '0xdAC17F958D2ee523a2206206994597C13D831ec7',  # USDT
+            ]
+        },
+        {
+            'address': '0xA5407eAE9Ba41422680e2e00537571bcC53efBfD',  # sUSD pool (DAI/USDC/USDT/sUSD)
+            'coins': [
+                '0x6B175474E89094C44Da98b954EedeAC495271d0F',  # DAI
+                '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',  # USDC
+                '0xdAC17F958D2ee523a2206206994597C13D831ec7',  # USDT
+                '0x57ab1ec28d129707052df4df418d58a2d46d5f51',  # sUSD
             ]
         }
     ]
@@ -89,6 +98,13 @@ class CurveStableSwapCollector:
             {"name": "token", "inputs": [], "outputs": [{"type":"address","name":""}], "stateMutability":"view", "type":"function"},
             {"name": "lp_token", "inputs": [], "outputs": [{"type":"address","name":""}], "stateMutability":"view", "type":"function"},
         ]
+        # Pool whitelist from config (addresses only). Empty means allow all.
+        try:
+            from config.config import config
+            wl = getattr(config, 'curve_pool_whitelist', '') or ''
+            self.whitelist = {a.strip().lower() for a in wl.split(',') if a.strip()}
+        except Exception:
+            self.whitelist = set()
 
     def _registry(self):
         try:
@@ -130,6 +146,9 @@ class CurveStableSwapCollector:
                 try:
                     pool = reg.functions.pool_list(i).call()
                     if pool == "0x0000000000000000000000000000000000000000":
+                        continue
+                    # apply whitelist if set
+                    if self.whitelist and pool.lower() not in self.whitelist:
                         continue
                     coins = []
                     try:
