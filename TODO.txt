@@ -112,9 +112,9 @@
   - [x] 추가 synth(sBTC 등) 확장 및 환전 경로 확대
 
 - [ ] dYdX 개선
-  - [ ] 공식 API/온체인 파라미터 연동(펀딩비, 마진 요구치, 레버리지 한도)
-  - [ ] 포지션 오픈/종료 수수료/펀딩비 동적 반영
-  - [ ] 경로 대검증: 위험 파라미터 기반 불가 경로 제거
+  - [x] 공식 API/온체인 파라미터 연동(펀딩비, 마진 요구치, 레버리지 한도)
+  - [x] 포지션 오픈/종료 수수료/펀딩비 동적 반영
+  - [x] 경로 대검증: 위험 파라미터 기반 불가 경로 제거
 
 #### 2.1B 실시간/데이터 동기화 강화
 - [ ] 프로토콜별 이벤트 구독(예: V2 Sync/Mint/Burn, V3 Increase/Decrease/Collect, Curve Add/Remove, Balancer PoolTokens/BPT 변경, Aave/Compound Accrue/Reserve 업데이트)

@@ -620,8 +620,13 @@ class DyDxMarginAction(ProtocolAction, _SwapPairsMixin):
                     reserve1=reserve1,
                     fee=float(fee),
                 )
-                set_edge_meta(graph.graph, token0, token1, dex='dydx', pool_address='dydx_margin',
-                              fee_tier=None, source='approx', confidence=0.7)
+                # Attach risk params
+                rp = self.collector.get_risk_params()
+                set_edge_meta(
+                    graph.graph, token0, token1, dex='dydx', pool_address='dydx_margin',
+                    fee_tier=None, source='approx', confidence=0.75,
+                    extra={'initialMargin': rp.get('initialMargin'), 'maintenanceMargin': rp.get('maintenanceMargin'), 'maxLeverage': rp.get('maxLeverage')}
+                )
                 updated += 2
             except Exception as e:
                 logger.debug(f"dYdX update failed {token0[:6]}-{token1[:6]}: {e}")

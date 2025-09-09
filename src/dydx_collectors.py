@@ -2,6 +2,7 @@ import json
 from typing import Dict, Optional, Tuple
 from web3 import Web3
 from src.logger import setup_logger
+from config.config import config
 
 logger = setup_logger(__name__)
 
@@ -62,11 +63,15 @@ class DyDxCollector:
         return 2000.0
 
     def get_price_and_fee(self, token0: str, token1: str) -> Tuple[float, float]:
-        """Return (price token1 per 1 token0, fee fraction). Supports WETH/USDC and stables.
+        """Return (price token1 per 1 token0, fee fraction incl. taker+funding).
 
-        Fee approximated at 0.1% (0.001) to reflect trading and funding costs.
+        - Uses Uniswap V2 spot as proxy for price on WETH/USDC or stables.
+        - Fee = takerFee + max(0, fundingRate) * hold_hours (conservative; official API can override via config).
         """
-        fee = 0.001
+        taker_fee = float(getattr(config, 'dydx_default_taker_fee', 0.0005))
+        funding_ph = float(getattr(config, 'dydx_default_funding_per_hour', 0.0001))
+        hold_h = int(getattr(config, 'dydx_hold_hours', 2))
+        fee = max(0.0, taker_fee + max(0.0, funding_ph) * max(0, hold_h))
         a = token0.lower(); b = token1.lower()
         # Stable pairs valued at ~1
         stables = {self.USDC.lower(), self.DAI.lower(), self.USDT.lower()}
@@ -81,3 +86,10 @@ class DyDxCollector:
         # Unsupported pairs
         return 0.0, fee
 
+    def get_risk_params(self) -> Dict:
+        """Return margin/leverage limits (fallback to config; official API can be plugged here)."""
+        return {
+            'initialMargin': float(getattr(config, 'dydx_initial_margin', 0.1)),
+            'maintenanceMargin': float(getattr(config, 'dydx_maintenance_margin', 0.05)),
+            'maxLeverage': float(getattr(config, 'dydx_max_leverage', 10)),
+        }

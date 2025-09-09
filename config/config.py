@@ -46,6 +46,15 @@ class Config:
     # Synthetix
     snx_system_settings: str = os.getenv('SNX_SYSTEM_SETTINGS', '')
     snx_debt_cache: str = os.getenv('SNX_DEBT_CACHE', '')
+    # dYdX risk/fee modeling (fallbacks; prefer official API if configured)
+    dydx_api_endpoint: str = os.getenv('DYDX_API_ENDPOINT', '')
+    dydx_default_taker_fee: float = float(os.getenv('DYDX_TAKER_FEE', '0.0005'))
+    dydx_default_funding_per_hour: float = float(os.getenv('DYDX_FUNDING_PER_HOUR', '0.0001'))
+    dydx_hold_hours: int = int(os.getenv('DYDX_HOLD_HOURS', '2'))
+    dydx_initial_margin: float = float(os.getenv('DYDX_INITIAL_MARGIN', '0.1'))
+    dydx_maintenance_margin: float = float(os.getenv('DYDX_MAINTENANCE_MARGIN', '0.05'))
+    dydx_max_leverage: float = float(os.getenv('DYDX_MAX_LEVERAGE', '10'))
+    dydx_desired_leverage: float = float(os.getenv('DYDX_DESIRED_LEVERAGE', '3'))
     
     def validate(self) -> bool:
         """설정 유효성 검사"""

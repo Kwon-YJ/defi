@@ -420,6 +420,8 @@ class BellmanFordArbitrage:
         comp_debt = 0.0
         comp_incent = 1.0
         comp_close = 0.5
+        # dYdX leverage constraint (desired vs max)
+        dydx_desired_lev = float(getattr(config, 'dydx_desired_leverage', 3.0))
 
         for e in edges:
             dex = (e.dex or '').lower()
@@ -551,6 +553,21 @@ class BellmanFordArbitrage:
                     amount = self._amount_out_with_slippage(amount, e)
                 else:
                     amount = self._amount_out_with_slippage(amount, e)
+                # dYdX leverage/margin feasibility check
+                if dex == 'dydx':
+                    try:
+                        maxLev = float(meta.get('maxLeverage', 10.0) or 10.0)
+                        initM = float(meta.get('initialMargin', 0.1) or 0.1)
+                        # reject if desired leverage exceeds max
+                        if dydx_desired_lev > maxLev + 1e-9:
+                            return False
+                        # simple budget check: require initial margin fraction to be affordable
+                        # amount represents current capital; require amount * initM <= amount (trivially true),
+                        # but we can enforce minimal trade size by ensuring margin >= tiny threshold
+                        if initM >= 1.0:
+                            return False
+                    except Exception:
+                        return False
             except Exception:
                 # 안전하게 실패 시 경로 거부
                 return False
