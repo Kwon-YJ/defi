@@ -446,48 +446,53 @@ class AaveSupplyBorrowAction(ProtocolAction):
 
     async def update_graph(self, graph: DeFiMarketGraph, w3: Web3, tokens: Dict[str, str],
                            block_number: Optional[int] = None) -> int:
+        import asyncio
         updated = 0
         base_liq = 100.0
-        for sym, underlying in tokens.items():
-            try:
-                atoken = self.collector.get_atoken(underlying)
-                if not atoken:
-                    continue
-                rate = self.collector.get_deposit_rate_underlying_to_atoken(atoken)  # ~1.0
-                reserve0 = base_liq
-                reserve1 = base_liq * rate
-                graph.add_trading_pair(
-                    token0=underlying,
-                    token1=atoken,
-                    dex='aave',
-                    pool_address=atoken,
-                    reserve0=reserve0,
-                    reserve1=reserve1,
-                    fee=0.0,
-                )
-                # Fetch risk and rate params for metadata
-                cfg = self.collector.get_reserve_configuration(underlying) or {}
-                rates = self.collector.get_reserve_rates(underlying) or {}
-                emode = self.collector.get_emode_category(underlying)
-                set_edge_meta(
-                    graph.graph, underlying, atoken, dex='aave', pool_address=atoken,
-                    fee_tier=None, source='onchain', confidence=0.9,
-                    extra={
-                        'ltv': cfg.get('ltv'),
-                        'liquidationThreshold': cfg.get('liquidationThreshold'),
-                        'liquidationBonus': cfg.get('liquidationBonus'),
-                        'reserveFactor': cfg.get('reserveFactor'),
-                        'borrowingEnabled': cfg.get('borrowingEnabled'),
-                        'stableBorrowRateEnabled': cfg.get('stableBorrowRateEnabled'),
-                        'liquidityRate': rates.get('liquidityRate'),
-                        'variableBorrowRate': rates.get('variableBorrowRate'),
-                        'stableBorrowRate': rates.get('stableBorrowRate'),
-                        'eModeCategory': emode,
-                    }
-                )
-                updated += 2
-            except Exception as e:
-                logger.debug(f"Aave update failed {sym}: {e}")
+        sem = asyncio.Semaphore(max(1, int(getattr(config, 'graph_build_concurrency', 16))))
+        lock = asyncio.Lock()
+
+        async def process(sym: str, underlying: str) -> int:
+            async with sem:
+                try:
+                    atoken = await asyncio.to_thread(self.collector.get_atoken, underlying)
+                    if not atoken:
+                        return 0
+                    rate = await asyncio.to_thread(self.collector.get_deposit_rate_underlying_to_atoken, atoken)
+                    reserve0 = base_liq
+                    reserve1 = base_liq * float(rate)
+                    cfg = await asyncio.to_thread(self.collector.get_reserve_configuration, underlying) or {}
+                    rates = await asyncio.to_thread(self.collector.get_reserve_rates, underlying) or {}
+                    emode = await asyncio.to_thread(self.collector.get_emode_category, underlying)
+                    async with lock:
+                        graph.add_trading_pair(token0=underlying, token1=atoken, dex='aave', pool_address=atoken,
+                                               reserve0=reserve0, reserve1=reserve1, fee=0.0)
+                        set_edge_meta(
+                            graph.graph, underlying, atoken, dex='aave', pool_address=atoken,
+                            fee_tier=None, source='onchain', confidence=0.9,
+                            extra={
+                                'ltv': cfg.get('ltv'),
+                                'liquidationThreshold': cfg.get('liquidationThreshold'),
+                                'liquidationBonus': cfg.get('liquidationBonus'),
+                                'reserveFactor': cfg.get('reserveFactor'),
+                                'borrowingEnabled': cfg.get('borrowingEnabled'),
+                                'stableBorrowRateEnabled': cfg.get('stableBorrowRateEnabled'),
+                                'liquidityRate': rates.get('liquidityRate'),
+                                'variableBorrowRate': rates.get('variableBorrowRate'),
+                                'stableBorrowRate': rates.get('stableBorrowRate'),
+                                'eModeCategory': emode,
+                            }
+                        )
+                    return 2
+                except Exception as e:
+                    logger.debug(f"Aave update failed {sym}: {e}")
+                    return 0
+
+        tasks = [process(sym, underlying) for sym, underlying in tokens.items()]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for r in results:
+            if isinstance(r, int):
+                updated += r
         return updated
 
 
@@ -590,30 +595,36 @@ class YearnVaultAction(ProtocolAction):
 
     async def update_graph(self, graph: DeFiMarketGraph, w3: Web3, tokens: Dict[str, str],
                            block_number: Optional[int] = None) -> int:
+        import asyncio
         updated = 0
         base_liq = 120.0
-        for sym, underlying in tokens.items():
-            try:
-                yv = self.collector.get_vault(underlying)
-                if not yv:
-                    continue
-                shares_per_underlying = self.collector.get_shares_per_underlying(underlying, yv)
-                reserve0 = base_liq
-                reserve1 = base_liq * shares_per_underlying
-                graph.add_trading_pair(
-                    token0=underlying,
-                    token1=yv,
-                    dex='yearn',
-                    pool_address=yv,
-                    reserve0=reserve0,
-                    reserve1=reserve1,
-                    fee=0.0,
-                )
-                set_edge_meta(graph.graph, underlying, yv, dex='yearn', pool_address=yv,
-                              fee_tier=None, source='onchain', confidence=0.85)
-                updated += 2
-            except Exception as e:
-                logger.debug(f"Yearn update failed {sym}: {e}")
+        sem = asyncio.Semaphore(max(1, int(getattr(config, 'graph_build_concurrency', 16))))
+        lock = asyncio.Lock()
+
+        async def process(sym: str, underlying: str) -> int:
+            async with sem:
+                try:
+                    yv = await asyncio.to_thread(self.collector.get_vault, underlying)
+                    if not yv:
+                        return 0
+                    spu = await asyncio.to_thread(self.collector.get_shares_per_underlying, underlying, yv)
+                    reserve0 = base_liq
+                    reserve1 = base_liq * float(spu)
+                    async with lock:
+                        graph.add_trading_pair(token0=underlying, token1=yv, dex='yearn', pool_address=yv,
+                                               reserve0=reserve0, reserve1=reserve1, fee=0.0)
+                        set_edge_meta(graph.graph, underlying, yv, dex='yearn', pool_address=yv,
+                                      fee_tier=None, source='onchain', confidence=0.85)
+                    return 2
+                except Exception as e:
+                    logger.debug(f"Yearn update failed {sym}: {e}")
+                    return 0
+
+        tasks = [process(sym, addr) for sym, addr in tokens.items()]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for r in results:
+            if isinstance(r, int):
+                updated += r
         return updated
 
 
@@ -1366,73 +1377,62 @@ class AaveBorrowAction(ProtocolAction):
 
     async def update_graph(self, graph: DeFiMarketGraph, w3: Web3, tokens: Dict[str, str],
                            block_number: Optional[int] = None) -> int:
+        import asyncio
         updated = 0
         base_liq = 100.0
-        for sym, underlying in tokens.items():
-            try:
-                addrs = self.collector.get_reserve_tokens(underlying)
-                if not addrs:
-                    # fallback to atoken-only support
-                    if not self.collector.get_atoken(underlying):
-                        continue
-                    # variable debt synth fallback
-                    debt_var = debt_aave(underlying)
-                    graph.add_trading_pair(
-                        token0=debt_var,
-                        token1=underlying,
-                        dex='aave_borrow',
-                        pool_address=f"aave_borrow_{underlying[:6]}",
-                        reserve0=base_liq,
-                        reserve1=base_liq * 1.0,
-                        fee=self.fee,
-                    )
-                    set_edge_meta(graph.graph, debt_var, underlying, dex='aave_borrow', pool_address=f"aave_borrow_{underlying[:6]}",
-                                  fee_tier=None, source='approx', confidence=0.75,
-                                  extra={'debt_type': 'variable', 'fallback': True})
-                    updated += 2
-                    continue
-                a_token, stable_debt, variable_debt = addrs
-                cfg = self.collector.get_reserve_configuration(underlying) or {}
-                rates = self.collector.get_reserve_rates(underlying) or {}
-                emode = self.collector.get_emode_category(underlying)
-                # Borrow variable
-                if isinstance(variable_debt, str) and int(variable_debt, 16) != 0:
-                    graph.add_trading_pair(
-                        token0=variable_debt,
-                        token1=underlying,
-                        dex='aave_borrow_variable',
-                        pool_address=f"aave_borrow_var_{underlying[:6]}",
-                        reserve0=base_liq,
-                        reserve1=base_liq * 1.0,
-                        fee=self.fee,
-                    )
-                    set_edge_meta(
-                        graph.graph, variable_debt, underlying, dex='aave_borrow_variable', pool_address=f"aave_borrow_var_{underlying[:6]}",
-                        fee_tier=None, source='onchain', confidence=0.9,
-                        extra={'debt_type': 'variable', 'ltv': cfg.get('ltv'), 'liquidationThreshold': cfg.get('liquidationThreshold'),
-                               'variableBorrowRate': rates.get('variableBorrowRate'), 'eModeCategory': emode}
-                    )
-                    updated += 2
-                # Borrow stable
-                if isinstance(stable_debt, str) and int(stable_debt, 16) != 0:
-                    graph.add_trading_pair(
-                        token0=stable_debt,
-                        token1=underlying,
-                        dex='aave_borrow_stable',
-                        pool_address=f"aave_borrow_st_{underlying[:6]}",
-                        reserve0=base_liq,
-                        reserve1=base_liq * 1.0,
-                        fee=self.fee,
-                    )
-                    set_edge_meta(
-                        graph.graph, stable_debt, underlying, dex='aave_borrow_stable', pool_address=f"aave_borrow_st_{underlying[:6]}",
-                        fee_tier=None, source='onchain', confidence=0.9,
-                        extra={'debt_type': 'stable', 'ltv': cfg.get('ltv'), 'liquidationThreshold': cfg.get('liquidationThreshold'),
-                               'stableBorrowRate': rates.get('stableBorrowRate'), 'eModeCategory': emode}
-                    )
-                    updated += 2
-            except Exception as e:
-                logger.debug(f"Aave borrow update failed {sym}: {e}")
+        sem = asyncio.Semaphore(max(1, int(getattr(config, 'graph_build_concurrency', 16))))
+        lock = asyncio.Lock()
+
+        async def process(sym: str, underlying: str) -> int:
+            async with sem:
+                try:
+                    addrs = await asyncio.to_thread(self.collector.get_reserve_tokens, underlying)
+                    added = 0
+                    if not addrs:
+                        if not await asyncio.to_thread(self.collector.get_atoken, underlying):
+                            return 0
+                        debt_var = debt_aave(underlying)
+                        async with lock:
+                            graph.add_trading_pair(token0=debt_var, token1=underlying, dex='aave_borrow',
+                                                   pool_address=f"aave_borrow_{underlying[:6]}",
+                                                   reserve0=base_liq, reserve1=base_liq * 1.0, fee=self.fee)
+                            set_edge_meta(graph.graph, debt_var, underlying, dex='aave_borrow', pool_address=f"aave_borrow_{underlying[:6]}",
+                                          fee_tier=None, source='approx', confidence=0.75,
+                                          extra={'debt_type': 'variable', 'fallback': True})
+                        return 2
+                    a_token, stable_debt, variable_debt = addrs
+                    cfg = await asyncio.to_thread(self.collector.get_reserve_configuration, underlying) or {}
+                    rates = await asyncio.to_thread(self.collector.get_reserve_rates, underlying) or {}
+                    emode = await asyncio.to_thread(self.collector.get_emode_category, underlying)
+                    async with lock:
+                        if isinstance(variable_debt, str) and int(variable_debt, 16) != 0:
+                            graph.add_trading_pair(token0=variable_debt, token1=underlying, dex='aave_borrow_variable',
+                                                   pool_address=f"aave_borrow_var_{underlying[:6]}",
+                                                   reserve0=base_liq, reserve1=base_liq * 1.0, fee=self.fee)
+                            set_edge_meta(graph.graph, variable_debt, underlying, dex='aave_borrow_variable', pool_address=f"aave_borrow_var_{underlying[:6]}",
+                                          fee_tier=None, source='onchain', confidence=0.9,
+                                          extra={'debt_type': 'variable', 'ltv': cfg.get('ltv'), 'liquidationThreshold': cfg.get('liquidationThreshold'),
+                                                 'variableBorrowRate': rates.get('variableBorrowRate'), 'eModeCategory': emode})
+                            added += 2
+                        if isinstance(stable_debt, str) and int(stable_debt, 16) != 0:
+                            graph.add_trading_pair(token0=stable_debt, token1=underlying, dex='aave_borrow_stable',
+                                                   pool_address=f"aave_borrow_st_{underlying[:6]}",
+                                                   reserve0=base_liq, reserve1=base_liq * 1.0, fee=self.fee)
+                            set_edge_meta(graph.graph, stable_debt, underlying, dex='aave_borrow_stable', pool_address=f"aave_borrow_st_{underlying[:6]}",
+                                          fee_tier=None, source='onchain', confidence=0.9,
+                                          extra={'debt_type': 'stable', 'ltv': cfg.get('ltv'), 'liquidationThreshold': cfg.get('liquidationThreshold'),
+                                                 'stableBorrowRate': rates.get('stableBorrowRate'), 'eModeCategory': emode})
+                            added += 2
+                    return added
+                except Exception as e:
+                    logger.debug(f"Aave borrow update failed {sym}: {e}")
+                    return 0
+
+        tasks = [process(sym, underlying) for sym, underlying in tokens.items()]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for r in results:
+            if isinstance(r, int):
+                updated += r
         return updated
 
 
@@ -1449,73 +1449,66 @@ class AaveRepayAction(ProtocolAction):
 
     async def update_graph(self, graph: DeFiMarketGraph, w3: Web3, tokens: Dict[str, str],
                            block_number: Optional[int] = None) -> int:
+        import asyncio
         updated = 0
         base_liq = 100.0
-        for sym, underlying in tokens.items():
-            try:
-                addrs = self.collector.get_reserve_tokens(underlying)
-                if not addrs:
-                    if not self.collector.get_atoken(underlying):
-                        continue
-                    debt_var = f"aave_vdebt:{underlying}"
-                    graph.add_trading_pair(
-                        token0=underlying,
-                        token1=debt_var,
-                        dex='aave_repay_variable',
-                        pool_address=f"aave_repay_var_{underlying[:6]}",
-                        reserve0=base_liq,
-                        reserve1=base_liq * 1.0,
-                        fee=self.fee,
-                    )
-                    set_edge_meta(
-                        graph.graph, underlying, debt_var, dex='aave_repay_variable', pool_address=f"aave_repay_var_{underlying[:6]}",
-                        fee_tier=None, source='approx', confidence=0.75,
-                        extra={'debt_type': 'variable', 'fallback': True}
-                    )
-                    updated += 2
-                    continue
-                a_token, stable_debt, variable_debt = addrs
-                cfg = self.collector.get_reserve_configuration(underlying) or {}
-                rates = self.collector.get_reserve_rates(underlying) or {}
-                emode = self.collector.get_emode_category(underlying)
-                # Repay variable
-                if isinstance(variable_debt, str) and int(variable_debt, 16) != 0:
-                    graph.add_trading_pair(
-                        token0=underlying,
-                        token1=variable_debt,
-                        dex='aave_repay_variable',
-                        pool_address=f"aave_repay_var_{underlying[:6]}",
-                        reserve0=base_liq,
-                        reserve1=base_liq * 1.0,
-                        fee=self.fee,
-                    )
-                    set_edge_meta(
-                        graph.graph, underlying, variable_debt, dex='aave_repay_variable', pool_address=f"aave_repay_var_{underlying[:6]}",
-                        fee_tier=None, source='onchain', confidence=0.9,
-                        extra={'debt_type': 'variable', 'ltv': cfg.get('ltv'), 'liquidationThreshold': cfg.get('liquidationThreshold'),
-                               'variableBorrowRate': rates.get('variableBorrowRate'), 'eModeCategory': emode}
-                    )
-                    updated += 2
-                # Repay stable
-                if isinstance(stable_debt, str) and int(stable_debt, 16) != 0:
-                    graph.add_trading_pair(
-                        token0=underlying,
-                        token1=stable_debt,
-                        dex='aave_repay_stable',
-                        pool_address=f"aave_repay_st_{underlying[:6]}",
-                        reserve0=base_liq,
-                        reserve1=base_liq * 1.0,
-                        fee=self.fee,
-                    )
-                    set_edge_meta(
-                        graph.graph, underlying, stable_debt, dex='aave_repay_stable', pool_address=f"aave_repay_st_{underlying[:6]}",
-                        fee_tier=None, source='onchain', confidence=0.9,
-                        extra={'debt_type': 'stable', 'ltv': cfg.get('ltv'), 'liquidationThreshold': cfg.get('liquidationThreshold'),
-                               'stableBorrowRate': rates.get('stableBorrowRate'), 'eModeCategory': emode}
-                    )
-                    updated += 2
-            except Exception as e:
-                logger.debug(f"Aave repay update failed {sym}: {e}")
+        sem = asyncio.Semaphore(max(1, int(getattr(config, 'graph_build_concurrency', 16))))
+        lock = asyncio.Lock()
+
+        async def process(sym: str, underlying: str) -> int:
+            async with sem:
+                try:
+                    addrs = await asyncio.to_thread(self.collector.get_reserve_tokens, underlying)
+                    added = 0
+                    if not addrs:
+                        if not await asyncio.to_thread(self.collector.get_atoken, underlying):
+                            return 0
+                        debt_var = f"aave_vdebt:{underlying}"
+                        async with lock:
+                            graph.add_trading_pair(token0=underlying, token1=debt_var, dex='aave_repay_variable',
+                                                   pool_address=f"aave_repay_var_{underlying[:6]}",
+                                                   reserve0=base_liq, reserve1=base_liq * 1.0, fee=self.fee)
+                            set_edge_meta(graph.graph, underlying, debt_var, dex='aave_repay_variable', pool_address=f"aave_repay_var_{underlying[:6]}",
+                                          fee_tier=None, source='approx', confidence=0.75,
+                                          extra={'debt_type': 'variable', 'fallback': True})
+                        return 2
+                    a_token, stable_debt, variable_debt = addrs
+                    cfg = await asyncio.to_thread(self.collector.get_reserve_configuration, underlying) or {}
+                    rates = await asyncio.to_thread(self.collector.get_reserve_rates, underlying) or {}
+                    emode = await asyncio.to_thread(self.collector.get_emode_category, underlying)
+                    async with lock:
+                        if isinstance(variable_debt, str) and int(variable_debt, 16) != 0:
+                            graph.add_trading_pair(token0=underlying, token1=variable_debt, dex='aave_repay_variable',
+                                                   pool_address=f"aave_repay_var_{underlying[:6]}",
+                                                   reserve0=base_liq, reserve1=base_liq * 1.0, fee=self.fee)
+                            set_edge_meta(
+                                graph.graph, underlying, variable_debt, dex='aave_repay_variable', pool_address=f"aave_repay_var_{underlying[:6]}",
+                                fee_tier=None, source='onchain', confidence=0.9,
+                                extra={'debt_type': 'variable', 'ltv': cfg.get('ltv'), 'liquidationThreshold': cfg.get('liquidationThreshold'),
+                                       'variableBorrowRate': rates.get('variableBorrowRate'), 'eModeCategory': emode}
+                            )
+                            added += 2
+                        if isinstance(stable_debt, str) and int(stable_debt, 16) != 0:
+                            graph.add_trading_pair(token0=underlying, token1=stable_debt, dex='aave_repay_stable',
+                                                   pool_address=f"aave_repay_st_{underlying[:6]}",
+                                                   reserve0=base_liq, reserve1=base_liq * 1.0, fee=self.fee)
+                            set_edge_meta(
+                                graph.graph, underlying, stable_debt, dex='aave_repay_stable', pool_address=f"aave_repay_st_{underlying[:6]}",
+                                fee_tier=None, source='onchain', confidence=0.9,
+                                extra={'debt_type': 'stable', 'ltv': cfg.get('ltv'), 'liquidationThreshold': cfg.get('liquidationThreshold'),
+                                       'stableBorrowRate': rates.get('stableBorrowRate'), 'eModeCategory': emode}
+                            )
+                            added += 2
+                    return added
+                except Exception as e:
+                    logger.debug(f"Aave repay update failed {sym}: {e}")
+                    return 0
+
+        tasks = [process(sym, underlying) for sym, underlying in tokens.items()]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for r in results:
+            if isinstance(r, int):
+                updated += r
         return updated
 
 
@@ -1532,38 +1525,44 @@ class CompoundBorrowAction(ProtocolAction):
 
     async def update_graph(self, graph: DeFiMarketGraph, w3: Web3, tokens: Dict[str, str],
                            block_number: Optional[int] = None) -> int:
+        import asyncio
         updated = 0
         base_liq = 100.0
-        for sym, underlying in tokens.items():
-            try:
-                ctoken = self.collector.get_ctoken(underlying)
-                if not ctoken:
-                    continue
-                debt = self._debt_token_id(underlying)
-                # interest penalty approximation
-                hold_blocks = int(getattr(config, 'interest_hold_blocks', 100))
-                ip = self.collector.approx_interest_penalty(ctoken, hold_blocks)
-                eff = 1.0 / (1.0 + ip) if ip > 0 else 1.0
-                graph.add_trading_pair(
-                    token0=debt,
-                    token1=underlying,
-                    dex='compound_borrow',
-                    pool_address=f"compound_borrow_{underlying[:6]}",
-                    reserve0=base_liq,
-                    reserve1=base_liq * float(eff),
-                    fee=0.0,
-                )
-                rates = self.collector.get_rates_per_block(ctoken) or {}
-                cf = self.collector.get_collateral_factor(ctoken)
-                set_edge_meta(
-                    graph.graph, debt, underlying, dex='compound_borrow', pool_address=f"compound_borrow_{underlying[:6]}",
-                    fee_tier=None, source='onchain', confidence=0.85,
-                    extra={'collateralFactor': cf, 'borrowRatePerBlock': rates.get('borrowRatePerBlock'),
-                           'supplyRatePerBlock': rates.get('supplyRatePerBlock'), 'interestPenalty': float(ip), 'holdBlocks': hold_blocks}
-                )
-                updated += 2
-            except Exception as e:
-                logger.debug(f"Compound borrow update failed {sym}: {e}")
+        sem = asyncio.Semaphore(max(1, int(getattr(config, 'graph_build_concurrency', 16))))
+        lock = asyncio.Lock()
+
+        async def process(sym: str, underlying: str) -> int:
+            async with sem:
+                try:
+                    ctoken = await asyncio.to_thread(self.collector.get_ctoken, underlying)
+                    if not ctoken:
+                        return 0
+                    debt = self._debt_token_id(underlying)
+                    hold_blocks = int(getattr(config, 'interest_hold_blocks', 100))
+                    ip = await asyncio.to_thread(self.collector.approx_interest_penalty, ctoken, hold_blocks)
+                    eff = 1.0 / (1.0 + ip) if ip > 0 else 1.0
+                    rates = await asyncio.to_thread(self.collector.get_rates_per_block, ctoken) or {}
+                    cf = await asyncio.to_thread(self.collector.get_collateral_factor, ctoken)
+                    async with lock:
+                        graph.add_trading_pair(token0=debt, token1=underlying, dex='compound_borrow',
+                                               pool_address=f"compound_borrow_{underlying[:6]}",
+                                               reserve0=base_liq, reserve1=base_liq * float(eff), fee=0.0)
+                        set_edge_meta(
+                            graph.graph, debt, underlying, dex='compound_borrow', pool_address=f"compound_borrow_{underlying[:6]}",
+                            fee_tier=None, source='onchain', confidence=0.85,
+                            extra={'collateralFactor': cf, 'borrowRatePerBlock': rates.get('borrowRatePerBlock'),
+                                   'supplyRatePerBlock': rates.get('supplyRatePerBlock'), 'interestPenalty': float(ip), 'holdBlocks': hold_blocks}
+                        )
+                    return 2
+                except Exception as e:
+                    logger.debug(f"Compound borrow update failed {sym}: {e}")
+                    return 0
+
+        tasks = [process(sym, underlying) for sym, underlying in tokens.items()]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for r in results:
+            if isinstance(r, int):
+                updated += r
         return updated
 
 
@@ -1580,40 +1579,47 @@ class CompoundRepayAction(ProtocolAction):
 
     async def update_graph(self, graph: DeFiMarketGraph, w3: Web3, tokens: Dict[str, str],
                            block_number: Optional[int] = None) -> int:
+        import asyncio
         updated = 0
         base_liq = 100.0
-        for sym, underlying in tokens.items():
-            try:
-                ctoken = self.collector.get_ctoken(underlying)
-                if not ctoken:
-                    continue
-                mi = self.collector.get_market_info(ctoken) or {}
-                if not mi.get('isListed', True):
-                    continue
-                debt = self._debt_token_id(underlying)
-                graph.add_trading_pair(
-                    token0=underlying,
-                    token1=debt,
-                    dex='compound_repay',
-                    pool_address=f"compound_repay_{underlying[:6]}",
-                    reserve0=base_liq,
-                    reserve1=base_liq * 1.0,
-                    fee=self.fee,
-                )
-                rates = self.collector.get_rates_per_block(ctoken) or {}
-                closef = self.collector.get_close_factor()
-                liqinc = self.collector.get_liquidation_incentive()
-                cf = mi.get('collateralFactor') if mi else self.collector.get_collateral_factor(ctoken)
-                set_edge_meta(
-                    graph.graph, underlying, debt, dex='compound_repay', pool_address=f"compound_repay_{underlying[:6]}",
-                    fee_tier=None, source='onchain', confidence=0.85,
-                    extra={'collateralFactor': cf, 'borrowRatePerBlock': rates.get('borrowRatePerBlock'),
-                           'supplyRatePerBlock': rates.get('supplyRatePerBlock'), 'isListed': mi.get('isListed'),
-                           'closeFactor': closef, 'liquidationIncentive': liqinc}
-                )
-                updated += 2
-            except Exception as e:
-                logger.debug(f"Compound repay update failed {sym}: {e}")
+        sem = asyncio.Semaphore(max(1, int(getattr(config, 'graph_build_concurrency', 16))))
+        lock = asyncio.Lock()
+
+        async def process(sym: str, underlying: str) -> int:
+            async with sem:
+                try:
+                    ctoken = await asyncio.to_thread(self.collector.get_ctoken, underlying)
+                    if not ctoken:
+                        return 0
+                    mi = await asyncio.to_thread(self.collector.get_market_info, ctoken) or {}
+                    if not mi.get('isListed', True):
+                        return 0
+                    debt = self._debt_token_id(underlying)
+                    rates = await asyncio.to_thread(self.collector.get_rates_per_block, ctoken) or {}
+                    closef = await asyncio.to_thread(self.collector.get_close_factor)
+                    liqinc = await asyncio.to_thread(self.collector.get_liquidation_incentive)
+                    cf = mi.get('collateralFactor') if mi else await asyncio.to_thread(self.collector.get_collateral_factor, ctoken)
+                    async with lock:
+                        graph.add_trading_pair(token0=underlying, token1=debt, dex='compound_repay',
+                                               pool_address=f"compound_repay_{underlying[:6]}",
+                                               reserve0=base_liq, reserve1=base_liq * 1.0, fee=self.fee)
+                        set_edge_meta(
+                            graph.graph, underlying, debt, dex='compound_repay', pool_address=f"compound_repay_{underlying[:6]}",
+                            fee_tier=None, source='onchain', confidence=0.85,
+                            extra={'collateralFactor': cf, 'borrowRatePerBlock': rates.get('borrowRatePerBlock'),
+                                   'supplyRatePerBlock': rates.get('supplyRatePerBlock'), 'isListed': mi.get('isListed'),
+                                   'closeFactor': closef, 'liquidationIncentive': liqinc}
+                        )
+                    return 2
+                except Exception as e:
+                    logger.debug(f"Compound repay update failed {sym}: {e}")
+                    return 0
+
+        tasks = [process(sym, underlying) for sym, underlying in tokens.items()]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for r in results:
+            if isinstance(r, int):
+                updated += r
         return updated
 
 
@@ -1818,42 +1824,48 @@ class CompoundSupplyBorrowAction(ProtocolAction):
 
     async def update_graph(self, graph: DeFiMarketGraph, w3: Web3, tokens: Dict[str, str],
                            block_number: Optional[int] = None) -> int:
+        import asyncio
         updated = 0
         base_liq = 100.0
-        for sym, underlying in tokens.items():
-            try:
-                ctoken = self.collector.get_ctoken(underlying)
-                if not ctoken:
-                    continue
-                mi = self.collector.get_market_info(ctoken) or {}
-                if not mi.get('isListed', True):
-                    continue
-                rate = self.collector.get_deposit_rate_underlying_to_ctoken(ctoken, underlying)  # precise cToken per underlying
-                reserve0 = base_liq
-                reserve1 = base_liq * rate
-                graph.add_trading_pair(
-                    token0=underlying,
-                    token1=ctoken,
-                    dex='compound',
-                    pool_address=ctoken,
-                    reserve0=reserve0,
-                    reserve1=reserve1,
-                    fee=0.0,
-                )
-                cf = mi.get('collateralFactor') if mi else self.collector.get_collateral_factor(ctoken)
-                rates = self.collector.get_rates_per_block(ctoken) or {}
-                closef = self.collector.get_close_factor()
-                liqinc = self.collector.get_liquidation_incentive()
-                set_edge_meta(
-                    graph.graph, underlying, ctoken, dex='compound', pool_address=ctoken,
-                    fee_tier=None, source='onchain', confidence=0.9,
-                    extra={'collateralFactor': cf, 'borrowRatePerBlock': rates.get('borrowRatePerBlock'),
-                           'supplyRatePerBlock': rates.get('supplyRatePerBlock'), 'isListed': mi.get('isListed'),
-                           'closeFactor': closef, 'liquidationIncentive': liqinc}
-                )
-                updated += 2
-            except Exception as e:
-                logger.debug(f"Compound update failed {sym}: {e}")
+        sem = asyncio.Semaphore(max(1, int(getattr(config, 'graph_build_concurrency', 16))))
+        lock = asyncio.Lock()
+
+        async def process(sym: str, underlying: str) -> int:
+            async with sem:
+                try:
+                    ctoken = await asyncio.to_thread(self.collector.get_ctoken, underlying)
+                    if not ctoken:
+                        return 0
+                    mi = await asyncio.to_thread(self.collector.get_market_info, ctoken) or {}
+                    if not mi.get('isListed', True):
+                        return 0
+                    rate = await asyncio.to_thread(self.collector.get_deposit_rate_underlying_to_ctoken, ctoken, underlying)
+                    cf = mi.get('collateralFactor') if mi else await asyncio.to_thread(self.collector.get_collateral_factor, ctoken)
+                    rates = await asyncio.to_thread(self.collector.get_rates_per_block, ctoken) or {}
+                    closef = await asyncio.to_thread(self.collector.get_close_factor)
+                    liqinc = await asyncio.to_thread(self.collector.get_liquidation_incentive)
+                    reserve0 = base_liq
+                    reserve1 = base_liq * float(rate)
+                    async with lock:
+                        graph.add_trading_pair(token0=underlying, token1=ctoken, dex='compound', pool_address=ctoken,
+                                               reserve0=reserve0, reserve1=reserve1, fee=0.0)
+                        set_edge_meta(
+                            graph.graph, underlying, ctoken, dex='compound', pool_address=ctoken,
+                            fee_tier=None, source='onchain', confidence=0.9,
+                            extra={'collateralFactor': cf, 'borrowRatePerBlock': rates.get('borrowRatePerBlock'),
+                                   'supplyRatePerBlock': rates.get('supplyRatePerBlock'), 'isListed': mi.get('isListed'),
+                                   'closeFactor': closef, 'liquidationIncentive': liqinc}
+                        )
+                    return 2
+                except Exception as e:
+                    logger.debug(f"Compound update failed {sym}: {e}")
+                    return 0
+
+        tasks = [process(sym, underlying) for sym, underlying in tokens.items()]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for r in results:
+            if isinstance(r, int):
+                updated += r
         return updated
 
 

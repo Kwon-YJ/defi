@@ -107,7 +107,8 @@ class PriceFeed:
             usdc_per_weth = self._price_tokenB_per_tokenA(weth, usdc, weth_dec, usdc_dec)
             if usdc_per_weth <= 0:
                 return 0
-            updated = 0
+            raw_prices: Dict[str, float] = {}
+            stable_syms = {'USDC','USDT','DAI','TUSD','SUSD'}
             for sym, addr in tokens.items():
                 try:
                     if addr.lower() == usdc.lower():
@@ -119,11 +120,11 @@ class PriceFeed:
                     else:
                         price = self._agg_price_usd(addr, weth, usdc, usdc_per_weth, usdc_dec)
                     if price > 0:
-                        await self._validated_store(addr, float(price), is_stable=(sym.upper() in ('USDC','USDT','DAI','TUSD','SUSD')))
-                        updated += 1
+                        raw_prices[addr] = float(price)
                 except Exception:
                     continue
-            return updated
+            await self._validated_store_bulk(raw_prices, stable_syms, tokens)
+            return len(raw_prices)
         except Exception as e:
             logger.debug(f"가격 업데이트 실패: {e}")
             return 0
@@ -182,15 +183,18 @@ class PriceFeed:
                     return
                 usdc_per_weth = self._price_tokenB_per_tokenA(self.WETH, self.USDC, weth_dec, usdc_dec)
                 if usdc_per_weth > 0:
-                    await self._validated_store(self.WETH, float(usdc_per_weth), is_stable=False)
-                    # refresh all tracked tokens against updated WETH price
+                    # refresh all tracked tokens against updated WETH price (bulk)
+                    price_map = {}
+                    if self.WETH:
+                        price_map[self.WETH] = float(usdc_per_weth)
                     for tok, (pair, base) in list(self.token_to_pair.items()):
                         try:
                             price = self._agg_price_usd(tok, self.WETH, self.USDC, usdc_per_weth, usdc_dec)
                             if price > 0:
-                                await self._validated_store(tok, float(price), is_stable=False)
+                                price_map[tok] = float(price)
                         except Exception:
                             continue
+                    await self._validated_store_bulk(price_map, set(), None)
                 return
             # If log comes from a token pair we track, update that token price only
             for tok, (pair, base) in list(self.token_to_pair.items()):
@@ -204,7 +208,7 @@ class PriceFeed:
                         usdc_per_weth = self._price_tokenB_per_tokenA(self.WETH, self.USDC, weth_dec, usdc_dec)
                     price = self._agg_price_usd(tok, self.WETH, self.USDC, usdc_per_weth, usdc_dec)
                     if price > 0:
-                        await self._validated_store(tok, float(price), is_stable=False)
+                        await self._validated_store_bulk({tok: float(price)}, set(), None)
                     return
         except Exception:
             return
@@ -378,3 +382,54 @@ class PriceFeed:
                 await self.storage.store_token_price(token, float(price))
             except Exception:
                 pass
+
+    async def _validated_store_bulk(self, price_map: Dict[str, float], stable_syms: set, tokens: Optional[Dict[str,str]]) -> None:
+        """여러 토큰 가격을 한 번에 검증/스무딩/저장."""
+        if not price_map:
+            return
+        try:
+            alpha = float(getattr(config, 'price_ema_alpha', 0.2))
+            jump = float(getattr(config, 'price_jump_max_pct', 0.2))
+            sdev = float(getattr(config, 'price_stable_max_dev', 0.03))
+            addrs = list(price_map.keys())
+            prevs = await self.storage.get_token_prices_bulk(addrs)
+            final: Dict[str, float] = {}
+            for addr, price in price_map.items():
+                prev = prevs.get(addr) if prevs else None
+                prev_p = float(prev.get('price_usd')) if prev and 'price_usd' in prev else None
+                p = float(price)
+                # if tokens mapping is provided, determine stability by symbol
+                is_stable = False
+                if tokens:
+                    sym = None
+                    for k, v in tokens.items():
+                        if v.lower() == addr.lower():
+                            sym = k
+                            break
+                    if sym and sym.upper() in stable_syms:
+                        is_stable = True
+                # apply stable clamp
+                if is_stable:
+                    lo = 1.0 - sdev
+                    hi = 1.0 + sdev
+                    if p < lo:
+                        p = lo
+                    elif p > hi:
+                        p = hi
+                if prev_p and prev_p > 0:
+                    max_up = prev_p * (1.0 + jump)
+                    max_dn = prev_p * (1.0 - jump)
+                    if p > max_up:
+                        p = max_up
+                    elif p < max_dn:
+                        p = max_dn
+                    p = alpha * p + (1.0 - alpha) * prev_p
+                final[addr] = float(p)
+            await self.storage.store_token_prices_bulk(final, with_history=True)
+        except Exception:
+            # fallback to per-item
+            for addr, price in price_map.items():
+                try:
+                    await self.storage.store_token_price(addr, float(price))
+                except Exception:
+                    pass

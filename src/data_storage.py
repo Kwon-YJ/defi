@@ -98,6 +98,44 @@ class DataStorage:
             logger.debug(f"가격 조회 실패 {token_address[:6]}: {e}")
             return None
 
+    async def get_token_prices_bulk(self, token_addresses: List[str]) -> Dict[str, Optional[Dict]]:
+        """여러 토큰 가격을 파이프라인으로 일괄 조회."""
+        out: Dict[str, Optional[Dict]] = {}
+        try:
+            pipe = self.redis_client.pipeline(transaction=False)
+            keys = [f"price:{addr.lower()}" for addr in token_addresses]
+            for k in keys:
+                pipe.get(k)
+            vals = pipe.execute()
+            for addr, raw in zip(token_addresses, vals):
+                try:
+                    out[addr] = json.loads(raw) if raw else None
+                except Exception:
+                    out[addr] = None
+        except Exception as e:
+            logger.debug(f"가격 일괄 조회 실패: {e}")
+            for addr in token_addresses:
+                out[addr] = None
+        return out
+
+    async def store_token_prices_bulk(self, prices: Dict[str, float], with_history: bool = True) -> None:
+        """여러 토큰 가격을 파이프라인으로 일괄 저장."""
+        try:
+            now = datetime.now().isoformat()
+            pipe = self.redis_client.pipeline(transaction=False)
+            for addr, price in prices.items():
+                key = f"price:{addr.lower()}"
+                obj = json.dumps({"price_usd": float(price), "updated_at": now})
+                pipe.setex(key, self.price_data_ttl, obj)
+                if with_history:
+                    hkey = f"price_hist:{addr.lower()}"
+                    pipe.lpush(hkey, obj)
+                    pipe.ltrim(hkey, 0, 100000)
+                    pipe.expire(hkey, self.price_hist_ttl)
+            pipe.execute()
+        except Exception as e:
+            logger.debug(f"가격 일괄 저장 실패: {e}")
+
     async def get_token_price_history(self, token_address: str, limit: int = 1000) -> List[Dict]:
         try:
             hkey = f"price_hist:{token_address.lower()}"
