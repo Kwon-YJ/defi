@@ -398,14 +398,31 @@ class BellmanFordArbitrage:
             (0.15, 0.35, 0.55, 0.75, 0.95)
         ]
 
+        # 병렬 실행: start_sets 각각을 병렬로 최적화
         best: Optional[Tuple[float, float, float, float]] = None  # (req_cap, final_amt, ratio, net)
-        for starts in start_sets:
-            res = self._local_search_optimize_amount(edges, total_gas_cost, starts)
-            if res is None:
-                continue
-            req_cap, final_amt, ratio, net = res
-            if best is None or net > best[3]:
-                best = (req_cap, final_amt, ratio, net)
+        try:
+            from concurrent.futures import ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=min(3, len(start_sets))) as ex:
+                futures = [ex.submit(self._local_search_optimize_amount, edges, total_gas_cost, ss) for ss in start_sets]
+                for fut in futures:
+                    try:
+                        res = fut.result()
+                    except Exception:
+                        res = None
+                    if res is None:
+                        continue
+                    req_cap, final_amt, ratio, net = res
+                    if best is None or net > best[3]:
+                        best = (req_cap, final_amt, ratio, net)
+        except Exception:
+            # fallback sequential
+            for starts in start_sets:
+                res = self._local_search_optimize_amount(edges, total_gas_cost, starts)
+                if res is None:
+                    continue
+                req_cap, final_amt, ratio, net = res
+                if best is None or net > best[3]:
+                    best = (req_cap, final_amt, ratio, net)
 
         if best is None:
             return None

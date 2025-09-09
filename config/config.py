@@ -73,6 +73,8 @@ class Config:
     price_ema_alpha: float = float(os.getenv('PRICE_EMA_ALPHA', '0.2'))
     price_jump_max_pct: float = float(os.getenv('PRICE_JUMP_MAX_PCT', '0.2'))  # 20% per tick cap
     price_stable_max_dev: float = float(os.getenv('PRICE_STABLE_MAX_DEV', '0.03'))  # 3% around $1
+    # Graph building concurrency
+    graph_build_concurrency: int = int(os.getenv('GRAPH_BUILD_CONCURRENCY', '16'))
     
     def validate(self) -> bool:
         """설정 유효성 검사"""

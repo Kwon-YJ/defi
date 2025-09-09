@@ -92,49 +92,61 @@ class UniswapV2SwapAction(ProtocolAction, _SwapPairsMixin):
 
     async def update_graph(self, graph: DeFiMarketGraph, w3: Web3, tokens: Dict[str, str],
                            block_number: Optional[int] = None) -> int:
+        import asyncio
         updated = 0
-        for token0, token1 in self._major_pairs(tokens):
-            try:
-                pair_address = await self.collector.get_pair_address(token0, token1)
-                if not pair_address:
-                    continue
-                r0, r1, _ = await self.collector.get_pool_reserves(pair_address)
-                if r0 == 0 or r1 == 0:
-                    continue
-                t0, t1 = await self.collector.get_pool_tokens(pair_address)
-                if not t0 or not t1:
-                    continue
-                d0 = get_decimals(w3, t0, 18)
-                d1 = get_decimals(w3, t1, 18)
-                nr0, nr1 = normalize_reserves(r0, d0, r1, d1)
-                # amount-dependent effective rate for reference trade fraction
+        pairs = self._major_pairs(tokens)
+        sem = asyncio.Semaphore(max(1, int(getattr(config, 'graph_build_concurrency', 16))))
+        lock = asyncio.Lock()
+
+        async def process(token0: str, token1: str) -> int:
+            async with sem:
                 try:
-                    f = float(getattr(config, 'slippage_trade_fraction', 0.01))
-                except Exception:
-                    f = 0.01
-                amt_in = max(1e-12, float(nr0) * max(1e-6, min(f, 0.5)))
-                out = amount_out_uniswap_v2(amt_in, float(nr0), float(nr1), self.fee)
-                eff_rate = (out / amt_in) if amt_in > 0 and out > 0 else (float(nr1) / float(nr0)) * (1.0 - self.fee)
-                # set pseudo reserves to match effective rate: rate_pre_fee = eff_rate / (1-fee)
-                pre_fee_rate = eff_rate / max(1e-9, (1.0 - self.fee))
-                base = 100.0
-                graph.add_trading_pair(
-                    token0=t0,
-                    token1=t1,
-                    dex='uniswap_v2',
-                    pool_address=pair_address,
-                    reserve0=base,
-                    reserve1=base * float(pre_fee_rate),
-                    fee=self.fee,
-                )
-                set_edge_meta(
-                    graph.graph, t0, t1, dex='uniswap_v2', pool_address=pair_address,
-                    fee_tier=None, source='onchain', confidence=0.98,
-                    extra={'t0': t0, 't1': t1, 'r0': float(nr0), 'r1': float(nr1), 'eff_rate': float(eff_rate), 'ref_fraction': float(f)}
-                )
-                updated += 2
-            except Exception as e:
-                logger.debug(f"UniswapV2 update failed {token0[:6]}-{token1[:6]}: {e}")
+                    pair_address = await self.collector.get_pair_address(token0, token1)
+                    if not pair_address:
+                        return 0
+                    r0, r1, _ = await self.collector.get_pool_reserves(pair_address)
+                    if r0 == 0 or r1 == 0:
+                        return 0
+                    t0, t1 = await self.collector.get_pool_tokens(pair_address)
+                    if not t0 or not t1:
+                        return 0
+                    d0 = get_decimals(w3, t0, 18)
+                    d1 = get_decimals(w3, t1, 18)
+                    nr0, nr1 = normalize_reserves(r0, d0, r1, d1)
+                    try:
+                        f = float(getattr(config, 'slippage_trade_fraction', 0.01))
+                    except Exception:
+                        f = 0.01
+                    amt_in = max(1e-12, float(nr0) * max(1e-6, min(f, 0.5)))
+                    out = amount_out_uniswap_v2(amt_in, float(nr0), float(nr1), self.fee)
+                    eff_rate = (out / amt_in) if amt_in > 0 and out > 0 else (float(nr1) / float(nr0)) * (1.0 - self.fee)
+                    pre_fee_rate = eff_rate / max(1e-9, (1.0 - self.fee))
+                    base = 100.0
+                    async with lock:
+                        graph.add_trading_pair(
+                            token0=t0,
+                            token1=t1,
+                            dex='uniswap_v2',
+                            pool_address=pair_address,
+                            reserve0=base,
+                            reserve1=base * float(pre_fee_rate),
+                            fee=self.fee,
+                        )
+                        set_edge_meta(
+                            graph.graph, t0, t1, dex='uniswap_v2', pool_address=pair_address,
+                            fee_tier=None, source='onchain', confidence=0.98,
+                            extra={'t0': t0, 't1': t1, 'r0': float(nr0), 'r1': float(nr1), 'eff_rate': float(eff_rate), 'ref_fraction': float(f)}
+                        )
+                    return 2
+                except Exception as e:
+                    logger.debug(f"UniswapV2 update failed {token0[:6]}-{token1[:6]}: {e}")
+                    return 0
+
+        tasks = [process(a, b) for a, b in pairs]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for r in results:
+            if isinstance(r, int):
+                updated += r
         return updated
 
 
@@ -279,6 +291,7 @@ class CurveStableSwapAction(ProtocolAction, _SwapPairsMixin):
 
     async def update_graph(self, graph: DeFiMarketGraph, w3: Web3, tokens: Dict[str, str],
                            block_number: Optional[int] = None) -> int:
+        import asyncio, math
         # 레지스트리 동기화(주기적)
         try:
             self.collector.refresh_registry_pools(ttl_sec=1800)
@@ -286,82 +299,87 @@ class CurveStableSwapAction(ProtocolAction, _SwapPairsMixin):
             pass
         updated = 0
         base_liq = 200.0
-        for token0, token1 in self._major_pairs(tokens):
-            try:
-                found = self.collector.find_pool_for_pair(token0, token1)
-                if not found:
-                    continue
-                pool, i, j = found
-                price01 = self.collector.get_price(pool, i, j, token0, token1)
-                if price01 <= 0:
-                    continue
-                # Liquidity proxy scaling using LP totalSupply (best-effort), fee-adjusted
+        pairs = self._major_pairs(tokens)
+        sem = asyncio.Semaphore(max(1, int(getattr(config, 'graph_build_concurrency', 16))))
+        lock = asyncio.Lock()
+
+        async def process(token0: str, token1: str) -> int:
+            async with sem:
                 try:
-                    lp_addr = self.collector.get_lp_token(pool)
-                    lp_dec = self.collector.get_lp_decimals(lp_addr) if lp_addr else 18
-                    lp_ts_raw = self.collector.get_lp_total_supply(lp_addr) if lp_addr else 0
-                    lp_ts = float(lp_ts_raw) / float(10 ** lp_dec) if lp_dec else float(lp_ts_raw) / 1e18
-                    # configurable sqrt-based scaling with clamp
-                    import math
-                    ref = float(getattr(config, 'curve_liq_scale_ref', 1_000_000.0))
-                    smin = float(getattr(config, 'curve_liq_scale_min', 0.25))
-                    smax = float(getattr(config, 'curve_liq_scale_max', 3.0))
-                    if ref <= 0:
-                        ref = 1_000_000.0
-                    scale = math.sqrt(max(0.0, lp_ts) / ref)
-                    if not (scale >= 0):
-                        scale = 1.0
-                    # fee-based dampening (favor lower-fee pools)
+                    found = await asyncio.to_thread(self.collector.find_pool_for_pair, token0, token1)
+                    if not found:
+                        return 0
+                    pool, i, j = found
+                    price01 = await asyncio.to_thread(self.collector.get_price, pool, i, j, token0, token1)
+                    if price01 <= 0:
+                        return 0
+                    params = await asyncio.to_thread(self.collector.get_pool_params, pool)
+                    # Liquidity proxy scaling using LP totalSupply (best-effort), fee-adjusted
                     try:
-                        f = float(params.get('fee', 0.0))
-                        scale *= max(0.25, 1.0 - f)
+                        lp_addr = await asyncio.to_thread(self.collector.get_lp_token, pool)
+                        lp_dec = await asyncio.to_thread(self.collector.get_lp_decimals, lp_addr) if lp_addr else 18
+                        lp_ts_raw = await asyncio.to_thread(self.collector.get_lp_total_supply, lp_addr) if lp_addr else 0
+                        lp_ts = float(lp_ts_raw) / float(10 ** lp_dec) if lp_dec else float(lp_ts_raw) / 1e18
+                        ref = float(getattr(config, 'curve_liq_scale_ref', 1_000_000.0))
+                        smin = float(getattr(config, 'curve_liq_scale_min', 0.25))
+                        smax = float(getattr(config, 'curve_liq_scale_max', 3.0))
+                        if ref <= 0:
+                            ref = 1_000_000.0
+                        scale = math.sqrt(max(0.0, lp_ts) / ref)
+                        if not (scale >= 0):
+                            scale = 1.0
+                        try:
+                            f = float(params.get('fee', 0.0)) if params else 0.0
+                            scale *= max(0.25, 1.0 - f)
+                        except Exception:
+                            pass
+                        scale = max(smin, min(smax, float(scale)))
                     except Exception:
-                        pass
-                    scale = max(smin, min(smax, float(scale)))
-                except Exception:
-                    scale = 1.0
-                    lp_addr = None
-                    lp_ts = 0.0
-                reserve0 = base_liq * float(scale)
-                reserve1 = reserve0 * price01
-                graph.add_trading_pair(
-                    token0=token0,
-                    token1=token1,
-                    dex='curve',
-                    pool_address=pool, edge_key=f"curve:{i}-{j}",
-                    reserve0=reserve0,
-                    reserve1=reserve1,
-                    fee=0.0,
-                )
-                # Fetch pool params and decimals info for metadata
-                params = {}
-                try:
-                    params = self.collector.get_pool_params(pool) or {}
-                except Exception:
-                    params = {}
-                try:
-                    d0 = self.collector._decimals(token0)
-                    d1 = self.collector._decimals(token1)
-                except Exception:
-                    d0 = d1 = 18
-                set_edge_meta(
-                    graph.graph, token0, token1, dex='curve', pool_address=pool,
-                    fee_tier=None, source='onchain', confidence=0.92,
-                    extra={
-                        'stableswap': True,
-                        'amp': params.get('A', None),
-                        'pool_fee': params.get('fee', None),
-                        'admin_fee': params.get('admin_fee', None),
-                        'dec_in': d0,
-                        'dec_out': d1,
-                        'lp_token': lp_addr,
-                        'lp_total_supply': float(lp_ts),
-                        'liq_scale': float(scale),
-                    }
-                )
-                updated += 2
-            except Exception as e:
-                logger.debug(f"Curve update failed {token0[:6]}-{token1[:6]}: {e}")
+                        scale = 1.0
+                        lp_addr = None
+                        lp_ts = 0.0
+                    reserve0 = base_liq * float(scale)
+                    reserve1 = reserve0 * price01
+                    try:
+                        d0 = await asyncio.to_thread(self.collector._decimals, token0)
+                        d1 = await asyncio.to_thread(self.collector._decimals, token1)
+                    except Exception:
+                        d0 = d1 = 18
+                    async with lock:
+                        graph.add_trading_pair(
+                            token0=token0,
+                            token1=token1,
+                            dex='curve',
+                            pool_address=pool, edge_key=f"curve:{i}-{j}",
+                            reserve0=reserve0,
+                            reserve1=reserve1,
+                            fee=0.0,
+                        )
+                        set_edge_meta(
+                            graph.graph, token0, token1, dex='curve', pool_address=pool,
+                            fee_tier=None, source='onchain', confidence=0.92,
+                            extra={
+                                'stableswap': True,
+                                'amp': (params or {}).get('A', None),
+                                'pool_fee': (params or {}).get('fee', None),
+                                'admin_fee': (params or {}).get('admin_fee', None),
+                                'dec_in': d0,
+                                'dec_out': d1,
+                                'lp_token': lp_addr,
+                                'lp_total_supply': float(lp_ts),
+                                'liq_scale': float(scale),
+                            }
+                        )
+                    return 2
+                except Exception as e:
+                    logger.debug(f"Curve update failed {token0[:6]}-{token1[:6]}: {e}")
+                    return 0
+
+        tasks = [process(a, b) for a, b in pairs]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for r in results:
+            if isinstance(r, int):
+                updated += r
         return updated
 
 
