@@ -1728,6 +1728,51 @@ class MakerPsmSwapAction(ProtocolAction):
             return 0
 
 
+class StablecoinAggregatorAction(ProtocolAction):
+    name = "stable.aggregator"
+    enabled = True
+
+    def __init__(self):
+        # 보수적 기본 수수료 (집계 라우팅/브릿지, CEX-온체인 조합 근사)
+        self.fee = 0.0005
+        self.base_liq = 1_000.0
+
+    async def update_graph(self, graph: DeFiMarketGraph, w3: Web3, tokens: Dict[str, str],
+                           block_number: Optional[int] = None) -> int:
+        updated = 0
+        usdc = tokens.get('USDC') or tokens.get('usdc')
+        usdt = tokens.get('USDT') or tokens.get('usdt')
+        dai = tokens.get('DAI') or tokens.get('dai')
+        stables = [t for t in (usdc, usdt, dai) if t]
+        if len(stables) < 2:
+            return 0
+        pairs = []
+        if usdc and usdt:
+            pairs.append((usdc, usdt, 'stable_agg_usdc_usdt'))
+        if usdc and dai:
+            pairs.append((usdc, dai, 'stable_agg_usdc_dai'))
+        if usdt and dai:
+            pairs.append((usdt, dai, 'stable_agg_usdt_dai'))
+        for a, b, key in pairs:
+            try:
+                graph.add_trading_pair(
+                    token0=a,
+                    token1=b,
+                    dex='stable_agg',
+                    pool_address=key,
+                    reserve0=self.base_liq,
+                    reserve1=self.base_liq,
+                    fee=self.fee,
+                )
+                set_edge_meta(graph.graph, a, b, dex='stable_agg', pool_address=key,
+                              fee_tier=None, source='approx', confidence=0.85,
+                              extra={'stable': True})
+                updated += 2
+            except Exception as e:
+                logger.debug(f"Stable aggregator add failed {key}: {e}")
+        return updated
+
+
 class CompoundSupplyBorrowAction(ProtocolAction):
     name = "compound.supply_borrow"
     enabled = True
@@ -1837,6 +1882,7 @@ def register_default_actions(w3: Web3) -> ActionRegistry:
     reg.register(CompoundRepayAction(w3))
     reg.register(MakerCdpAction(w3))
     reg.register(MakerPsmSwapAction(w3))
+    reg.register(StablecoinAggregatorAction())
     reg.register(YearnVaultAction(w3))
     reg.register(SynthetixExchangeAction(w3))
     reg.register(SynthetixMintAction(w3))
