@@ -26,6 +26,7 @@ from src.synth_tokens import lp_v2, lp_v3, lp_curve, bpt, debt_aave, debt_compou
 from src.slippage import amount_out_uniswap_v2
 from config.config import config
 from config.config import config
+from src.constants import ETH_NATIVE_ADDRESS
 
 logger = setup_logger(__name__)
 
@@ -40,6 +41,39 @@ class ProtocolAction:
                            block_number: Optional[int] = None) -> int:
         """Update market graph for this action. Returns number of edges updated/added."""
         raise NotImplementedError
+
+
+def _weth_wrap_update(graph: DeFiMarketGraph, tokens: Dict[str, str]) -> int:
+    """ETH(native) <-> WETH wrap/unwrap 엣지 추가.
+
+    - 1:1 비율, 수수료 0.0, 충분한 가상 유동성으로 모델링
+    - pool_address는 비어둠(이벤트 구독 주소 필터에 포함되지 않도록)
+    """
+    try:
+        weth = tokens.get('WETH') or tokens.get('weth')
+        if not weth:
+            return 0
+        base = 1_000.0
+        graph.add_trading_pair(
+            token0=ETH_NATIVE_ADDRESS,
+            token1=weth,
+            dex='weth_wrap',
+            pool_address='',
+            reserve0=base,
+            reserve1=base,
+            fee=0.0,
+        )
+        try:
+            set_edge_meta(
+                graph.graph, ETH_NATIVE_ADDRESS, weth, dex='weth_wrap', pool_address='',
+                fee_tier=None, source='synthetic', confidence=0.99,
+                extra={'native': True, 't0': ETH_NATIVE_ADDRESS, 't1': weth}
+            )
+        except Exception:
+            pass
+        return 2
+    except Exception:
+        return 0
 
 
 class _SwapPairsMixin:
@@ -1766,11 +1800,21 @@ class ActionRegistry:
         return total
 
 
+class WETHWrapAction(ProtocolAction):
+    name = "weth.wrap"
+    enabled = True
+
+    async def update_graph(self, graph: DeFiMarketGraph, w3: Web3, tokens: Dict[str, str],
+                           block_number: Optional[int] = None) -> int:
+        return _weth_wrap_update(graph, tokens)
+
+
 def register_default_actions(w3: Web3) -> ActionRegistry:
     reg = ActionRegistry()
     # Enabled core swaps
     reg.register(UniswapV2SwapAction(w3))
     reg.register(SushiSwapSwapAction(w3))
+    reg.register(WETHWrapAction())
 
     # Disabled skeletons for scalability toward 96 actions
     reg.register(UniswapV3SwapAction(w3))

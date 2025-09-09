@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from web3 import Web3
 from src.logger import setup_logger
 from config.config import config
+from src.constants import ETH_NATIVE_ADDRESS
 
 logger = setup_logger(__name__)
 
@@ -56,6 +57,14 @@ class TokenManager:
     def _load_common_tokens(self):
         """주요 토큰 정보 로드 - 실제 주소로 업데이트 필요"""
         common_tokens = {
+            # 네이티브 ETH (플레이스홀더)
+            ETH_NATIVE_ADDRESS: TokenInfo(
+                address=ETH_NATIVE_ADDRESS,
+                symbol="ETH",
+                name="Ether (native)",
+                decimals=18,
+                coingecko_id="ethereum"
+            ),
             # 메인 토큰들
             "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2": TokenInfo(
                 address="0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",

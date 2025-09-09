@@ -127,7 +127,7 @@
   - [x] (분할) 실행 옵션 추가: `USE_PAPER_25_ASSETS=1` 시 JSON 로드/적용
   - [x] (분할) 메인넷 주소/decimals 정확 매핑 보완(config/paper_assets_25.json)
   - [x] (분할) 25자산 기준 주요 페어 수집/빌드 벤치마크 및 튜닝
-- [ ] ETH, WETH (native and wrapped Ether)
+- [x] ETH, WETH (native and wrapped Ether)
 - [ ] Stablecoins: USDC, USDT, DAI (현재 있음, 확장 필요)  
 - [ ] Major tokens: WBTC, UNI, SUSHI, COMP, AAVE
 - [ ] DeFi ecosystem tokens: CRV, BAL, YFI, MKR
