@@ -117,6 +117,7 @@ class Config:
     flash_min_confidence: float = float(os.getenv('FLASH_MIN_CONFIDENCE', '0.7'))
     flash_deploy_on_start: bool = os.getenv('FLASH_DEPLOY_ON_START', '0') in ('1', 'true', 'True')
     flash_contract_address: str = os.getenv('FLASH_ARB_ADDRESS', '')
+    flash_arb_aave_v3_address: str = os.getenv('FLASH_ARB_AAVE_V3_ADDRESS', '')
     # Flash provider 선택: 'aave' | 'dydx'
     flash_provider: str = os.getenv('FLASH_PROVIDER', 'aave')
     # dYdX SoloMargin 주소 (메인넷)

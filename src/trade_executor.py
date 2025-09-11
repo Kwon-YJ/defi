@@ -47,13 +47,21 @@ class TradeExecutor:
     def load_contract(self, address: str) -> None:
         """배포된 컨트랙트 로드(ABI 기반)."""
         try:
-            with open('abi/FlashArbitrage.json', 'r') as f:
-                contract_data = json.load(f)
+            # 기본 플래시 컨트랙트 ABI 시도
+            abi_data = None
+            for path in ('abi/FlashArbitrage.json', 'abi/FlashArbitrageAaveV3.json'):
+                try:
+                    with open(path, 'r') as f:
+                        jd = json.load(f)
+                        if 'abi' in jd:
+                            abi_data = jd['abi']
+                            break
+                except Exception:
+                    continue
+            if abi_data is None:
+                raise RuntimeError('플래시 컨트랙트 ABI를 찾을 수 없습니다')
             self.contract_address = self.w3.to_checksum_address(address)
-            self.contract = self.w3.eth.contract(
-                address=self.contract_address,
-                abi=contract_data['abi']
-            )
+            self.contract = self.w3.eth.contract(address=self.contract_address, abi=abi_data)
             logger.info(f"컨트랙트 로드 완료: {self.contract_address}")
         except Exception as e:
             logger.error(f"컨트랙트 로드 실패: {e}")
@@ -244,11 +252,17 @@ class TradeExecutor:
     async def _send_arbitrage_transaction(self, params: TradeParams, gas_limit: int) -> Optional[bytes]:
         """차익거래 트랜잭션 전송"""
         try:
-            # 트랜잭션 생성
-            txn = self.contract.functions.executeArbitrage(
-                (params.tokens, params.exchanges, params.amounts,
-                 params.flash_loan_amount, params.min_profit)
-            ).build_transaction({
+            # 함수 이름 호환: executeArbitrage (legacy) 또는 startArbitrage (Aave V3)
+            func = None
+            if hasattr(self.contract.functions, 'executeArbitrage'):
+                func = self.contract.functions.executeArbitrage
+            elif hasattr(self.contract.functions, 'startArbitrage'):
+                func = self.contract.functions.startArbitrage
+            else:
+                raise RuntimeError('호출 가능한 플래시 함수가 없습니다')
+
+            txn = func((params.tokens, params.exchanges, params.amounts,
+                        params.flash_loan_amount, params.min_profit)).build_transaction({
                 'from': self.account.address,
                 'gas': gas_limit,
                 'gasPrice': params.gas_price,
@@ -262,7 +276,7 @@ class TradeExecutor:
             tx_hash = self.w3.eth.send_raw_transaction(signed_txn.rawTransaction)
             
             return tx_hash
-            
+
         except Exception as e:
             logger.error(f"트랜잭션 전송 실패: {e}")
             return None

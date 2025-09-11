@@ -258,7 +258,14 @@ class ArbitrageDetector:
             raise RuntimeError("dYdX on-chain execute는 추후 SoloMargin operate 구성 후 지원")
         else:
             executor = TradeExecutor(w3, config.private_key)
+            # 우선순위: Aave V3 주소 -> 일반 플래시 주소
             addr = getattr(config, 'flash_contract_address', '')
+            try:
+                aave_v3_addr = getattr(config, 'flash_arb_aave_v3_address', '')
+            except Exception:
+                aave_v3_addr = ''
+            if aave_v3_addr:
+                addr = aave_v3_addr
             if addr:
                 executor.load_contract(addr)
             else:
