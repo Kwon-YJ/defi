@@ -39,18 +39,18 @@ class BellmanFordArbitrage:
         """음의 사이클 탐지를 통한 차익거래 기회 발견 (SPFA 알고리즘 사용)"""
         # 1. SPFA 알고리즘 실행
         try:
-            negative_cycle_path = self._spfa(source_token)
+            negative_cycle_edges = self._spfa(source_token)
         except Exception as e:
             logger.error(f"SPFA 알고리즘 실행 중 오류: {e}")
             return []
 
-        if not negative_cycle_path:
+        if not negative_cycle_edges:
             return []
 
-        logger.info(f"SPFA: 음의 사이클 발견: {' -> '.join(negative_cycle_path)}")
+        logger.info(f"SPFA: 음의 사이클 발견")
 
         # 2. 차익거래 기회로 변환
-        opportunity = self._cycle_to_opportunity(negative_cycle_path)
+        opportunity = self._cycle_to_opportunity(negative_cycle_edges)
         if opportunity and opportunity.net_profit > 0:
             return [opportunity]
         
@@ -121,54 +121,52 @@ class BellmanFordArbitrage:
         
         return None  # 음의 사이클 없음
 
-    def _extract_cycle_from_node(self, start_node: str) -> Optional[List[str]]:
-        """주어진 노드에서 시작하여 predecessor 체인을 역추적하여 사이클을 찾습니다."""
-        path = []
+    def _extract_cycle_from_node(self, start_node: str) -> Optional[List[TradingEdge]]:
+        """주어진 노드에서 시작하여 predecessor 체인을 역추적하여 사이클을 찾고,
+        해당 사이클을 구성하는 TradingEdge의 리스트를 반환합니다.
+        """
+        edges = []
         current = start_node
         
-        # 사이클을 찾기 위해 일정 횟수만큼만 역추적 (무한 루프 방지)
-        # 그래프의 노드 수만큼 추적하면 반드시 사이클을 찾게 됨
+        # 사이클을 찾기 위해 일정 횟수만큼만 역추적
         for _ in range(self.graph.graph.number_of_nodes()):
-            if current is None:
+            if current is None or self.predecessors[current] is None:
                 return None # 사이클을 찾기 전에 경로가 끊김
-            current = self.predecessors[current]
-        
-        # `current`는 이제 사이클 내의 한 노드입니다.
-        # 사이클 경로를 재구성합니다.
-        cycle_node = current
-        while True:
-            path.append(cycle_node)
-            cycle_node = self.predecessors[cycle_node]
-            if cycle_node == current:
-                path.append(cycle_node) # 시작 노드를 마지막에 추가하여 사이클 완성
-                break
-            if len(path) > self.graph.graph.number_of_nodes():
-                 logger.warning("사이클 재구성 중 무한 루프 의심")
-                 return None # 무한 루프 방지
+                
+            predecessor, edge_key = self.predecessors[current]
+            
+            # Get the edge data
+            edge_data = self.graph.graph[predecessor][current][edge_key]
+            edges.append(TradingEdge(**edge_data))
+            
+            current = predecessor
 
-        # 경로를 뒤집어서 올바른 순서로 만듭니다.
-        return path[::-1]
+        # `current` is now a node within the cycle.
+        # Reconstruct the cycle path.
+        cycle_start_node = current
+        
+        final_cycle_edges = []
+        
+        while True:
+            predecessor, edge_key = self.predecessors[current]
+            edge_data = self.graph.graph[predecessor][current][edge_key]
+            final_cycle_edges.append(TradingEdge(**edge_data))
+            current = predecessor
+            if current == cycle_start_node:
+                break
+            if len(final_cycle_edges) > self.graph.graph.number_of_nodes():
+                logger.warning("사이클 재구성 중 무한 루프 의심")
+                return None
+
+        return final_cycle_edges[::-1]
     
-    def _cycle_to_opportunity(self, cycle: List[str]) -> Optional[ArbitrageOpportunity]:
+    def _cycle_to_opportunity(self, edges: List[TradingEdge]) -> Optional[ArbitrageOpportunity]:
         """사이클을 차익거래 기회로 변환하고 최적화합니다."""
-        if len(cycle) < 3:
+        if len(edges) < 2:
             return None
         
-        edges = []
-        total_gas_cost = 0
-        
-        for i in range(len(cycle) - 1):
-            from_token = cycle[i]
-            to_token = cycle[i + 1]
-            
-            if not self.graph.graph.has_edge(from_token, to_token):
-                logger.warning(f"엣지가 존재하지 않음: {from_token} -> {to_token}")
-                return None
-            
-            edge_data = self.graph.graph[from_token][to_token]
-            edge = TradingEdge(**edge_data)
-            edges.append(edge)
-            total_gas_cost += edge.gas_cost
+        path = [edge.from_token for edge in edges] + [edges[-1].to_token]
+        total_gas_cost = sum(edge.gas_cost for edge in edges)
         
         # Local Search를 통해 최적 거래량 및 수익 계산
         optimal_amount, max_profit = self._optimize_trade_volume(edges)
@@ -182,13 +180,13 @@ class BellmanFordArbitrage:
         confidence = self._calculate_confidence(edges)
         
         return ArbitrageOpportunity(
-            path=cycle,
+            path=path,
             edges=edges,
             profit_ratio=profit_ratio,
             required_capital=optimal_amount,
-            estimated_profit=max_profit, # 이제 이게 총 수익
+            estimated_profit=max_profit,
             gas_cost=total_gas_cost,
-            net_profit=net_profit, # 가스비 제외 순수익
+            net_profit=net_profit,
             confidence=confidence
         )
 
@@ -285,3 +283,9 @@ class BellmanFordArbitrage:
         diversity_score = min(unique_dexes / len(edges), 1.0)
         
         return (liquidity_score * 0.5 + path_score * 0.3 + diversity_score * 0.2)
+xes / len(edges), 1.0)
+        
+        return (liquidity_score * 0.5 + path_score * 0.3 + diversity_score * 0.2)
+ty_score * 0.2)
+ore * 0.3 + diversity_score * 0.2)
+ty_score * 0.2)
