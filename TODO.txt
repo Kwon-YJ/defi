@@ -6,17 +6,17 @@
 ## 1. 핵심 알고리즘 완성 (Critical Missing Components)
 
 ### 1.1 Local Search 알고리즘 구현 (현재 완전히 누락됨)
-- [x] **CRITICAL**: Negative cycle 탐지 후 Local Search 단계 구현
-- [x] 논문 Figure 1의 4단계 "perform a local search and repeat" 구현  
-- [x] Hill climbing을 통한 거래량 최적화
-- [x] Multiple starting points에서 local search 병렬 실행
-- [x] Best revenue transaction 선택 로직 구현
+- [ ] **CRITICAL**: Negative cycle 탐지 후 Local Search 단계 구현
+- [ ] 논문 Figure 1의 4단계 "perform a local search and repeat" 구현  
+- [ ] Hill climbing을 통한 거래량 최적화
+- [ ] Multiple starting points에서 local search 병렬 실행
+- [ ] Best revenue transaction 선택 로직 구현
 
 ### 1.2 Bellman-Ford-Moore 알고리즘 정확한 구현
-- [x] **CRITICAL**: 논문의 정확한 weight calculation 구현 (-log(exchange_rate) 방식)
-- [x] Graph state building을 매 블록마다 실시간 업데이트
-- [x] Negative cycle identification 성능 최적화  
-- [ ] 96개 protocol actions 처리 가능한 확장성 확보
+- [ ] **CRITICAL**: 논문의 정확한 weight calculation 구현 (-log(exchange_rate) 방식)
+- [ ] Graph state building을 매 블록마다 실시간 업데이트
+- [ ] Negative cycle identification 성능 최적화  
+- [x] 96개 protocol actions 처리 가능한 확장성 확보
 
 ### 1.3 Graph 구조 개선
 - [ ] Multi-graph 지원: 동일 토큰 쌍에서 여러 DEX edge 처리
@@ -27,7 +27,7 @@
 ## 2. 데이터 확장 - 논문 규모 달성 (Scale to Paper Specifications)
 
 ### 2.1 DeFi Protocol Actions 확장 (현재 ~6개 → 96개)
-- [ ] **CRITICAL**: 논문에서 언급한 96개 protocol actions 식별 및 구현
+- [x] **CRITICAL**: 논문에서 언급한 96개 protocol actions 식별 및 구현
 - [ ] Uniswap V2/V3, Sushiswap (swap actions)
 - [ ] Compound, Aave (lending/borrowing actions) 
 - [ ] Curve Finance (stableswap actions)
