@@ -60,7 +60,7 @@ class TokenManager:
             "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2": TokenInfo(
                 address="0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
                 symbol="WETH",
-                name="Wrapped Ether", 
+                name="Wrapped Ether",
                 decimals=18,
                 coingecko_id="weth"
             ),
@@ -85,56 +85,36 @@ class TokenManager:
                 decimals=6,
                 coingecko_id="tether"
             ),
-            # DeFi 토큰들
-            "0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984": TokenInfo(
-                address="0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984",
-                symbol="UNI",
-                name="Uniswap",
-                decimals=18,
-                coingecko_id="uniswap"
-            ),
-            "0x7Fc66500c84A76Ad7e9c93437bFc5Ac33E2DDaE9": TokenInfo(
-                address="0x7Fc66500c84A76Ad7e9c93437bFc5Ac33E2DDaE9",
-                symbol="AAVE",
-                name="Aave Token",
-                decimals=18,
-                coingecko_id="aave"
-            ),
-            "0x6B3595068778DD592e39A122f4f5a5cF09C90fE2": TokenInfo(
-                address="0x6B3595068778DD592e39A122f4f5a5cF09C90fE2",
-                symbol="SUSHI",
-                name="SushiToken",
-                decimals=18,
-                coingecko_id="sushi"
-            ),
-            "0xC011a73ee8576Fb46F5E1c5751cA3B9Fe0af2a6F": TokenInfo(
-                address="0xC011a73ee8576Fb46F5E1c5751cA3B9Fe0af2a6F",
-                symbol="SNX",
-                name="Synthetix Network Token",
-                decimals=18,
-                coingecko_id="havven"
-            ),
-            # 스테이블코인들
-            "0x4Fabb145d64652a948d72533023f6E7A623C7C53": TokenInfo(
-                address="0x4Fabb145d64652a948d72533023f6E7A623C7C53",
-                symbol="BUSD",
-                name="Binance USD",
-                decimals=18,
-                coingecko_id="binance-usd"
-            ),
-            "0x853d955aCEf822Db058eb8505911ED77F175b99e": TokenInfo(
-                address="0x853d955aCEf822Db058eb8505911ED77F175b99e",
-                symbol="FRAX",
-                name="Frax",
-                decimals=18,
-                coingecko_id="frax"
-            )
+        }
+
+        paper_tokens = {
+            "0x89d24a6b4ccb1b6faa2625fe562bdd9a23260359": TokenInfo(address="0x89d24a6b4ccb1b6faa2625fe562bdd9a23260359", symbol="SAI", name="Sai Stablecoin v1.0", decimals=18, coingecko_id="sai"),
+            "0x1f573d6fb3f13d689ff844b4ce37794d79a7ff1c": TokenInfo(address="0x1f573d6fb3f13d689ff844b4ce37794d79a7ff1c", symbol="BNT", name="Bancor Network Token", decimals=18, coingecko_id="bancor-network-token"),
+            "0x0d8775f648430679a709e98d2b0cb6250d2887ef": TokenInfo(address="0x0d8775f648430679a709e98d2b0cb6250d2887ef", symbol="BAT", name="Basic Attention Token", decimals=18, coingecko_id="basic-attention-token"),
+            "0xf629cbd94d3791c9250152bd8dfbdf380e2a3b9c": TokenInfo(address="0xf629cbd94d3791c9250152bd8dfbdf380e2a3b9c", symbol="ENJ", name="Enjin Coin", decimals=18, coingecko_id="enjin-coin"),
+            "0x744d70fdbe2ba4cf95131626614a1763df805b9e": TokenInfo(address="0x744d70fdbe2ba4cf95131626614a1763df805b9e", symbol="SNT", name="Status Network Token", decimals=18, coingecko_id="status"),
+            "0xdefa4e8a7bcba345f687a2f1456f5edd9ce97202": TokenInfo(address="0xdefa4e8a7bcba345f687a2f1456f5edd9ce97202", symbol="KNC", name="Kyber Network Crystal", decimals=18, coingecko_id="kyber-network-crystal"),
+            "0x9f8f72aa9304c8b593d555f12ef6589cc3a579a2": TokenInfo(address="0x9f8f72aa9304c8b593d555f12ef6589cc3a579a2", symbol="MKR", name="Maker", decimals=18, coingecko_id="maker"),
+            "0x8f693ca8d21b157107184d29d398a8d082b38b76": TokenInfo(address="0x8f693ca8d21b157107184d29d398a8d082b38b76", symbol="DATA", name="Streamr", decimals=18, coingecko_id="streamr"),
+            "0x0f5d2fb29fb7d3cfee444a200298f468908cc942": TokenInfo(address="0x0f5d2fb29fb7d3cfee444a200298f468908cc942", symbol="MANA", name="Decentraland", decimals=18, coingecko_id="decentraland"),
+            "0xa117000000f279d81a1d3cc75430faa017fa5a2e": TokenInfo(address="0xa117000000f279d81a1d3cc75430faa017fa5a2e", symbol="ANT", name="Aragon", decimals=18, coingecko_id="aragon"),
+            "0x607f4c5bb672230e8672085532f7e901544a7375": TokenInfo(address="0x607f4c5bb672230e8672085532f7e901544a7375", symbol="RLC", name="iExec RLC", decimals=9, coingecko_id="iexec-rlc"),
+            "0xf970b8e3d081a77092b7793bde317ee64d9a712b": TokenInfo(address="0xf970b8e3d081a77092b7793bde317ee64d9a712b", symbol="RCN", name="Ripio Credit Network", decimals=18, coingecko_id="ripio-credit-network"),
+            "0x8400d94a5cb0fa0d041a3788e395285d61c9ee5e": TokenInfo(address="0x8400d94a5cb0fa0d041a3788e395285d61c9ee5e", symbol="UBT", name="Unibright", decimals=8, coingecko_id="unibright"),
+            "0x6810e776880c02933d47db1b9fc05908e5386b96": TokenInfo(address="0x6810e776880c02933d47db1b9fc05908e5386b96", symbol="GNO", name="Gnosis", decimals=18, coingecko_id="gnosis"),
+            "0x255aa6df07540cb5d3d297f0d0d4d84cb52bc8e6": TokenInfo(address="0x255aa6df07540cb5d3d297f0d0d4d84cb52bc8e6", symbol="RDN", name="Raiden Network Token", decimals=18, coingecko_id="raiden-network-token"),
+            "0xaaaf91d9b90df800df4f55c205fd6989c977e73a": TokenInfo(address="0xaaaf91d9b90df800df4f55c205fd6989c977e73a", symbol="TKN", name="Monolith", decimals=8, coingecko_id="tokencard"),
+            "0x4a57e687b9126435a9b19e4a802113e266adebde": TokenInfo(address="0x4a57e687b9126435a9b19e4a802113e266adebde", symbol="FXC", name="Flexacoin", decimals=18, coingecko_id="flexacoin"),
+            "0x7c5a0ce9267ed19b22f8cae653f198e3e8daf098": TokenInfo(address="0x7c5a0ce9267ed19b22f8cae653f198e3e8daf098", symbol="SAN", name="Santiment Network Token", decimals=18, coingecko_id="santiment-network-token"),
+            "0xd46ba6d942050d489dbd938a2c909a5d5039a161": TokenInfo(address="0xd46ba6d942050d489dbd938a2c909a5d5039a161", symbol="AMPL", name="Ampleforth", decimals=9, coingecko_id="ampleforth"),
+            "0xf1290473e210b2108a85237fbcd7b6eb42cc654f": TokenInfo(address="0xf1290473e210b2108a85237fbcd7b6eb42cc654f", symbol="HEDG", name="HedgeTrade", decimals=18, coingecko_id="hedgetrade"),
         }
         
         self.tokens.update(common_tokens)
+        self.tokens.update(paper_tokens)
         
         # 심볼 -> 주소 매핑 생성
-        for address, token_info in common_tokens.items():
+        for address, token_info in self.tokens.items():
             self.symbol_to_address[token_info.symbol] = address
     
     async def get_token_info(self, address: str) -> Optional[TokenInfo]:
@@ -231,26 +211,35 @@ class TokenManager:
     
     def get_major_trading_pairs(self) -> List[tuple]:
         """주요 거래 쌍 목록 반환"""
-        major_pairs = [
-            ("WETH", "USDC"),
-            ("WETH", "DAI"),
-            ("WETH", "USDT"),
-            ("USDC", "DAI"),
-            ("USDC", "USDT"),
-            ("DAI", "USDT"),
-            ("WETH", "UNI"),
-            ("WETH", "AAVE"),
-            ("WETH", "SUSHI"),
-            ("USDC", "UNI"),
-            ("USDC", "AAVE")
+        paper_token_symbols = [
+            "SAI", "BNT", "BAT", "ENJ", "SNT", "KNC", "MKR", "DATA", "MANA",
+            "ANT", "RLC", "RCN", "UBT", "GNO", "RDN", "TKN", "FXC", "SAN",
+            "AMPL", "HEDG", "DAI"
         ]
-        
+
+        major_pairs = []
+
+        # Uniswap pairs (WETH vs all paper tokens)
+        for symbol in paper_token_symbols:
+            if symbol != "WETH":
+                major_pairs.append(("WETH", symbol))
+
+        # Bancor pairs (BNT vs all paper tokens except BNT)
+        for symbol in paper_token_symbols:
+            if symbol != "BNT":
+                major_pairs.append(("BNT", symbol))
+
+        # MakerDAO pair
+        major_pairs.append(("DAI", "SAI"))
+
         # 주소로 변환
         address_pairs = []
         for symbol0, symbol1 in major_pairs:
             addr0 = self.get_address_by_symbol(symbol0)
             addr1 = self.get_address_by_symbol(symbol1)
             if addr0 and addr1:
-                address_pairs.append((addr0, addr1))
+                # 중복 및 역순 쌍 제거
+                if (addr0, addr1) not in address_pairs and (addr1, addr0) not in address_pairs:
+                    address_pairs.append((addr0, addr1))
         
         return address_pairs

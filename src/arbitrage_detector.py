@@ -14,6 +14,7 @@ from src.market_graph import DeFiMarketGraph
 from src.bellman_ford_arbitrage import BellmanFordArbitrage
 from src.data_storage import DataStorage
 from src.logger import setup_logger
+from src.token_manager import TokenManager
 
 logger = setup_logger(__name__)
 
@@ -29,19 +30,14 @@ class ArbitrageDetector:
         self.erc20_abi = self._load_abi('../abi/erc20.json')
 
         # --- Core Components ---
+        self.token_manager = TokenManager()
         self.market_graph = DeFiMarketGraph()
         self.bellman_ford = BellmanFordArbitrage(self.market_graph)
         self.storage = DataStorage()
         self.running = False
         
         # --- Token Configuration ---
-        self.token_addresses = {
-            "WETH": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
-            "USDC": "0xA0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
-            "DAI": "0x6B175474E89094C44Da98b954EedeAC495271d0F",
-            "USDT": "0xdAC17F958D2ee523a2206206994597C13D831ec7",
-        }
-        self.base_tokens = list(self.token_addresses.values())
+        self.base_tokens = [self.token_manager.get_address_by_symbol("WETH")] # WETH as the primary base token
         self.token_decimals = {}
 
     def _load_abi(self, filepath: str) -> Dict:
@@ -53,20 +49,12 @@ class ArbitrageDetector:
 
     async def _get_token_decimals(self, token_address: str) -> int:
         """Fetches and caches the decimals for a given token."""
-        if token_address in self.token_decimals:
-            return self.token_decimals[token_address]
+        token_info = await self.token_manager.get_token_info(token_address)
+        if token_info:
+            return token_info.decimals
         
-        try:
-            token_contract = self.w3.eth.contract(address=token_address, abi=self.erc20_abi)
-            decimals = await token_contract.functions.decimals().call()
-            self.token_decimals[token_address] = decimals
-            logger.info(f"{await token_contract.functions.symbol().call()} ({token_address}) decimals: {decimals}")
-            return decimals
-        except Exception as e:
-            logger.warning(f"토큰 decimals 조회 오류 {token_address}: {e}. 기본값 18 사용.")
-            # Fallback to a default value if the call fails
-            self.token_decimals[token_address] = 18
-            return 18
+        logger.warning(f"토큰 decimals 조회 오류 {token_address}. 기본값 18 사용.")
+        return 18
 
     async def start_detection(self):
         """
@@ -156,30 +144,32 @@ class ArbitrageDetector:
             }
         ]
         
-        # Create pairs of tokens to check
-        token_symbols = list(self.token_addresses.keys())
-        major_pairs = []
-        for i in range(len(token_symbols)):
-            for j in range(i + 1, len(token_symbols)):
-                major_pairs.append((token_symbols[i], token_symbols[j]))
+        # Get pairs from token manager
+        major_pairs = self.token_manager.get_major_trading_pairs()
 
         # Update all DEXs and their major pairs
         update_tasks = []
         for dex_config in dex_configs:
-            for token0_symbol, token1_symbol in major_pairs:
-                task = self._update_dex_pool(dex_config, token0_symbol, token1_symbol)
+            for token0_address, token1_address in major_pairs:
+                task = self._update_dex_pool(dex_config, token0_address, token1_address)
                 update_tasks.append(task)
         
         await asyncio.gather(*update_tasks)
         logger.info("시장 데이터 업데이트 완료.")
 
-    async def _update_dex_pool(self, dex_config: Dict, token0_symbol: str, token1_symbol: str):
+    async def _update_dex_pool(self, dex_config: Dict, token0_address: str, token1_address: str):
         """
         Fetches and updates the data for a single DEX pool.
         """
         try:
-            token0_address = self.token_addresses[token0_symbol]
-            token1_address = self.token_addresses[token1_symbol]
+            token0_info = await self.token_manager.get_token_info(token0_address)
+            token1_info = await self.token_manager.get_token_info(token1_address)
+
+            if not token0_info or not token1_info:
+                return
+
+            token0_symbol = token0_info.symbol
+            token1_symbol = token1_info.symbol
 
             # Get factory contract
             factory = self.w3.eth.contract(address=dex_config['factory'], abi=self.uniswap_v2_factory_abi)
