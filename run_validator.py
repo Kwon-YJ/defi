@@ -13,6 +13,7 @@ from src.performance_analyzer import PerformanceAnalyzer
 from src.logger import setup_logger
 from config.config import config  # .env 로드를 위해 추가
 from src.backtester import Backtester, BacktestConfig
+from src.monitor import RealtimeMonitor
 
 logger = setup_logger(__name__)
 
@@ -71,7 +72,7 @@ async def run_performance_analysis():
 async def main():
     """메인 실행 함수"""
     parser = argparse.ArgumentParser(description='DeFi Arbitrage Validator')
-    parser.add_argument('--mode', choices=['validate', 'detect', 'analyze', 'backtest', 'full'], 
+    parser.add_argument('--mode', choices=['validate', 'detect', 'analyze', 'backtest', 'monitor', 'serve', 'full'], 
                        default='full', help='실행 모드 선택')
     parser.add_argument('--skip-validation', action='store_true', 
                        help='테스트넷 검증 건너뛰기')
@@ -83,6 +84,10 @@ async def main():
     parser.add_argument('--daily-std-eth', type=float, default=1.0, help='합성: 일표준편차 ETH')
     parser.add_argument('--out', default='reports', help='리포트 출력 디렉터리')
     parser.add_argument('--no-html', action='store_true', help='HTML 대시보드 생성 비활성화')
+    # monitor 옵션
+    parser.add_argument('--interval', type=int, default=None, help='모니터링 주기(초)')
+    # serve 옵션
+    parser.add_argument('--port', type=int, default=8000, help='대시보드 정적 서버 포트')
     
     args = parser.parse_args()
     
@@ -115,6 +120,27 @@ async def main():
                         f"weeks_meeting_target={result['weeks_meeting_target']}/{len(result['weekly_buckets'])}")
             paths = bt.save_reports(result)
             logger.info(f"리포트 저장: {paths}")
+        
+        elif args.mode == 'monitor':
+            monitor = RealtimeMonitor(interval_sec=args.interval)
+            await monitor.run()
+
+        elif args.mode == 'serve':
+            import http.server
+            import socketserver
+            import os
+            out_dir = getattr(config, 'dashboard_output_dir', 'reports')
+            if not os.path.isdir(out_dir):
+                logger.info(f"디렉터리 생성: {out_dir}")
+                os.makedirs(out_dir, exist_ok=True)
+            os.chdir(out_dir)
+            handler = http.server.SimpleHTTPRequestHandler
+            with socketserver.TCPServer(("0.0.0.0", args.port), handler) as httpd:
+                logger.info(f"정적 서버 시작: http://0.0.0.0:{args.port} (dir={out_dir})")
+                try:
+                    httpd.serve_forever()
+                except KeyboardInterrupt:
+                    logger.info("서버 종료")
             
         elif args.mode == 'full':
             # 전체 시스템 실행

@@ -96,6 +96,16 @@ class Config:
     # 주간 평균 191.48 ETH, 76,592 USD
     weekly_profit_target_eth: float = float(os.getenv('WEEKLY_PROFIT_TARGET_ETH', '191.48'))
     weekly_profit_target_usd: float = float(os.getenv('WEEKLY_PROFIT_TARGET_USD', '76592'))
+    # 단일 거래 최고 수익 목표 (논문 기준)
+    single_trade_profit_target_eth: float = float(os.getenv('SINGLE_TRADE_PROFIT_TARGET_ETH', '81.31'))
+    single_trade_profit_target_usd: float = float(os.getenv('SINGLE_TRADE_PROFIT_TARGET_USD', '32524'))
+
+    # 알림/모니터링 설정
+    alert_enable_stdout: bool = os.getenv('ALERT_ENABLE_STDOUT', '1') in ('1','true','True')
+    alert_log_path: str = os.getenv('ALERT_LOG_PATH', 'reports/alerts.log')
+    monitor_interval_sec: int = int(os.getenv('MONITOR_INTERVAL_SEC', '60'))
+    dashboard_output_dir: str = os.getenv('DASHBOARD_OUTPUT_DIR', 'reports')
+    dashboard_title: str = os.getenv('DASHBOARD_TITLE', 'DeFi Arbitrage Dashboard')
     
     def validate(self) -> bool:
         """설정 유효성 검사"""

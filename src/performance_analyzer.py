@@ -15,9 +15,11 @@ class PerformanceAnalyzer:
             from config.config import config
             self._target_eth = float(getattr(config, 'weekly_profit_target_eth', 191.48))
             self._target_usd = float(getattr(config, 'weekly_profit_target_usd', 76592))
+            self._single_trade_target_eth = float(getattr(config, 'single_trade_profit_target_eth', 81.31))
         except Exception:
             self._target_eth = 191.48
             self._target_usd = 76592.0
+            self._single_trade_target_eth = 81.31
         
     async def generate_daily_report(self) -> Dict:
         """일일 성과 보고서 생성"""
@@ -327,3 +329,42 @@ class PerformanceAnalyzer:
             return "조건부 추천: 시장 상황을 더 지켜본 후 결정"
         else:
             return "비추천: 낮은 수익률 또는 긴 회수 기간"
+
+    async def verify_max_trade_profit(self, target_eth: float = None, lookback_days: int = 150) -> Dict:
+        """단일 거래 최고 수익 목표 달성 여부 검증.
+
+        - target_eth: 미지정 시 config의 81.31 ETH 사용
+        - lookback_days: 최근 N일 데이터에서 검증
+        """
+        try:
+            if target_eth is None:
+                target_eth = float(self._single_trade_target_eth)
+            # 최근 충분한 기회 조회 (상한 100k)
+            opportunities = await self.storage.get_recent_opportunities(100000)
+            if not opportunities:
+                return {'error': '데이터가 없습니다'}
+            cutoff = datetime.now() - timedelta(days=lookback_days)
+            best = None
+            best_profit = float('-inf')
+            for opp in opportunities:
+                try:
+                    ts = datetime.fromisoformat(opp['timestamp'])
+                except Exception:
+                    continue
+                if ts < cutoff:
+                    continue
+                p = float(opp.get('net_profit', 0) or 0)
+                if p > best_profit:
+                    best_profit = p
+                    best = opp
+            met = best_profit >= target_eth
+            return {
+                'target_eth': target_eth,
+                'lookback_days': lookback_days,
+                'met': met,
+                'best_profit_eth': 0.0 if best_profit == float('-inf') else best_profit,
+                'best_opportunity': best
+            }
+        except Exception as e:
+            logger.error(f"최고 거래 수익 검증 실패: {e}")
+            return {'error': str(e)}
