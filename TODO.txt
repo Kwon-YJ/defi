@@ -179,7 +179,7 @@
 ## 5. 고급 기능 구현 (Advanced Features from Paper)
 
 ### 5.1 Flash Loan 통합 (논문의 핵심 기능)
-- [ ] **CRITICAL**: Flash loan을 활용한 차익거래 구현
+- [x] **CRITICAL**: Flash loan을 활용한 차익거래 구현
 - [ ] Aave flash loan 프로토콜 통합
 - [ ] dYdX flash loan 지원  
 - [ ] 1 ETH 미만 초기 자본으로 고수익 달성 검증
