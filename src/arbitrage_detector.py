@@ -15,6 +15,9 @@ from src.block_graph_updater import BlockGraphUpdater
 from src.bellman_ford_arbitrage import BellmanFordArbitrage
 from src.data_storage import DataStorage
 from src.logger import setup_logger
+from config.config import config
+from src.trade_executor import SimulationExecutor, TradeExecutor
+from web3 import Web3
 
 logger = setup_logger(__name__)
 
@@ -193,6 +196,8 @@ class ArbitrageDetector:
         """발견된 기회들 처리"""
         logger.info(f"{len(opportunities)}개의 차익거래 기회 발견")
         
+        # 우선 정렬: 순수익 내림차순
+        opportunities = sorted(opportunities, key=lambda o: getattr(o, 'net_profit', 0), reverse=True)
         for opp in opportunities:
             # 기회 정보 로깅
             logger.info(
@@ -212,6 +217,53 @@ class ArbitrageDetector:
                 'confidence': opp.confidence,
                 'dexes': [edge.dex for edge in opp.edges]
             })
+
+        # Flash Arbitrage 실행 (옵션): 최상위 기회 1건 대상으로
+        try:
+            if config.enable_flash_arbitrage and opportunities:
+                best = opportunities[0]
+                if (best.net_profit >= float(getattr(config, 'flash_min_profit_eth', 0.01)) and
+                    best.confidence >= float(getattr(config, 'flash_min_confidence', 0.7))):
+                    await self._execute_flash_arbitrage(best)
+        except Exception as e:
+            logger.warning(f"Flash 실행 스킵: {e}")
+
+    async def _execute_flash_arbitrage(self, opportunity) -> None:
+        """Flash loan 기반 차익거래 실행.
+
+        - FLASH_DRY_RUN=1: 시뮬레이션만 수행
+        - 그렇지 않으면 on-chain 실행 (컨트랙트 로드/배포/authorize 포함)
+        """
+        if getattr(config, 'flash_dry_run', True):
+            logger.info("[Flash] Dry-run 시뮬레이션 실행")
+            sim = SimulationExecutor(Web3())
+            result = await sim.simulate_arbitrage(opportunity)
+            logger.info(f"시뮬레이션 결과: net={result.get('net_profit', 0):.6f} ETH, ratio={result.get('profit_ratio', 0):.4f}")
+            return
+
+        # 실제 실행 경로
+        logger.info("[Flash] 온체인 실행 준비")
+        if not config.validate():
+            raise RuntimeError("필수 환경변수 미설정(Alchemy/RPC/PRIVATE_KEY)")
+        w3 = Web3(Web3.HTTPProvider(config.ethereum_mainnet_rpc))
+        executor = TradeExecutor(w3, config.private_key)
+        addr = getattr(config, 'flash_contract_address', '')
+        if addr:
+            executor.load_contract(addr)
+        else:
+            if getattr(config, 'flash_deploy_on_start', False):
+                await executor.deploy_contract()
+            else:
+                raise RuntimeError("FLASH_ARB_ADDRESS 미설정 (또는 FLASH_DEPLOY_ON_START=1 설정 필요)")
+        # 권한 보장
+        await executor.ensure_authorized(executor.account.address)
+        # 실행
+        try:
+            tx_hash = await executor.execute_arbitrage(opportunity)
+            if tx_hash:
+                logger.info(f"[Flash] 거래 전송: {tx_hash}")
+        except Exception as e:
+            logger.error(f"[Flash] 실행 실패: {e}")
     
     def stop_detection(self):
         """탐지 중지"""

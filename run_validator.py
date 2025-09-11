@@ -14,6 +14,8 @@ from src.logger import setup_logger
 from config.config import config  # .env 로드를 위해 추가
 from src.backtester import Backtester, BacktestConfig
 from src.monitor import RealtimeMonitor
+from src.roi_tracker import ROITracker, ROIConfig
+from src.stability_tester import StabilityTester
 
 logger = setup_logger(__name__)
 
@@ -72,7 +74,7 @@ async def run_performance_analysis():
 async def main():
     """메인 실행 함수"""
     parser = argparse.ArgumentParser(description='DeFi Arbitrage Validator')
-    parser.add_argument('--mode', choices=['validate', 'detect', 'analyze', 'backtest', 'monitor', 'serve', 'full'], 
+    parser.add_argument('--mode', choices=['validate', 'detect', 'analyze', 'backtest', 'monitor', 'serve', 'roi', 'stability', 'flash', 'full'], 
                        default='full', help='실행 모드 선택')
     parser.add_argument('--skip-validation', action='store_true', 
                        help='테스트넷 검증 건너뛰기')
@@ -88,6 +90,9 @@ async def main():
     parser.add_argument('--interval', type=int, default=None, help='모니터링 주기(초)')
     # serve 옵션
     parser.add_argument('--port', type=int, default=8000, help='대시보드 정적 서버 포트')
+    # roi 옵션
+    parser.add_argument('--roi-days', type=int, default=150, help='ROI 계산 기간(일)')
+    parser.add_argument('--roi-capital-eth', type=float, default=None, help='ROI 초기 자본(ETH)')
     
     args = parser.parse_args()
     
@@ -161,6 +166,34 @@ async def main():
                 await asyncio.sleep(3600)  # 1시간마다
                 logger.info("성과 분석 실행")
                 await run_performance_analysis()
+
+        elif args.mode == 'roi':
+            cfg = ROIConfig(lookback_days=args.roi_days,
+                            initial_capital_eth=(args.roi_capital_eth if args.roi_capital_eth is not None else float(getattr(config, 'roi_initial_capital_eth', 1.0))))
+            tracker = ROITracker(cfg)
+            logger.info(f"=== ROI 리포트 생성 ({cfg.lookback_days}일) ===")
+            rep = await tracker.generate_report()
+            logger.info({k: rep[k] for k in ['total_profit_eth','avg_daily_profit_eth','sharpe_like','max_drawdown_eth','roi_percentage']})
+            # 간단 저장
+            import json, os
+            os.makedirs('reports', exist_ok=True)
+            from datetime import datetime
+            p = f"reports/roi_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+            with open(p, 'w', encoding='utf-8') as f:
+                json.dump(rep, f, ensure_ascii=False, indent=2)
+            logger.info(f"ROI 리포트 저장: {p}")
+
+        elif args.mode == 'stability':
+            tester = StabilityTester()
+            res = await tester.run()
+            logger.info(f"안정성 테스트: total={res.total_actions}, executed={res.executed}, succeeded={res.succeeded}, failed={res.failed}, duration={res.duration_sec:.2f}s")
+            if res.errors:
+                logger.debug(f"에러 목록: {res.errors[:5]}{'...' if len(res.errors)>5 else ''}")
+
+        elif args.mode == 'flash':
+            # 한 번 탐지 후 최상위 기회에 대해 Flash 실행 경로 수행
+            det = ArbitrageDetector()
+            await det._run_detection(block_number=None, reason='manual-flash')
                 
     except KeyboardInterrupt:
         logger.info("프로그램 종료")

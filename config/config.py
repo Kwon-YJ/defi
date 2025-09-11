@@ -106,6 +106,17 @@ class Config:
     monitor_interval_sec: int = int(os.getenv('MONITOR_INTERVAL_SEC', '60'))
     dashboard_output_dir: str = os.getenv('DASHBOARD_OUTPUT_DIR', 'reports')
     dashboard_title: str = os.getenv('DASHBOARD_TITLE', 'DeFi Arbitrage Dashboard')
+    # ROI 추적
+    roi_initial_capital_eth: float = float(os.getenv('ROI_INITIAL_CAPITAL_ETH', '1.0'))
+    roi_alert_max_drawdown_pct: float = float(os.getenv('ROI_ALERT_MAX_DRAWDOWN_PCT', '50'))
+
+    # Flash arbitrage 설정
+    enable_flash_arbitrage: bool = os.getenv('ENABLE_FLASH_ARB', '1') in ('1', 'true', 'True')
+    flash_dry_run: bool = os.getenv('FLASH_DRY_RUN', '1') in ('1', 'true', 'True')
+    flash_min_profit_eth: float = float(os.getenv('FLASH_MIN_PROFIT_ETH', '0.01'))
+    flash_min_confidence: float = float(os.getenv('FLASH_MIN_CONFIDENCE', '0.7'))
+    flash_deploy_on_start: bool = os.getenv('FLASH_DEPLOY_ON_START', '0') in ('1', 'true', 'True')
+    flash_contract_address: str = os.getenv('FLASH_ARB_ADDRESS', '')
     
     def validate(self) -> bool:
         """설정 유효성 검사"""

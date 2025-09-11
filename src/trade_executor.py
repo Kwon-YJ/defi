@@ -38,10 +38,26 @@ class TradeExecutor:
         # 토큰 주소들
         self.tokens = {
             'WETH': '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
-            'USDC': '0xA0b86a33E6441b8e5c7F5c8b5e8b5e8b5e8b5e8b',
+            # 정식 USDC 메인넷 주소
+            'USDC': '0xA0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
             'DAI': '0x6B175474E89094C44Da98b954EedeAC495271d0F',
             'USDT': '0xdAC17F958D2ee523a2206206994597C13D831ec7'
         }
+
+    def load_contract(self, address: str) -> None:
+        """배포된 컨트랙트 로드(ABI 기반)."""
+        try:
+            with open('abi/FlashArbitrage.json', 'r') as f:
+                contract_data = json.load(f)
+            self.contract_address = self.w3.to_checksum_address(address)
+            self.contract = self.w3.eth.contract(
+                address=self.contract_address,
+                abi=contract_data['abi']
+            )
+            logger.info(f"컨트랙트 로드 완료: {self.contract_address}")
+        except Exception as e:
+            logger.error(f"컨트랙트 로드 실패: {e}")
+            raise
     
     async def deploy_contract(self) -> str:
         """차익거래 컨트랙트 배포"""
@@ -76,6 +92,11 @@ class TradeExecutor:
                     address=self.contract_address,
                     abi=contract_data['abi']
                 )
+                # 배포 직후 실행 계정을 authorize (executeArbitrage 권한)
+                try:
+                    await self.ensure_authorized(self.account.address)
+                except Exception as e:
+                    logger.warning(f"초기 authorize 실패(무시 가능): {e}")
                 logger.info(f"컨트랙트 배포 성공: {self.contract_address}")
                 return self.contract_address
             else:
@@ -84,6 +105,32 @@ class TradeExecutor:
         except Exception as e:
             logger.error(f"컨트랙트 배포 오류: {e}")
             raise
+
+    async def ensure_authorized(self, caller: Optional[str] = None) -> bool:
+        """executeArbitrage 호출 계정을 authorize(오너 전용)."""
+        if not self.contract:
+            raise Exception("컨트랙트가 로드되지 않았습니다")
+        try:
+            caller = caller or self.account.address
+            fn = self.contract.functions.addAuthorizedCaller(self.w3.to_checksum_address(caller))
+            tx = fn.build_transaction({
+                'from': self.account.address,
+                'gas': 120000,
+                'gasPrice': self.w3.eth.gas_price,
+                'nonce': self.w3.eth.get_transaction_count(self.account.address)
+            })
+            signed = self.account.sign_transaction(tx)
+            tx_hash = self.w3.eth.send_raw_transaction(signed.rawTransaction)
+            receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash)
+            ok = receipt.status == 1
+            if ok:
+                logger.info("authorizedCallers 등록 완료")
+            else:
+                logger.warning("authorizedCallers 등록 실패")
+            return ok
+        except Exception as e:
+            logger.error(f"authorize 처리 실패: {e}")
+            return False
     
     async def execute_arbitrage(self, opportunity) -> Optional[str]:
         """차익거래 실행"""
