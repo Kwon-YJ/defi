@@ -99,7 +99,8 @@ class ArbitrageDetector:
 
     async def _run_local_search(self):
         """
-        Runs the local search loop: find best opportunity, update graph, repeat.
+        Runs the local search loop: find all profitable opportunities, 
+        execute them greedily, update graph, and repeat.
         """
         while True:
             # a. Search for opportunities in parallel across all base tokens
@@ -109,22 +110,33 @@ class ArbitrageDetector:
 
             all_opportunities = [opp for sublist in results for opp in sublist]
             
-            best_opportunity = None
-            if all_opportunities:
-                best_opportunity = max(all_opportunities, key=lambda op: op.net_profit)
-
             # b. If no profitable opportunity is found, exit the local search for this block
-            if best_opportunity is None or best_opportunity.net_profit <= 0.001:
+            if not all_opportunities:
                 logger.info("수익성 있는 차익거래 기회를 더 이상 찾을 수 없음.")
                 break
-                
-            # c. Process the best opportunity found
-            logger.info(f"최고의 차익거래 기회 발견: 순수익 {best_opportunity.net_profit:.6f} ETH")
-            await self._process_opportunities([best_opportunity])
+
+            # c. Sort opportunities by profitability (net_profit) in descending order
+            sorted_opportunities = sorted(all_opportunities, key=lambda op: op.net_profit, reverse=True)
             
-            # d. Update the graph state to reflect the executed trade and repeat search
-            logger.info("그래프 상태를 업데이트하고 Local Search를 계속합니다.")
-            self.market_graph.update_graph_with_trade(best_opportunity.edges, best_opportunity.required_capital)
+            profitable_opportunities_found_in_iteration = False
+            for opportunity in sorted_opportunities:
+                if opportunity.net_profit > 0.001:
+                    profitable_opportunities_found_in_iteration = True
+                    # d. Process the opportunity
+                    logger.info(f"차익거래 기회 발견: 순수익 {opportunity.net_profit:.6f} ETH")
+                    await self._process_opportunities([opportunity])
+                    
+                    # e. Update the graph state to reflect the executed trade
+                    logger.info("그래프 상태를 업데이트합니다.")
+                    self.market_graph.update_graph_with_trade(opportunity.edges, opportunity.required_capital)
+                else:
+                    # Since the list is sorted, we can break if we encounter a non-profitable one
+                    break
+            
+            # f. If no profitable opportunities were found in this iteration, exit
+            if not profitable_opportunities_found_in_iteration:
+                logger.info("이번 반복에서 수익성 있는 차익거래 기회를 더 이상 찾을 수 없음.")
+                break
 
     async def _update_market_data(self):
         """
