@@ -113,7 +113,7 @@ class ArbitrageDetector:
         while True:
             # a. Search for opportunities in parallel across all base tokens
             logger.debug(f"{len(self.base_tokens)}개의 시작점에서 병렬 탐색 시작")
-            tasks = [asyncio.to_thread(self.bellman_ford.find_negative_cycles, base_token) for base_token in self.base_tokens]
+            tasks = [asyncio.to_thread(self.bellman_ford.find_negative_cycles_spfa, base_token) for base_token in self.base_tokens]
             results = await asyncio.gather(*tasks)
 
             all_opportunities = [opp for sublist in results for opp in sublist]

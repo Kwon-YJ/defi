@@ -1,6 +1,6 @@
 import math
 from typing import Dict, List, Tuple, Optional
-from collections import defaultdict
+from collections import defaultdict, deque
 from src.market_graph import DeFiMarketGraph, ArbitrageOpportunity, TradingEdge
 from src.logger import setup_logger
 
@@ -34,6 +34,62 @@ class BellmanFordArbitrage:
                     opportunities.append(opportunity)
         
         return sorted(opportunities, key=lambda x: x.net_profit, reverse=True)
+
+    def find_negative_cycles_spfa(self, source_token: str) -> List[ArbitrageOpportunity]:
+        """음의 사이클 탐지를 통한 차익거래 기회 발견 (SPFA 알고리즘 사용)"""
+        # 1. SPFA 알고리즘 실행
+        try:
+            negative_cycle_path = self._spfa(source_token)
+        except Exception as e:
+            logger.error(f"SPFA 알고리즘 실행 중 오류: {e}")
+            return []
+
+        if not negative_cycle_path:
+            return []
+
+        logger.info(f"SPFA: 음의 사이클 발견: {' -> '.join(negative_cycle_path)}")
+
+        # 2. 차익거래 기회로 변환
+        opportunity = self._cycle_to_opportunity(negative_cycle_path)
+        if opportunity and opportunity.net_profit > 0:
+            return [opportunity]
+        
+        return []
+
+    def _spfa(self, source: str) -> Optional[List[str]]:
+        """Shortest Path Faster Algorithm (SPFA) to find a negative cycle."""
+        self.distances = {node: float('inf') for node in self.graph.graph.nodes}
+        self.predecessors = {node: None for node in self.graph.graph.nodes}
+        self.distances[source] = 0
+
+        queue = deque([source])
+        on_queue = {node: False for node in self.graph.graph.nodes}
+        on_queue[source] = True
+
+        # 각 노드가 큐에 추가된 횟수를 추적
+        visit_count = {node: 0 for node in self.graph.graph.nodes}
+        visit_count[source] = 1
+
+        while queue:
+            u = queue.popleft()
+            on_queue[u] = False
+
+            for _, v, data in self.graph.graph.edges(u, data=True):
+                weight = data.get('weight', float('inf'))
+                if self.distances[u] + weight < self.distances[v]:
+                    self.distances[v] = self.distances[u] + weight
+                    self.predecessors[v] = u
+                    
+                    if not on_queue[v]:
+                        queue.append(v)
+                        on_queue[v] = True
+                        visit_count[v] += 1
+                        
+                        # 노드 방문 횟수가 노드 수를 초과하면 음의 사이클 존재
+                        if visit_count[v] > self.graph.graph.number_of_nodes():
+                            # 음의 사이클 경로 추출
+                            return self._extract_cycle_from_node(v)
+        return None
     
     def _bellman_ford(self, source: str, max_iterations: int) -> Optional[str]:
         """Bellman-Ford 알고리즘을 실행하고, 음의 사이클이 발견되면 해당 사이클의 노드를 반환합니다."""
