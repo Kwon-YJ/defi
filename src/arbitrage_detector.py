@@ -15,6 +15,7 @@ from src.bellman_ford_arbitrage import BellmanFordArbitrage
 from src.data_storage import DataStorage
 from src.logger import setup_logger
 from src.token_manager import TokenManager
+from src.real_time_collector import RealTimeDataCollector
 
 logger = setup_logger(__name__)
 
@@ -34,7 +35,9 @@ class ArbitrageDetector:
         self.market_graph = DeFiMarketGraph()
         self.bellman_ford = BellmanFordArbitrage(self.market_graph)
         self.storage = DataStorage()
+        self.collector = RealTimeDataCollector()
         self.running = False
+        self.updated_pools = set()
         
         # --- Token Configuration ---
         self.base_tokens = [self.token_manager.get_address_by_symbol("WETH")] # WETH as the primary base token
@@ -56,31 +59,36 @@ class ArbitrageDetector:
         logger.warning(f"토큰 decimals 조회 오류 {token_address}. 기본값 18 사용.")
         return 18
 
+    async def _handle_sync_event(self, event):
+        """Callback for Sync events."""
+        pool_address = event['address']
+        self.updated_pools.add(pool_address)
+
     async def start_detection(self):
         """
         Starts the arbitrage detection by listening for new blocks and handling them.
         """
         self.running = True
-        logger.info("차익거래 탐지 시작 (블록 기반 업데이트)")
+        logger.info("차익거래 탐지 시작 (이벤트 기반 업데이트)")
+
+        # Subscribe to Sync events
+        await self.collector.subscribe_to_logs(self._handle_sync_event)
         
-        # Create a filter for new blocks
-        new_block_filter = await self.w3.eth.create_ws_filter('newHeads')
-        
+        # Start the collector in the background
+        collector_task = asyncio.create_task(self.collector.start_websocket_listener())
+
+        # Main loop to process new blocks
         while self.running:
             try:
-                for block_hash in await new_block_filter.get_new_entries():
-                    logger.info(f"새로운 블록 발견: {block_hash.hex()}")
-                    await self._handle_new_block(block_hash)
-                
-                await asyncio.sleep(1) # Check for new blocks every second
+                # We can use the block notifier from the collector
+                # or just process based on a timer if we are event-driven
+                await asyncio.sleep(1) # Process every second
+                if self.updated_pools:
+                    await self._handle_new_block(None) # Pass a dummy block hash
 
             except Exception as e:
-                logger.error(f"블록 리스닝 루프 오류: {e}")
-                # In case of a websocket error, try to reconnect
+                logger.error(f"메인 루프 오류: {e}")
                 await asyncio.sleep(10)
-                # Re-initialize connection and filter (simplified)
-                self.w3 = Web3(Web3.AsyncWebsocketProvider(os.environ.get("ETH_WS_URL", "ws://localhost:8546")))
-                new_block_filter = await self.w3.eth.create_ws_filter('newHeads')
 
 
     async def _handle_new_block(self, block_hash: bytes):
@@ -142,38 +150,43 @@ class ArbitrageDetector:
         """
         Updates the market graph with the latest pool data from DEXs.
         """
-        logger.info("시장 데이터 업데이트 시작...")
-        dex_configs = [
-            {
-                'name': 'uniswap_v2',
+        logger.info(f"{len(self.updated_pools)}개의 풀 데이터 업데이트 시작...")
+        dex_configs = {
+            'uniswap_v2': {
                 'factory': '0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f',
                 'fee': 0.003
             },
-            {
-                'name': 'sushiswap', 
+            'sushiswap': { 
                 'factory': '0xC0AEe478e3658e2610c5F7A4A2E1777cE9e4f2Ac',
                 'fee': 0.003
             }
-        ]
-        
-        # Get pairs from token manager
-        major_pairs = self.token_manager.get_major_trading_pairs()
+        }
 
-        # Update all DEXs and their major pairs
+        pools_to_update = list(self.updated_pools)
+        self.updated_pools.clear()
+
         update_tasks = []
-        for dex_config in dex_configs:
-            for token0_address, token1_address in major_pairs:
-                task = self._update_dex_pool(dex_config, token0_address, token1_address)
-                update_tasks.append(task)
+        for pool_address in pools_to_update:
+            # This is a simplification. We would need a way to know which DEX the pool belongs to.
+            # For now, we assume all are Uniswap V2 compatible.
+            task = self._update_dex_pool(dex_configs['uniswap_v2'], pool_address)
+            update_tasks.append(task)
         
         await asyncio.gather(*update_tasks)
         logger.info("시장 데이터 업데이트 완료.")
 
-    async def _update_dex_pool(self, dex_config: Dict, token0_address: str, token1_address: str):
+    async def _update_dex_pool(self, dex_config: Dict, pool_address: str):
         """
         Fetches and updates the data for a single DEX pool.
         """
         try:
+            # Get pair contract and reserves
+            pair_contract = self.w3.eth.contract(address=pool_address, abi=self.uniswap_v2_pair_abi)
+            reserves = await pair_contract.functions.getReserves().call()
+            
+            token0_address = await pair_contract.functions.token0().call()
+            token1_address = await pair_contract.functions.token1().call()
+
             token0_info = await self.token_manager.get_token_info(token0_address)
             token1_info = await self.token_manager.get_token_info(token1_address)
 
@@ -183,26 +196,8 @@ class ArbitrageDetector:
             token0_symbol = token0_info.symbol
             token1_symbol = token1_info.symbol
 
-            # Get factory contract
-            factory = self.w3.eth.contract(address=dex_config['factory'], abi=self.uniswap_v2_factory_abi)
-            
-            # Get pair address
-            pair_address = await factory.functions.getPair(token0_address, token1_address).call()
-
-            if pair_address == '0x0000000000000000000000000000000000000000':
-                # logger.debug(f"Pair not found for {token0_symbol}/{token1_symbol} on {dex_config['name']}")
-                return
-
-            # Get pair contract and reserves
-            pair_contract = self.w3.eth.contract(address=pair_address, abi=self.uniswap_v2_pair_abi)
-            reserves = await pair_contract.functions.getReserves().call()
-            
             # Ensure reserves match token order
-            pair_token0 = await pair_contract.functions.token0().call()
-            if pair_token0 == token0_address:
-                reserve0, reserve1 = reserves[0], reserves[1]
-            else:
-                reserve0, reserve1 = reserves[1], reserves[0]
+            reserve0, reserve1 = reserves[0], reserves[1]
 
             # Get decimals for both tokens
             decimals0 = await self._get_token_decimals(token0_address)
@@ -216,13 +211,13 @@ class ArbitrageDetector:
                 token0=token0_address,
                 token1=token1_address,
                 dex=dex_config['name'],
-                pool_address=pair_address,
+                pool_address=pool_address,
                 reserve0=reserve0_adj,
                 reserve1=reserve1_adj,
                 fee=dex_config['fee']
             )
         except Exception as e:
-            logger.error(f"{dex_config['name']} {token0_symbol}/{token1_symbol} 풀 업데이트 오류: {e}")
+            logger.error(f"{dex_config['name']} {pool_address} 풀 업데이트 오류: {e}")
 
     async def _process_opportunities(self, opportunities: List):
         """Processes found opportunities by logging and storing them."""
