@@ -12,6 +12,7 @@ from src.arbitrage_detector import ArbitrageDetector
 from src.performance_analyzer import PerformanceAnalyzer
 from src.logger import setup_logger
 from config.config import config  # .env 로드를 위해 추가
+from src.backtester import Backtester, BacktestConfig
 
 logger = setup_logger(__name__)
 
@@ -70,10 +71,18 @@ async def run_performance_analysis():
 async def main():
     """메인 실행 함수"""
     parser = argparse.ArgumentParser(description='DeFi Arbitrage Validator')
-    parser.add_argument('--mode', choices=['validate', 'detect', 'analyze', 'full'], 
+    parser.add_argument('--mode', choices=['validate', 'detect', 'analyze', 'backtest', 'full'], 
                        default='full', help='실행 모드 선택')
     parser.add_argument('--skip-validation', action='store_true', 
                        help='테스트넷 검증 건너뛰기')
+    # backtest 옵션
+    parser.add_argument('--input', help='백테스트 입력 파일(JSONL/JSON/CSV). 미지정 시 합성', default=None)
+    parser.add_argument('--days', type=int, default=150, help='백테스트 일수 (기본 150)')
+    parser.add_argument('--synthesize', action='store_true', help='입력 대신 합성 데이터 사용')
+    parser.add_argument('--daily-mean-eth', type=float, default=3.0, help='합성: 일평균 ETH 수익')
+    parser.add_argument('--daily-std-eth', type=float, default=1.0, help='합성: 일표준편차 ETH')
+    parser.add_argument('--out', default='reports', help='리포트 출력 디렉터리')
+    parser.add_argument('--no-html', action='store_true', help='HTML 대시보드 생성 비활성화')
     
     args = parser.parse_args()
     
@@ -87,6 +96,25 @@ async def main():
             
         elif args.mode == 'analyze':
             await run_performance_analysis()
+        
+        elif args.mode == 'backtest':
+            # 동기 백테스터 실행
+            btcfg = BacktestConfig(
+                input_path=args.input,
+                days=args.days,
+                synthesize=args.synthesize,
+                synthetic_daily_mean_eth=args.daily_mean_eth,
+                synthetic_daily_std_eth=args.daily_std_eth,
+                out_dir=args.out,
+                emit_html=not args.no_html,
+            )
+            bt = Backtester(btcfg)
+            logger.info(f"=== 백테스트 시작 ({btcfg.days}일) ===")
+            result = bt.run()
+            logger.info(f"요약: total_profit={result['total_profit_eth']:.4f} ETH, avg_daily={result['avg_daily_profit_eth']:.4f} ETH, "
+                        f"weeks_meeting_target={result['weeks_meeting_target']}/{len(result['weekly_buckets'])}")
+            paths = bt.save_reports(result)
+            logger.info(f"리포트 저장: {paths}")
             
         elif args.mode == 'full':
             # 전체 시스템 실행
