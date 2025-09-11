@@ -10,6 +10,14 @@ logger = setup_logger(__name__)
 class PerformanceAnalyzer:
     def __init__(self):
         self.storage = DataStorage()
+        # 주간 수익 목표 (config에서 로드, 실패 시 기본값)
+        try:
+            from config.config import config
+            self._target_eth = float(getattr(config, 'weekly_profit_target_eth', 191.48))
+            self._target_usd = float(getattr(config, 'weekly_profit_target_usd', 76592))
+        except Exception:
+            self._target_eth = 191.48
+            self._target_usd = 76592.0
         
     async def generate_daily_report(self) -> Dict:
         """일일 성과 보고서 생성"""
@@ -123,6 +131,60 @@ class PerformanceAnalyzer:
             
         except Exception as e:
             logger.error(f"주간 요약 생성 실패: {e}")
+            return {'error': str(e)}
+
+    async def evaluate_weekly_target(self) -> Dict:
+        """주간 수익 목표(191.48 ETH) 달성 여부 평가"""
+        try:
+            summary = await self.generate_weekly_summary()
+            if 'error' in summary:
+                return {'error': summary['error']}
+
+            achieved_eth = float(summary.get('weekly_profit', 0))
+            target_eth = self._target_eth
+            daily_target_eth = target_eth / 7.0
+            avg_daily_eth = float(summary.get('daily_average', 0))
+
+            gap_eth = target_eth - achieved_eth
+            progress_pct = (achieved_eth / target_eth * 100) if target_eth > 0 else 0.0
+            on_track = achieved_eth >= target_eth
+
+            result = {
+                'target_eth': target_eth,
+                'target_usd': self._target_usd,
+                'achieved_eth': achieved_eth,
+                'gap_eth': gap_eth,
+                'progress_pct': progress_pct,
+                'avg_daily_eth': avg_daily_eth,
+                'daily_target_eth': daily_target_eth,
+                'on_track': on_track,
+                'window': {
+                    'start': summary.get('week_start'),
+                    'end': summary.get('week_end')
+                }
+            }
+
+            # 간단한 권고 메시지
+            if on_track:
+                result['recommendation'] = '목표 달성 중: 현 전략 유지 권장'
+            else:
+                # 부족분을 일일 기준으로 환산
+                remaining_days = 7
+                try:
+                    # summary에는 일일 breakdown 키가 있음
+                    remaining_days = max(0, 7 - len(summary.get('daily_breakdown', {})))
+                except Exception:
+                    pass
+
+                per_day_needed = (max(0.0, gap_eth) / remaining_days) if remaining_days > 0 else gap_eth
+                result['recommendation'] = (
+                    f"목표 미달: 남은 기간 일일 {per_day_needed:.4f} ETH 추가 필요"
+                )
+
+            return result
+
+        except Exception as e:
+            logger.error(f"주간 목표 평가 실패: {e}")
             return {'error': str(e)}
     
     async def calculate_roi_projection(self, investment_amount: float) -> Dict:

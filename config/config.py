@@ -92,6 +92,11 @@ class Config:
     # Block processing budget (must be < 13.5s)
     block_time_budget_sec: float = float(os.getenv('BLOCK_TIME_BUDGET_SEC', '10.8'))
     
+    # 수익 목표 (논문 기준)
+    # 주간 평균 191.48 ETH, 76,592 USD
+    weekly_profit_target_eth: float = float(os.getenv('WEEKLY_PROFIT_TARGET_ETH', '191.48'))
+    weekly_profit_target_usd: float = float(os.getenv('WEEKLY_PROFIT_TARGET_USD', '76592'))
+    
     def validate(self) -> bool:
         """설정 유효성 검사"""
         required_fields = [

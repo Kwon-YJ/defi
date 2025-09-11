@@ -59,6 +59,10 @@ async def run_performance_analysis():
     weekly_summary = await analyzer.generate_weekly_summary()
     logger.info(f"주간 요약: {weekly_summary}")
     
+    # 주간 수익 목표 평가 (논문 기준 191.48 ETH)
+    weekly_target = await analyzer.evaluate_weekly_target()
+    logger.info(f"주간 수익 목표 평가: {weekly_target}")
+    
     # ROI 예측
     roi_projection = await analyzer.calculate_roi_projection(1550.0)  # $1550 투자
     logger.info(f"ROI 예측: {roi_projection}")

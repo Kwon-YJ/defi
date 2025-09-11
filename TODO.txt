@@ -39,7 +39,7 @@
 - [x] Synthetix (synthetic asset actions)
 - [x] Yearn Finance (yield strategy actions)
 - [x] dYdX (margin trading actions)
-- [ ] (분할) 각 protocol 주요 functions 구현
+- [x] (분할) 각 protocol 주요 functions 구현
   - [x] Uniswap V2: swap (기반 구현)
   - [x] Uniswap V2: add/remove liquidity
   - [x] Uniswap V3: swap (기반 구현)
@@ -66,7 +66,7 @@
 - [x] 공통: Synthetic 토큰命명 규칙/매핑 일원화(LP, debt, BPT, V3 LP 등)
 - [x] 공통: 부채/담보 제약 반영(Health factor/LTV/청산 임계 반영) 및 경로 타당성 필터  
 
-- [ ] Uniswap V2 개선
+- [x] Uniswap V2 개선
   - [x] LP 민팅/소각 정확화: exact 수식 적용(min(amount0*ts/r0, amount1*ts/r1))
   - [x] token decimals 반영 및 LP decimals 고려
   - [x] 이벤트 기반 업데이트(Mint/Burn/Sync)로 그래프 실시간 갱신
@@ -164,7 +164,7 @@
 ## 4. 검증 및 테스팅 - 논문 결과 재현 (Validation & Testing)
 
 ### 4.1 Revenue 목표 달성 검증
-- [ ] **CRITICAL**: 주간 평균 191.48 ETH (76,592 USD) 수익 목표 설정
+- [x] **CRITICAL**: 주간 평균 191.48 ETH (76,592 USD) 수익 목표 설정
 - [ ] 150일간 backtesting 시스템 구현  
 - [ ] 최고 거래 수익 81.31 ETH (32,524 USD) 달성 검증
 - [ ] ROI tracking 및 성과 측정 시스템
