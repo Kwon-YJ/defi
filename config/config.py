@@ -117,6 +117,10 @@ class Config:
     flash_min_confidence: float = float(os.getenv('FLASH_MIN_CONFIDENCE', '0.7'))
     flash_deploy_on_start: bool = os.getenv('FLASH_DEPLOY_ON_START', '0') in ('1', 'true', 'True')
     flash_contract_address: str = os.getenv('FLASH_ARB_ADDRESS', '')
+    # Flash provider 선택: 'aave' | 'dydx'
+    flash_provider: str = os.getenv('FLASH_PROVIDER', 'aave')
+    # dYdX SoloMargin 주소 (메인넷)
+    dydx_solo_margin: str = os.getenv('DYDX_SOLO_MARGIN', '0x1e0447b19bb6ecfdae1e4ae1694b0c3659614e4e')
     
     def validate(self) -> bool:
         """설정 유효성 검사"""

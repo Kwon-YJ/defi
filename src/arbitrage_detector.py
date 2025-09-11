@@ -17,6 +17,7 @@ from src.data_storage import DataStorage
 from src.logger import setup_logger
 from config.config import config
 from src.trade_executor import SimulationExecutor, TradeExecutor
+from src.dydx_executor import DyDxFlashExecutor
 from web3 import Web3
 
 logger = setup_logger(__name__)
@@ -234,36 +235,46 @@ class ArbitrageDetector:
         - FLASH_DRY_RUN=1: 시뮬레이션만 수행
         - 그렇지 않으면 on-chain 실행 (컨트랙트 로드/배포/authorize 포함)
         """
+        provider = getattr(config, 'flash_provider', 'aave').lower()
         if getattr(config, 'flash_dry_run', True):
-            logger.info("[Flash] Dry-run 시뮬레이션 실행")
-            sim = SimulationExecutor(Web3())
-            result = await sim.simulate_arbitrage(opportunity)
-            logger.info(f"시뮬레이션 결과: net={result.get('net_profit', 0):.6f} ETH, ratio={result.get('profit_ratio', 0):.4f}")
+            logger.info(f"[Flash] Dry-run 시뮬레이션 실행 (provider={provider})")
+            if provider == 'dydx':
+                exec_ = DyDxFlashExecutor(Web3())
+                result = await exec_.simulate(opportunity)
+            else:
+                sim = SimulationExecutor(Web3())
+                result = await sim.simulate_arbitrage(opportunity)
+            logger.info(f"시뮬 결과: net={result.get('net_profit', 0):.6f} ETH, ratio={result.get('profit_ratio', 0):.4f}")
             return
 
         # 실제 실행 경로
-        logger.info("[Flash] 온체인 실행 준비")
+        logger.info(f"[Flash] 온체인 실행 준비 (provider={provider})")
         if not config.validate():
             raise RuntimeError("필수 환경변수 미설정(Alchemy/RPC/PRIVATE_KEY)")
         w3 = Web3(Web3.HTTPProvider(config.ethereum_mainnet_rpc))
-        executor = TradeExecutor(w3, config.private_key)
-        addr = getattr(config, 'flash_contract_address', '')
-        if addr:
-            executor.load_contract(addr)
+        if provider == 'dydx':
+            exec_ = DyDxFlashExecutor(w3)
+            # 실제 on-chain 경로는 추후 확장
+            raise RuntimeError("dYdX on-chain execute는 추후 SoloMargin operate 구성 후 지원")
         else:
-            if getattr(config, 'flash_deploy_on_start', False):
-                await executor.deploy_contract()
+            executor = TradeExecutor(w3, config.private_key)
+            addr = getattr(config, 'flash_contract_address', '')
+            if addr:
+                executor.load_contract(addr)
             else:
-                raise RuntimeError("FLASH_ARB_ADDRESS 미설정 (또는 FLASH_DEPLOY_ON_START=1 설정 필요)")
-        # 권한 보장
-        await executor.ensure_authorized(executor.account.address)
-        # 실행
-        try:
-            tx_hash = await executor.execute_arbitrage(opportunity)
-            if tx_hash:
-                logger.info(f"[Flash] 거래 전송: {tx_hash}")
-        except Exception as e:
-            logger.error(f"[Flash] 실행 실패: {e}")
+                if getattr(config, 'flash_deploy_on_start', False):
+                    await executor.deploy_contract()
+                else:
+                    raise RuntimeError("FLASH_ARB_ADDRESS 미설정 (또는 FLASH_DEPLOY_ON_START=1 설정 필요)")
+            # 권한 보장
+            await executor.ensure_authorized(executor.account.address)
+            # 실행
+            try:
+                tx_hash = await executor.execute_arbitrage(opportunity)
+                if tx_hash:
+                    logger.info(f"[Flash] 거래 전송: {tx_hash}")
+            except Exception as e:
+                logger.error(f"[Flash] 실행 실패: {e}")
     
     def stop_detection(self):
         """탐지 중지"""
