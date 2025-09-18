@@ -122,6 +122,12 @@ class Config:
     flash_provider: str = os.getenv('FLASH_PROVIDER', 'aave')
     # dYdX SoloMargin 주소 (메인넷)
     dydx_solo_margin: str = os.getenv('DYDX_SOLO_MARGIN', '0x1e0447b19bb6ecfdae1e4ae1694b0c3659614e4e')
+
+    # Multihop arbitrage search
+    enable_multihop_search: bool = os.getenv('ENABLE_MULTIHOP_SEARCH', '1') in ('1','true','True')
+    multihop_min_protocols: int = int(os.getenv('MULTIHOP_MIN_PROTOCOLS', '3'))
+    multihop_max_hops: int = int(os.getenv('MULTIHOP_MAX_HOPS', '5'))
+    multihop_top_k: int = int(os.getenv('MULTIHOP_TOP_K', '3'))
     
     def validate(self) -> bool:
         """설정 유효성 검사"""

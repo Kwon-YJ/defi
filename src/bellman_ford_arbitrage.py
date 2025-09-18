@@ -20,6 +20,8 @@ class BellmanFordArbitrage:
         self.graph = market_graph
         self.distances = {}
         self.predecessors = {}
+        # Internal limiters for multihop enumeration (sane defaults)
+        self._mh_max_cycles_per_source = 128
         
     def find_negative_cycles(self, source_token: str, 
                            max_path_length: int = 4) -> List[ArbitrageOpportunity]:
@@ -45,6 +47,97 @@ class BellmanFordArbitrage:
         opportunities.sort(key=lambda x: x.net_profit, reverse=True)
         # 기본적으로 상위 1개만 반환하여 상위 기회에 집중
         return opportunities[:1]
+
+    def find_multihop_opportunities(
+        self,
+        source_token: str,
+        min_protocols: int = 3,
+        max_hops: int = 5,
+        top_k: int = 3,
+    ) -> List[ArbitrageOpportunity]:
+        """Enumerate and evaluate multi-hop cycles (>= min_protocols).
+
+        - Starts and ends at `source_token`
+        - Depth-first search up to `max_hops` edges
+        - Requires at least `min_protocols` unique dexes in the path
+        - Uses existing local-search to size trade and compute profitability
+        """
+        try:
+            import networkx as nx  # type: ignore
+        except Exception:
+            nx = None
+
+        if not hasattr(self.graph, 'graph'):
+            return []
+
+        g = self.graph.graph
+        if source_token not in g:
+            return []
+
+        # Quick neighbor precheck
+        try:
+            neighbors = list(g.successors(source_token))
+        except Exception:
+            try:
+                neighbors = list(g.neighbors(source_token))
+            except Exception:
+                neighbors = []
+        if not neighbors:
+            return []
+
+        cycles: List[List[str]] = []
+        seen_paths: set = set()
+        max_cycles = self._mh_max_cycles_per_source
+
+        def _dfs(node: str, path: List[str], used_dexes: List[str]):
+            if len(cycles) >= max_cycles:
+                return
+            # Stop if exceeding hop budget
+            if len(path) - 1 >= max_hops:
+                return
+            try:
+                next_nodes = list(g.successors(node))
+            except Exception:
+                try:
+                    next_nodes = list(g.neighbors(node))
+                except Exception:
+                    next_nodes = []
+            for v in next_nodes:
+                # pick best edge for u->v
+                edge = self._pick_edge(node, v)
+                if edge is None:
+                    continue
+                dex = (edge.dex or '').lower()
+                # complete cycle
+                if v == source_token and len(path) >= 3:
+                    # Ensure protocol diversity
+                    uniq = set(list(used_dexes) + [dex])
+                    if len(uniq) >= max(1, min_protocols):
+                        cyc = path + [source_token]
+                        key = tuple(cyc)
+                        if key not in seen_paths:
+                            seen_paths.add(key)
+                            cycles.append(cyc)
+                    continue
+                # avoid revisiting nodes (simple cycle constraint)
+                if v in path:
+                    continue
+                _dfs(v, path + [v], used_dexes + [dex])
+
+        _dfs(source_token, [source_token], [])
+
+        # Evaluate cycles via local-search
+        opps: List[ArbitrageOpportunity] = []
+        for cyc in cycles:
+            try:
+                opp = self._perform_local_search_and_repeat(cyc)
+            except Exception:
+                opp = None
+            if opp and opp.net_profit > 0:
+                opps.append(opp)
+
+        opps.sort(key=lambda o: o.net_profit, reverse=True)
+        return opps[:max(1, top_k)]
 
     def _spfa_detect_negative_cycles(self, source: str) -> List[List[str]]:
         """SPFA 기반 음의 사이클 탐지 (성능 최적화)

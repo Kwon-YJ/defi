@@ -350,9 +350,24 @@ class ArbitrageDetector:
                 all_opps = []
                 for base in self.base_tokens:
                     try:
-                        opps = self.bellman_ford.find_negative_cycles(base)
-                        if opps:
-                            all_opps.extend(opps)
+                        # 1) classical negative-cycle based
+                        opps_nc = self.bellman_ford.find_negative_cycles(base)
+                        if opps_nc:
+                            all_opps.extend(opps_nc)
+                        # 2) multihop (3+ protocols) search if enabled
+                        if getattr(config, 'enable_multihop_search', True):
+                            mh = self.bellman_ford.find_multihop_opportunities(
+                                base,
+                                min_protocols=int(getattr(config, 'multihop_min_protocols', 3)),
+                                max_hops=int(getattr(config, 'multihop_max_hops', 5)),
+                                top_k=int(getattr(config, 'multihop_top_k', 3)),
+                            )
+                            if mh:
+                                # Deduplicate by path signature
+                                sigs = {tuple(o.path) for o in all_opps}
+                                for o in mh:
+                                    if tuple(o.path) not in sigs:
+                                        all_opps.append(o)
                     except Exception as e:
                         logger.debug(f"탐지 실패(base={base[:6]}): {e}")
                 if all_opps:
