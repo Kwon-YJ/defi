@@ -22,6 +22,7 @@ from src.synthetix_collectors import SynthetixCollector
 from src.price_feed import PriceFeed
 from src.token_manager import TokenManager
 from src.paper_assets import load_paper_25_addresses, paper_25_symbols
+from src.economic_state import EconomicStateExploitation
 
 logger = setup_logger(__name__)
 
@@ -162,6 +163,8 @@ class BlockGraphUpdater:
         self.comp = CompoundCollector(self.w3)
         # 가격 피드
         self.price_feed = PriceFeed(self.w3, self.storage)
+        # Economic state exploitation injector
+        self.econ = EconomicStateExploitation(self.graph, self.storage)
         # 이벤트 기반 미니 업데이트 큐
         self._mini_queues = {
             'v2_pools': set(),
@@ -210,6 +213,11 @@ class BlockGraphUpdater:
                 # 실시간 가격 피드 업데이트 (주요 토큰 셋)
                 try:
                     await self.price_feed.update_prices_for(self.tokens)
+                except Exception:
+                    pass
+                # Economic-State exploitation edges injection (e.g., PSM during depeg)
+                try:
+                    await self.econ.inject(self.tokens)
                 except Exception:
                     pass
             except Exception as e:
@@ -562,6 +570,11 @@ class BlockGraphUpdater:
         compact_graph_attributes(self.graph.graph)
         try:
             await self.price_feed.update_prices_for(self.tokens)
+        except Exception:
+            pass
+        # Initial economic-state injection
+        try:
+            await self.econ.inject(self.tokens)
         except Exception:
             pass
 

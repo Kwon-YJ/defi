@@ -40,9 +40,15 @@ class TestArbitrageDetection:
         assert market_graph.graph.has_edge("USDC", "WETH")
         
         # Check edge data
-        edge_data = market_graph.graph["WETH"]["USDC"]
-        assert edge_data['dex'] == "uniswap_v2"
-        assert edge_data['pool_address'] == "0x123"
+        edge_view = market_graph.graph["WETH"]["USDC"]
+        # MultiDiGraph returns key->data mapping; DiGraph returns data dict directly
+        if isinstance(edge_view, dict) and 'dex' in edge_view:
+            data = edge_view
+        else:
+            # pick any edge data
+            data = next(iter(edge_view.values()))
+        assert data['dex'] == "uniswap_v2"
+        assert data['pool_address'] == "0x123"
     
     def test_negative_cycle_detection(self, bellman_ford):
         """Test negative cycle detection"""

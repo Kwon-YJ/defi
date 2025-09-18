@@ -33,7 +33,9 @@ class ArbitrageOpportunity:
 
 class DeFiMarketGraph:
     def __init__(self):
-        self.graph = nx.DiGraph()
+        # Default to MultiDiGraph so we can represent multiple protocols/fees
+        # between the same token pair. Many components already branch for Multi.
+        self.graph = nx.MultiDiGraph()
         self.token_nodes = set()
         self.dex_pools = {}  # dex -> {(token0, token1): pool_info}
         self.last_update = 0
@@ -90,7 +92,7 @@ class DeFiMarketGraph:
             weight=weight_10
         )
         
-        # 그래프에 엣지 추가 (MultiDiGraph 지원: key로 fee tier 등 분리 가능)
+        # 그래프에 엣지 추가 (MultiDiGraph 기본)
         if isinstance(self.graph, nx.MultiDiGraph):
             self.graph.add_edge(token0, token1, key=edge_key, **edge_01.__dict__)
             self.graph.add_edge(token1, token0, key=edge_key, **edge_10.__dict__)
@@ -153,3 +155,45 @@ class DeFiMarketGraph:
             'density': nx.density(self.graph),
             'is_connected': nx.is_weakly_connected(self.graph)
         }
+
+    def add_directed_edge(self,
+                           from_token: str,
+                           to_token: str,
+                           *,
+                           dex: str,
+                           pool_address: str,
+                           exchange_rate: float,
+                           liquidity: float,
+                           fee: float = 0.0,
+                           gas_cost: float = 0.0,
+                           edge_key: Optional[str] = None) -> None:
+        """단방향 엣지 추가 (MultiDiGraph 친화적). CPMM이 아닌 특수 엣지(PSM 등)에 사용.
+        exchange_rate는 수수료 포함 실효 환율이어야 함.
+        """
+        self.add_token(from_token)
+        self.add_token(to_token)
+        if exchange_rate <= 0 or liquidity <= 0:
+            return
+        weight = -math.log(exchange_rate)
+        data = {
+            'from_token': from_token,
+            'to_token': to_token,
+            'dex': dex,
+            'pool_address': pool_address,
+            'exchange_rate': float(exchange_rate),
+            'liquidity': float(liquidity),
+            'fee': float(fee),
+            'gas_cost': float(gas_cost),
+            'weight': float(weight),
+        }
+        try:
+            # Always prefer MultiDiGraph; fall back to DiGraph if needed
+            if isinstance(self.graph, nx.MultiDiGraph):
+                self.graph.add_edge(from_token, to_token, key=edge_key, **data)
+            else:
+                self.graph.add_edge(from_token, to_token, **data)
+        except Exception:
+            try:
+                self.graph.add_edge(from_token, to_token, **data)
+            except Exception:
+                pass
