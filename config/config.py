@@ -128,6 +128,13 @@ class Config:
     multihop_min_protocols: int = int(os.getenv('MULTIHOP_MIN_PROTOCOLS', '3'))
     multihop_max_hops: int = int(os.getenv('MULTIHOP_MAX_HOPS', '5'))
     multihop_top_k: int = int(os.getenv('MULTIHOP_TOP_K', '3'))
+
+    # MEV optimization
+    mev_enabled: bool = os.getenv('MEV_ENABLED', '1') in ('1','true','True')
+    mev_bribe_pct_of_profit: float = float(os.getenv('MEV_BRIBE_PCT_OF_PROFIT', '0.1'))
+    mev_min_bribe_eth: float = float(os.getenv('MEV_MIN_BRIBE_ETH', '0.003'))
+    mev_priority_fee_gwei: float = float(os.getenv('MEV_PRIORITY_FEE_GWEI', '3.0'))
+    mev_prefer_private_bundle: bool = os.getenv('MEV_PREFER_PRIVATE_BUNDLE', '1') in ('1','true','True')
     
     def validate(self) -> bool:
         """설정 유효성 검사"""

@@ -191,7 +191,7 @@
   - 설명: Aave 예치/차입 파라미터와 DEX 가격을 결합해 조합 전략(예치→차입→스왑)의 기대치 계산 및 가스 근사 반환
  - [x] Multi-hop arbitrage (3+ protocols)
  - [x] Economic state exploitation 기능
-- [ ] MEV (Maximal Extractable Value) 최적화
+ - [x] MEV (Maximal Extractable Value) 최적화
 
 ## 6. 인프라 및 운영 (Infrastructure & Operations)
 

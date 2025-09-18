@@ -19,6 +19,7 @@ from config.config import config
 from src.trade_executor import SimulationExecutor, TradeExecutor
 from src.dydx_executor import DyDxFlashExecutor
 from web3 import Web3
+from src.mev_optimizer import annotate_expected_value
 
 logger = setup_logger(__name__)
 
@@ -197,16 +198,41 @@ class ArbitrageDetector:
         """발견된 기회들 처리"""
         logger.info(f"{len(opportunities)}개의 차익거래 기회 발견")
         
-        # 우선 정렬: 순수익 내림차순
-        opportunities = sorted(opportunities, key=lambda o: getattr(o, 'net_profit', 0), reverse=True)
+        # MEV-aware expected value annotation and ranking
+        if getattr(config, 'mev_enabled', True):
+            for i, opp in enumerate(opportunities):
+                try:
+                    opportunities[i] = annotate_expected_value(opp)
+                except Exception:
+                    continue
+            # Rank by expected value, fallback to net_profit
+            opportunities = sorted(
+                opportunities,
+                key=lambda o: (getattr(o, 'expected_value', 0.0), getattr(o, 'net_profit', 0.0)),
+                reverse=True,
+            )
+        else:
+            # 우선 정렬: 순수익 내림차순
+            opportunities = sorted(opportunities, key=lambda o: getattr(o, 'net_profit', 0), reverse=True)
         for opp in opportunities:
             # 기회 정보 로깅
-            logger.info(
-                f"차익거래 기회: {' -> '.join(opp.path)} "
-                f"수익률: {opp.profit_ratio:.4f} "
-                f"순수익: {opp.net_profit:.6f} ETH "
-                f"신뢰도: {opp.confidence:.2f}"
-            )
+            if getattr(config, 'mev_enabled', True):
+                logger.info(
+                    f"차익거래 기회: {' -> '.join(opp.path)} "
+                    f"수익률: {opp.profit_ratio:.4f} "
+                    f"순수익: {opp.net_profit:.6f} ETH "
+                    f"EV(mev): {getattr(opp, 'expected_value', 0.0):.6f} ETH "
+                    f"Risk: {getattr(opp, 'sandwich_risk', 0.0):.2f} "
+                    f"Bribe: {getattr(opp, 'mev_bribe_est', 0.0):.4f} ETH "
+                    f"신뢰도: {opp.confidence:.2f}"
+                )
+            else:
+                logger.info(
+                    f"차익거래 기회: {' -> '.join(opp.path)} "
+                    f"수익률: {opp.profit_ratio:.4f} "
+                    f"순수익: {opp.net_profit:.6f} ETH "
+                    f"신뢰도: {opp.confidence:.2f}"
+                )
             
             # 데이터베이스에 저장
             await self.storage.store_arbitrage_opportunity({

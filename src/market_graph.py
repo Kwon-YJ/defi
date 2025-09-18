@@ -30,6 +30,11 @@ class ArbitrageOpportunity:
     gas_cost: float  # 가스 비용
     net_profit: float  # 순수익
     confidence: float  # 신뢰도 (0-1)
+    # MEV-aware fields (optional)
+    expected_value: float = 0.0  # net profit after MEV penalties and risks
+    sandwich_risk: float = 0.0   # 0~1
+    mev_bribe_est: float = 0.0   # ETH
+    priority_fee_suggested: float = 0.0  # gwei
 
 class DeFiMarketGraph:
     def __init__(self):
