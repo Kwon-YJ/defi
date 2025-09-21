@@ -34,7 +34,11 @@ class BlockGraphUpdater:
                  tokens: Optional[Dict[str, str]] = None,
                  dexes: Optional[List[str]] = None):
         self.graph = market_graph
-        self.w3 = Web3(Web3.HTTPProvider(config.ethereum_mainnet_rpc))
+        # Enforce HTTP timeout so action time budget can preempt long RPC calls
+        try:
+            self.w3 = Web3(Web3.HTTPProvider(config.ethereum_mainnet_rpc, request_kwargs={'timeout': 8}))
+        except Exception:
+            self.w3 = Web3(Web3.HTTPProvider(config.ethereum_mainnet_rpc))
         self.collectors: Dict[str, object] = {}
         self.fees: Dict[str, float] = {}
         self.running = False
@@ -84,7 +88,7 @@ class BlockGraphUpdater:
             def _addr(sym: str, fallback: str = None) -> str:
                 a = tm.get_address_by_symbol(sym)
                 return a or fallback
-            if getattr(config, 'include_major_tokens', False):
+            if (not getattr(config, 'use_paper_25_assets', False)) and getattr(config, 'include_major_tokens', False):
                 add = {
                     'WBTC': _addr('WBTC', '0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599'),
                     'UNI': _addr('UNI', '0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984'),
@@ -95,7 +99,7 @@ class BlockGraphUpdater:
                 for k, v in add.items():
                     if v and k not in self.tokens:
                         self.tokens[k] = v
-            if getattr(config, 'include_defi_tokens', False):
+            if (not getattr(config, 'use_paper_25_assets', False)) and getattr(config, 'include_defi_tokens', False):
                 add = {
                     'CRV': _addr('CRV', '0xD533a949740bb3306d119CC777fa900bA034cd52'),
                     'BAL': _addr('BAL', '0xba100000625a3754423978a60c9317c58a424e3D'),
@@ -106,7 +110,7 @@ class BlockGraphUpdater:
                 for k, v in add.items():
                     if v and k not in self.tokens:
                         self.tokens[k] = v
-            if getattr(config, 'include_extra_tokens', False):
+            if (not getattr(config, 'use_paper_25_assets', False)) and getattr(config, 'include_extra_tokens', False):
                 add = {
                     'LINK': _addr('LINK', '0x514910771AF9Ca656af840dff83E8264EcF986CA'),
                     'LDO': _addr('LDO', '0x5A98FcBEA516Cf06857215779Fd812CA3beF1B32'),
@@ -126,13 +130,26 @@ class BlockGraphUpdater:
             pass
         # 옵션: Synthetix synths 포함(sUSD, sETH)
         try:
-            if getattr(config, 'include_synth_tokens', False):
+            if (not getattr(config, 'use_paper_25_assets', False)) and getattr(config, 'include_synth_tokens', False):
                 sc = SynthetixCollector(self.w3)
                 synths = sc.get_synths()
                 for sym in ('sUSD', 'sETH'):
                     addr = synths.get(sym)
                     if addr and sym not in self.tokens:
                         self.tokens[sym] = addr
+        except Exception:
+            pass
+
+        # 주소 체크섬 정규화 및 무효 주소 제거
+        try:
+            normalized = {}
+            for sym, addr in list(self.tokens.items()):
+                try:
+                    normalized[sym] = Web3.to_checksum_address(addr)
+                except Exception:
+                    logger.warning(f"잘못된 토큰 주소로 제외: {sym}={addr}")
+            if normalized:
+                self.tokens = normalized
         except Exception:
             pass
         self.dexes = dexes or ['uniswap_v2', 'sushiswap']

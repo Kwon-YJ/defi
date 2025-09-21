@@ -34,7 +34,10 @@ class RealTimeDataCollector:
         self.ws_idle_timeout = int(os.getenv('WS_IDLE_TIMEOUT', '20'))  # seconds without messages → rotate
         self.ws_backoff_min = float(os.getenv('WS_BACKOFF_MIN', '1.0'))
         self.ws_backoff_max = float(os.getenv('WS_BACKOFF_MAX', '10.0'))
-        self.w3 = Web3(Web3.HTTPProvider(config.ethereum_mainnet_rpc))
+        try:
+            self.w3 = Web3(Web3.HTTPProvider(config.ethereum_mainnet_rpc, request_kwargs={'timeout': 8}))
+        except Exception:
+            self.w3 = Web3(Web3.HTTPProvider(config.ethereum_mainnet_rpc))
         self.storage = DataStorage()
         self.subscribers: Dict[str, List[Callable]] = {}
         self.running = False

@@ -7,6 +7,12 @@ DeFi Arbitrage Validator - Complete System Runner
 import asyncio
 import argparse
 import sys
+import os
+
+# Ensure project root on sys.path when running as a script
+project_root = os.path.abspath(os.path.dirname(__file__))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
 from src.testnet_validator import TestnetValidator
 from src.arbitrage_detector import ArbitrageDetector
 from src.performance_analyzer import PerformanceAnalyzer

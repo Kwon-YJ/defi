@@ -17,7 +17,10 @@ from config.config import config
 async def check_rpc_connection():
     """RPC 연결 확인"""
     try:
-        w3 = Web3(Web3.HTTPProvider(config.ethereum_mainnet_rpc))
+        try:
+            w3 = Web3(Web3.HTTPProvider(config.ethereum_mainnet_rpc, request_kwargs={'timeout': 8}))
+        except Exception:
+            w3 = Web3(Web3.HTTPProvider(config.ethereum_mainnet_rpc))
         latest_block = w3.eth.get_block('latest')
         print(f"✅ RPC 연결 성공: 블록 #{latest_block.number}")
         return True
@@ -45,7 +48,10 @@ async def check_token_manager():
 async def check_dex_collector():
     """DEX 수집기 확인"""
     try:
-        w3 = Web3(Web3.HTTPProvider(config.ethereum_mainnet_rpc))
+        try:
+            w3 = Web3(Web3.HTTPProvider(config.ethereum_mainnet_rpc, request_kwargs={'timeout': 8}))
+        except Exception:
+            w3 = Web3(Web3.HTTPProvider(config.ethereum_mainnet_rpc))
         collector = UniswapV2Collector(w3)
         
         # WETH-USDC 풀 조회

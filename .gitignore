@@ -12,3 +12,5 @@ wheels/
 *.env
 log.txt
 *.log
+dump.rdb
+.DS_Store

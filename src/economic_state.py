@@ -90,12 +90,12 @@ class EconomicStateExploitation:
                     from src.dex_curve_collector import CurveStableSwapCollector
                     from web3 import Web3
                     cc = CurveStableSwapCollector(Web3())
-                    # attempt to read pool fee
+                    # attempt to read normalized pool fee/admin_fee
                     try:
-                        c = cc.w3.eth.contract(address=pool, abi=cc.pool_params_abi)
-                        f = float(c.functions.fee().call()) / 1e10
-                        if f > 0:
-                            fee = f
+                        params = cc.get_pool_params(pool)
+                        f = params.get('fee')
+                        if f is not None and f > 0:
+                            fee = float(f)
                     except Exception:
                         pass
                 except Exception:

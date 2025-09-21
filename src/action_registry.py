@@ -7,6 +7,7 @@ from itertools import combinations
 from web3 import Web3
 
 from src.logger import setup_logger
+import os
 from src.market_graph import DeFiMarketGraph
 from src.dex_data_collector import UniswapV2Collector, SushiSwapCollector
 from src.dex_uniswap_v3_collector import UniswapV3Collector
@@ -79,7 +80,43 @@ def _weth_wrap_update(graph: DeFiMarketGraph, tokens: Dict[str, str]) -> int:
 class _SwapPairsMixin:
     def _major_pairs(self, tokens: Dict[str, str]) -> List[Tuple[str, str]]:
         addrs = list(tokens.values())
-        return list(combinations(addrs, 2))
+        pairs = list(combinations(addrs, 2))
+        import os, time
+        # Optional: restrict to base-star pairs to reduce workload (e.g., WETH-star)
+        if os.getenv('WETH_STAR_ONLY', '0') in ('1','true','True'):
+            base_sym = os.getenv('PRIORITY_BASE', 'WETH')
+            base_addr = tokens.get(base_sym) or tokens.get(base_sym.upper()) or tokens.get(base_sym.lower())
+            if base_addr:
+                base_l = base_addr.lower()
+                pairs = [(a, b) for (a, b) in pairs if (a.lower() == base_l or b.lower() == base_l)]
+                # Priority ordering within base-star
+                other_scores: Dict[str, int] = {}
+                pri_syms = [s.strip() for s in (os.getenv('PRIORITY_TOKENS', 'USDC,DAI,USDT,WBTC,UNI,LINK,CRV,BAL').split(',')) if s.strip()]
+                pri_addrs = [tokens.get(s) or tokens.get(s.upper()) or tokens.get(s.lower()) for s in pri_syms]
+                pri_addrs = [a for a in pri_addrs if a]
+                idx_map = {a.lower(): i for i, a in enumerate(pri_addrs)}
+                for a, b in pairs:
+                    other = b if a.lower() == base_l else a
+                    other_scores[other.lower()] = idx_map.get(other.lower(), 9999)
+                pairs.sort(key=lambda x: other_scores[(x[1] if x[0].lower()==base_l else x[0]).lower()])
+        # Optional: rotation and top-k selection
+        try:
+            k = int(os.getenv('TOP_K_PAIRS', '0'))
+        except Exception:
+            k = 0
+        if k and k > 0 and len(pairs) > k:
+            if os.getenv('ROTATE_PAIRS', '0') in ('1','true','True'):
+                try:
+                    span = len(pairs)
+                    seed = int(os.getenv('ROTATE_SEED', str(int(time.time()//60))))  # minute-based
+                    offset = seed % max(1, span)
+                except Exception:
+                    offset = 0
+                # rotate slice
+                pairs = (pairs[offset:] + pairs[:offset])[:k]
+            else:
+                pairs = pairs[:k]
+        return pairs
 
 
 class UniswapV2SwapAction(ProtocolAction, _SwapPairsMixin):
@@ -89,29 +126,102 @@ class UniswapV2SwapAction(ProtocolAction, _SwapPairsMixin):
     def __init__(self, w3: Web3):
         self.collector = UniswapV2Collector(w3)
         self.fee = 0.003
+        self._fail = {}
 
     async def update_graph(self, graph: DeFiMarketGraph, w3: Web3, tokens: Dict[str, str],
                            block_number: Optional[int] = None) -> int:
         import asyncio
+        from src.multicall import MultiCaller
         updated = 0
         pairs = self._major_pairs(tokens)
         sem = asyncio.Semaphore(max(1, int(getattr(config, 'graph_build_concurrency', 16))))
         lock = asyncio.Lock()
 
-        async def process(token0: str, token1: str) -> int:
+        # 1) Batch resolve pair addresses via multicall (best-effort)
+        pair_map: Dict[Tuple[str, str], Optional[str]] = {}
+        try:
+            use_mc = (os.getenv('USE_MULTICALL', '1') in ('1','true','True'))
+        except Exception:
+            use_mc = True
+        if use_mc:
+            try:
+                mc = MultiCaller(w3)
+                # chunk to avoid gas limit/response size
+                chunk = 200
+                for i in range(0, len(pairs), chunk):
+                    sub = pairs[i:i+chunk]
+                    res = mc.batch_get_pairs(self.collector.factory_contract, sub)
+                    pair_map.update(res)
+            except Exception as e:
+                logger.debug(f"UniswapV2 multicall batch_get_pairs failed: {e}")
+
+        # 2) Batch fetch token0, token1, reserves for resolved pairs
+        core_map: Dict[str, Dict[str, Optional[object]]] = {}
+        if use_mc and pair_map:
+            try:
+                mc = mc if 'mc' in locals() else MultiCaller(w3)
+                pa_list = sorted({addr for addr in (pair_map.get(tuple(sorted((a.lower(), b.lower())))) for a, b in pairs) if addr})
+                core_map = mc.batch_v2_core(pa_list)
+            except Exception as e:
+                logger.debug(f"UniswapV2 multicall v2_core failed: {e}")
+
+        # 3) Batch decimals for all tokens observed (optional)
+        decimals_map: Dict[str, int] = {}
+        if use_mc and core_map:
+            try:
+                toks = set()
+                for info in core_map.values():
+                    if info.get('t0'):
+                        toks.add(info['t0'])
+                    if info.get('t1'):
+                        toks.add(info['t1'])
+                mc = mc if 'mc' in locals() else MultiCaller(w3)
+                decimals_map = mc.batch_erc20_decimals(list(toks))
+            except Exception as e:
+                logger.debug(f"UniswapV2 multicall decimals failed: {e}")
+
+        async def process_with_pair(token0: str, token1: str, pair_address: Optional[str]) -> int:
             async with sem:
                 try:
-                    pair_address = await self.collector.get_pair_address(token0, token1)
-                    if not pair_address:
+                    import time as _t
+                    key = (token0.lower(), token1.lower())
+                    br = self._fail.get(key)
+                    if br and br.get('until', 0) > _t.time():
                         return 0
-                    r0, r1, _ = await self.collector.get_pool_reserves(pair_address)
-                    if r0 == 0 or r1 == 0:
+                    pa = pair_address
+                    if not pa:
+                        pa = await self.collector.get_pair_address(token0, token1)
+                    if not pa:
+                        # backoff bookkeeping
+                        c = br.get('count', 0) + 1 if br else 1
+                        wait = min(60.0, 0.5 * (2 ** (c - 1)))
+                        self._fail[key] = {'count': c, 'until': _t.time() + wait}
                         return 0
-                    t0, t1 = await self.collector.get_pool_tokens(pair_address)
-                    if not t0 or not t1:
-                        return 0
-                    d0 = get_decimals(w3, t0, 18)
-                    d1 = get_decimals(w3, t1, 18)
+                    # Use multicall core data if present; fallback to direct calls
+                    info = core_map.get(Web3.to_checksum_address(pa)) if core_map else None
+                    if info and info.get('r0') and info.get('r1') and info.get('t0') and info.get('t1'):
+                        t0 = info['t0']; t1 = info['t1']
+                        r0 = int(info['r0']); r1 = int(info['r1'])
+                    else:
+                        r0, r1, _ = await self.collector.get_pool_reserves(pa)
+                        if r0 == 0 or r1 == 0:
+                            c = br.get('count', 0) + 1 if br else 1
+                            wait = min(60.0, 0.5 * (2 ** (c - 1)))
+                            self._fail[key] = {'count': c, 'until': _t.time() + wait}
+                            return 0
+                        t0, t1 = await self.collector.get_pool_tokens(pa)
+                        if not t0 or not t1:
+                            c = br.get('count', 0) + 1 if br else 1
+                            wait = min(60.0, 0.5 * (2 ** (c - 1)))
+                            self._fail[key] = {'count': c, 'until': _t.time() + wait}
+                            return 0
+                    # decimals via multicall if possible
+                    d0 = decimals_map.get(Web3.to_checksum_address(t0)) if decimals_map else None
+                    d1 = decimals_map.get(Web3.to_checksum_address(t1)) if decimals_map else None
+                    if d0 is None:
+                        d0 = get_decimals(w3, t0, 18)
+                    if d1 is None:
+                        d1 = get_decimals(w3, t1, 18)
                     nr0, nr1 = normalize_reserves(r0, d0, r1, d1)
                     try:
                         f = float(getattr(config, 'slippage_trade_fraction', 0.01))
@@ -127,22 +237,37 @@ class UniswapV2SwapAction(ProtocolAction, _SwapPairsMixin):
                             token0=t0,
                             token1=t1,
                             dex='uniswap_v2',
-                            pool_address=pair_address,
+                            pool_address=pa,
                             reserve0=base,
                             reserve1=base * float(pre_fee_rate),
                             fee=self.fee,
                         )
                         set_edge_meta(
-                            graph.graph, t0, t1, dex='uniswap_v2', pool_address=pair_address,
+                            graph.graph, t0, t1, dex='uniswap_v2', pool_address=pa,
                             fee_tier=None, source='onchain', confidence=0.98,
                             extra={'t0': t0, 't1': t1, 'r0': float(nr0), 'r1': float(nr1), 'eff_rate': float(eff_rate), 'ref_fraction': float(f)}
                         )
+                    # success: reset failure tracker
+                    if key in self._fail:
+                        self._fail.pop(key, None)
                     return 2
                 except Exception as e:
                     logger.debug(f"UniswapV2 update failed {token0[:6]}-{token1[:6]}: {e}")
+                    try:
+                        import time as _t
+                        key = (token0.lower(), token1.lower())
+                        br = self._fail.get(key)
+                        c = br.get('count', 0) + 1 if br else 1
+                        wait = min(60.0, 0.5 * (2 ** (c - 1)))
+                        self._fail[key] = {'count': c, 'until': _t.time() + wait}
+                    except Exception:
+                        pass
                     return 0
 
-        tasks = [process(a, b) for a, b in pairs]
+        tasks = []
+        for a, b in pairs:
+            key = tuple(sorted((a.lower(), b.lower())))
+            tasks.append(process_with_pair(a, b, pair_map.get(key)))
         results = await asyncio.gather(*tasks, return_exceptions=True)
         for r in results:
             if isinstance(r, int):
@@ -157,50 +282,147 @@ class SushiSwapSwapAction(ProtocolAction, _SwapPairsMixin):
     def __init__(self, w3: Web3):
         self.collector = SushiSwapCollector(w3)
         self.fee = 0.003
+        self._fail = {}
 
     async def update_graph(self, graph: DeFiMarketGraph, w3: Web3, tokens: Dict[str, str],
                            block_number: Optional[int] = None) -> int:
+        import asyncio
+        from src.multicall import MultiCaller
         updated = 0
-        for token0, token1 in self._major_pairs(tokens):
+        pairs = self._major_pairs(tokens)
+        sem = asyncio.Semaphore(max(1, int(getattr(config, 'graph_build_concurrency', 16))))
+        lock = asyncio.Lock()
+
+        # 1) Batch resolve pair addresses via multicall (best-effort)
+        pair_map: Dict[Tuple[str, str], Optional[str]] = {}
+        try:
+            use_mc = (os.getenv('USE_MULTICALL', '1') in ('1','true','True'))
+        except Exception:
+            use_mc = True
+        if use_mc:
             try:
-                pair_address = await self.collector.get_pair_address(token0, token1)
-                if not pair_address:
-                    continue
-                r0, r1, _ = await self.collector.get_pool_reserves(pair_address)
-                if r0 == 0 or r1 == 0:
-                    continue
-                t0, t1 = await self.collector.get_pool_tokens(pair_address)
-                if not t0 or not t1:
-                    continue
-                d0 = get_decimals(w3, t0, 18)
-                d1 = get_decimals(w3, t1, 18)
-                nr0, nr1 = normalize_reserves(r0, d0, r1, d1)
-                try:
-                    f = float(getattr(config, 'slippage_trade_fraction', 0.01))
-                except Exception:
-                    f = 0.01
-                amt_in = max(1e-12, float(nr0) * max(1e-6, min(f, 0.5)))
-                out = amount_out_uniswap_v2(amt_in, float(nr0), float(nr1), self.fee)
-                eff_rate = (out / amt_in) if amt_in > 0 and out > 0 else (float(nr1) / float(nr0)) * (1.0 - self.fee)
-                pre_fee_rate = eff_rate / max(1e-9, (1.0 - self.fee))
-                base = 100.0
-                graph.add_trading_pair(
-                    token0=t0,
-                    token1=t1,
-                    dex='sushiswap',
-                    pool_address=pair_address,
-                    reserve0=base,
-                    reserve1=base * float(pre_fee_rate),
-                    fee=self.fee,
-                )
-                set_edge_meta(
-                    graph.graph, t0, t1, dex='sushiswap', pool_address=pair_address,
-                    fee_tier=None, source='onchain', confidence=0.98,
-                    extra={'t0': t0, 't1': t1, 'r0': float(nr0), 'r1': float(nr1), 'eff_rate': float(eff_rate), 'ref_fraction': float(f)}
-                )
-                updated += 2
+                mc = MultiCaller(w3)
+                chunk = 200
+                for i in range(0, len(pairs), chunk):
+                    sub = pairs[i:i+chunk]
+                    res = mc.batch_get_pairs(self.collector.factory_contract, sub)
+                    pair_map.update(res)
             except Exception as e:
-                logger.debug(f"SushiSwap update failed {token0[:6]}-{token1[:6]}: {e}")
+                logger.debug(f"Sushi multicall batch_get_pairs failed: {e}")
+
+        # 2) Batch fetch token0, token1, reserves
+        core_map: Dict[str, Dict[str, Optional[object]]] = {}
+        if use_mc and pair_map:
+            try:
+                mc = mc if 'mc' in locals() else MultiCaller(w3)
+                pa_list = sorted({addr for addr in (pair_map.get(tuple(sorted((a.lower(), b.lower())))) for a, b in pairs) if addr})
+                core_map = mc.batch_v2_core(pa_list)
+            except Exception as e:
+                logger.debug(f"Sushi multicall v2_core failed: {e}")
+
+        # 3) Batch decimals
+        decimals_map: Dict[str, int] = {}
+        if use_mc and core_map:
+            try:
+                toks = set()
+                for info in core_map.values():
+                    if info.get('t0'):
+                        toks.add(info['t0'])
+                    if info.get('t1'):
+                        toks.add(info['t1'])
+                mc = mc if 'mc' in locals() else MultiCaller(w3)
+                decimals_map = mc.batch_erc20_decimals(list(toks))
+            except Exception as e:
+                logger.debug(f"Sushi multicall decimals failed: {e}")
+
+        async def process_with_pair(token0: str, token1: str, pair_address: Optional[str]) -> int:
+            async with sem:
+                try:
+                    import time as _t
+                    key = (token0.lower(), token1.lower())
+                    br = self._fail.get(key)
+                    if br and br.get('until', 0) > _t.time():
+                        return 0
+                    pa = pair_address
+                    if not pa:
+                        pa = await self.collector.get_pair_address(token0, token1)
+                    if not pa:
+                        c = br.get('count', 0) + 1 if br else 1
+                        wait = min(60.0, 0.5 * (2 ** (c - 1)))
+                        self._fail[key] = {'count': c, 'until': _t.time() + wait}
+                        return 0
+                    info = core_map.get(Web3.to_checksum_address(pa)) if core_map else None
+                    if info and info.get('r0') and info.get('r1') and info.get('t0') and info.get('t1'):
+                        t0 = info['t0']; t1 = info['t1']
+                        r0 = int(info['r0']); r1 = int(info['r1'])
+                    else:
+                        r0, r1, _ = await self.collector.get_pool_reserves(pa)
+                        if r0 == 0 or r1 == 0:
+                            c = br.get('count', 0) + 1 if br else 1
+                            wait = min(60.0, 0.5 * (2 ** (c - 1)))
+                            self._fail[key] = {'count': c, 'until': _t.time() + wait}
+                            return 0
+                        t0, t1 = await self.collector.get_pool_tokens(pa)
+                        if not t0 or not t1:
+                            c = br.get('count', 0) + 1 if br else 1
+                            wait = min(60.0, 0.5 * (2 ** (c - 1)))
+                            self._fail[key] = {'count': c, 'until': _t.time() + wait}
+                            return 0
+                    d0 = decimals_map.get(Web3.to_checksum_address(t0)) if decimals_map else None
+                    d1 = decimals_map.get(Web3.to_checksum_address(t1)) if decimals_map else None
+                    if d0 is None:
+                        d0 = get_decimals(w3, t0, 18)
+                    if d1 is None:
+                        d1 = get_decimals(w3, t1, 18)
+                    nr0, nr1 = normalize_reserves(r0, d0, r1, d1)
+                    try:
+                        f = float(getattr(config, 'slippage_trade_fraction', 0.01))
+                    except Exception:
+                        f = 0.01
+                    amt_in = max(1e-12, float(nr0) * max(1e-6, min(f, 0.5)))
+                    out = amount_out_uniswap_v2(amt_in, float(nr0), float(nr1), self.fee)
+                    eff_rate = (out / amt_in) if amt_in > 0 and out > 0 else (float(nr1) / float(nr0)) * (1.0 - self.fee)
+                    pre_fee_rate = eff_rate / max(1e-9, (1.0 - self.fee))
+                    base = 100.0
+                    async with lock:
+                        graph.add_trading_pair(
+                            token0=t0,
+                            token1=t1,
+                            dex='sushiswap',
+                            pool_address=pa,
+                            reserve0=base,
+                            reserve1=base * float(pre_fee_rate),
+                            fee=self.fee,
+                        )
+                        set_edge_meta(
+                            graph.graph, t0, t1, dex='sushiswap', pool_address=pa,
+                            fee_tier=None, source='onchain', confidence=0.98,
+                            extra={'t0': t0, 't1': t1, 'r0': float(nr0), 'r1': float(nr1), 'eff_rate': float(eff_rate), 'ref_fraction': float(f)}
+                        )
+                    if key in self._fail:
+                        self._fail.pop(key, None)
+                    return 2
+                except Exception as e:
+                    logger.debug(f"SushiSwap update failed {token0[:6]}-{token1[:6]}: {e}")
+                    try:
+                        import time as _t
+                        key = (token0.lower(), token1.lower())
+                        br = self._fail.get(key)
+                        c = br.get('count', 0) + 1 if br else 1
+                        wait = min(60.0, 0.5 * (2 ** (c - 1)))
+                        self._fail[key] = {'count': c, 'until': _t.time() + wait}
+                    except Exception:
+                        pass
+                    return 0
+
+        tasks = []
+        for a, b in pairs:
+            key = tuple(sorted((a.lower(), b.lower())))
+            tasks.append(process_with_pair(a, b, pair_map.get(key)))
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for r in results:
+            if isinstance(r, int):
+                updated += r
         return updated
 
 
@@ -1902,7 +2124,10 @@ class ActionRegistry:
         results = await asyncio.gather(*tasks, return_exceptions=True)
         for act, res in zip(actions, results):
             if isinstance(res, Exception):
-                logger.error(f"Action {act.name} failed: {res}")
+                try:
+                    logger.error(f"Action {act.name} failed: {type(res).__name__}: {res}")
+                except Exception:
+                    logger.error(f"Action {act.name} failed: {repr(res)}")
             else:
                 try:
                     total += int(res or 0)

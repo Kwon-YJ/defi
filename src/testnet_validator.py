@@ -12,7 +12,10 @@ class TestnetValidator:
     
     def __init__(self):
         # Sepolia 테스트넷으로 변경 (더 안정적)
-        self.w3 = Web3(Web3.HTTPProvider(config.sepolia_rpc))
+        try:
+            self.w3 = Web3(Web3.HTTPProvider(config.sepolia_rpc, request_kwargs={'timeout': 8}))
+        except Exception:
+            self.w3 = Web3(Web3.HTTPProvider(config.sepolia_rpc))
         self.test_tokens = {
             'WETH': '0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14',  # Sepolia WETH
             'USDC': '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',  # Sepolia USDC

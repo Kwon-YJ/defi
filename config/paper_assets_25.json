@@ -26,7 +26,7 @@
   "AMN": { "symbol": "AMN", "address": "0x737F98AC8cA59f2C68aD658E3C3d8C8963E40a4c", "decimals": 18 },
   "FXC": { "symbol": "FXC", "address": "0x4a57e687b9126435a9b19e4a802113e266adebde", "decimals": 18 },
   "HEDG": { "symbol": "HEDG", "address": "0xF1290473E210B2108A85237fBcd7b6eb42CC654F", "decimals": 18 },
-  "POA20": { "symbol": "POA20", "address": "0x6758B7d441a9739b98552B373703d8d3DDeDb7fC1", "decimals": 18 },
+  "POA20": { "symbol": "POA20", "address": "0x6758B7d441a9739b98552B373703d8d3DDeDb7fC", "decimals": 18 },
   "RCN": { "symbol": "RCN", "address": "0xf970b8e36e23f7fc3fd752eea86f8be8d83375a6", "decimals": 18 },
   "RDN": { "symbol": "RDN", "address": "0x255aa6DF07540Cb5d3d297f0D0D4D84cb52bc8e6", "decimals": 18 },
   "SAN": { "symbol": "SAN", "address": "0x7C5A0CE9267ED19B22F8cae653F198E3E8daf098", "decimals": 18 },

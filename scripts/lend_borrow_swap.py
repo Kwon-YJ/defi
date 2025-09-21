@@ -3,8 +3,15 @@ from __future__ import annotations
 
 import argparse
 from typing import Dict
+import os
+import sys
 
 from web3 import Web3
+
+"""Ensure project root on sys.path when running as a script."""
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
 
 from config.config import config
 from src.block_graph_updater import BlockGraphUpdater
@@ -29,7 +36,10 @@ def main():
     ap.add_argument('--safety', type=float, default=0.9, help='안전 마진 (0~1, 기본: 0.9)')
     args = ap.parse_args()
 
-    w3 = Web3(Web3.HTTPProvider(config.ethereum_mainnet_rpc))
+    try:
+        w3 = Web3(Web3.HTTPProvider(config.ethereum_mainnet_rpc, request_kwargs={'timeout': 8}))
+    except Exception:
+        w3 = Web3(Web3.HTTPProvider(config.ethereum_mainnet_rpc))
     tokens = load_default_tokens()
     strat = LendBorrowSwapStrategy(w3, tokens)
     plan = strat.build_plan(args.collateral, args.borrow, args.amount, safety_factor=args.safety)
@@ -38,4 +48,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-

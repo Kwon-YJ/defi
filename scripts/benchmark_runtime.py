@@ -1,9 +1,15 @@
 #!/usr/bin/env python3
 import os
+import sys
 import time
 import argparse
 import asyncio
 from statistics import mean
+
+"""Ensure project root on sys.path when running as a script."""
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
 
 from src.market_graph import DeFiMarketGraph
 from src.block_graph_updater import BlockGraphUpdater
@@ -23,6 +29,7 @@ async def main():
     ap = argparse.ArgumentParser(description='Measure runtime per-block build/update')
     ap.add_argument('-n', '--runs', type=int, default=5, help='number of runs')
     ap.add_argument('--paper25', action='store_true', help='use paper 25 assets')
+    ap.add_argument('--fast', action='store_true', help='fast mode: prioritize core actions and WETH-star pairs')
     ap.add_argument('--include-majors', action='store_true')
     ap.add_argument('--include-defi', action='store_true')
     ap.add_argument('--include-extra', action='store_true')
@@ -36,9 +43,23 @@ async def main():
         os.environ['INCLUDE_DEFI_TOKENS'] = '1'
     if args.include_extra:
         os.environ['INCLUDE_EXTRA_TOKENS'] = '1'
+    if args.fast:
+        # Fast mode: focus V2/Sushi + WETH wrap, restrict to WETH-star pairs
+        os.environ['FAST_MODE'] = '1'
+        os.environ['WETH_STAR_ONLY'] = '1'
+        # Use multicall for pair discovery
+        os.environ['USE_MULTICALL'] = '1'
 
     g = DeFiMarketGraph()
     updater = BlockGraphUpdater(g)
+    # Apply fast-mode action filtering
+    try:
+        if os.getenv('FAST_MODE', '0') in ('1','true','True'):
+            allowed = {'uniswap_v2.swap', 'sushiswap.swap', 'weth.wrap'}
+            reg = updater.registry
+            reg.actions = {k: v for k, v in reg.actions.items() if k in allowed}
+    except Exception:
+        pass
 
     # warmup
     dt0 = await run_once(updater)
@@ -55,4 +76,3 @@ async def main():
 
 if __name__ == '__main__':
     asyncio.run(main())
-

@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
 import os
+import sys
 import asyncio
 import argparse
 from web3 import Web3
+"""Ensure project root on sys.path when running as a script."""
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
 from src.price_feed import PriceFeed
 from src.token_manager import TokenManager
 from config.config import config
@@ -19,7 +24,10 @@ async def main():
     rpc = config.ethereum_mainnet_rpc
     if not rpc:
         raise SystemExit('ETHEREUM_MAINNET_RPC not configured')
-    w3 = Web3(Web3.HTTPProvider(rpc))
+    try:
+        w3 = Web3(Web3.HTTPProvider(rpc, request_kwargs={'timeout': 8}))
+    except Exception:
+        w3 = Web3(Web3.HTTPProvider(rpc))
     pf = PriceFeed(w3)
 
     # Build token set
@@ -53,4 +61,3 @@ async def main():
 
 if __name__ == '__main__':
     asyncio.run(main())
-

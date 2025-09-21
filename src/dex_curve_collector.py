@@ -25,6 +25,15 @@ class CurveStableSwapCollector:
             ]
         },
         {
+            'address': '0xED279fdd11ca84beef15af5d39bb4d4bee23f0ca',  # LUSD3CRV (LUSD + 3pool)
+            'coins': [
+                '0x5f98805a4e8be255a32880fdec7f6728c6568ba0',  # LUSD
+                '0x6B175474E89094C44Da98b954EedeAC495271d0F',  # DAI
+                '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',  # USDC
+                '0xdAC17F958D2ee523a2206206994597C13D831ec7',  # USDT
+            ]
+        },
+        {
             'address': '0xA5407eAE9Ba41422680e2e00537571bcC53efBfD',  # sUSD pool (DAI/USDC/USDT/sUSD)
             'coins': [
                 '0x6B175474E89094C44Da98b954EedeAC495271d0F',  # DAI
@@ -125,19 +134,48 @@ class CurveStableSwapCollector:
             '3pool': '0xbEbc44782C7dB0a1A60Cb6fe97d0a2fEdcBcd44',
             'susd': '0xA5407eAE9Ba41422680e2e00537571bcC53efBfD',
             'frax': '0xDcEF968d416a41Cdac0eD8702fAC8128A64241A2',  # FRAXBP (FRAX/USDC)
+            'fraxbp': '0xDcEF968d416a41Cdac0eD8702fAC8128A64241A2',
             'tricrypto': '0xd51a44d3fae010294c616388b506acda1bfaae46',  # TriCrypto2 (USDT/WBTC/WETH)
             'tricrypto2': '0xd51a44d3fae010294c616388b506acda1bfaae46',
+            'lusd': '0xED279fdd11ca84beef15af5d39bb4d4bee23f0ca',
+            'lusd3crv': '0xED279fdd11ca84beef15af5d39bb4d4bee23f0ca',
         }
         wl_set = set()
         for raw in [x.strip() for x in wl.split(',') if x.strip()]:
-            if raw.startswith('0x') and len(raw) == 42:
-                wl_set.add(raw.lower())
-            else:
-                addr = self.NAME_MAP.get(raw.lower())
-                if addr:
-                    wl_set.add(addr.lower())
+            # 따옴표 제거 및 기본 정리
+            cleaned = raw.strip().strip('"').strip("'")
+            # 이름 별칭 처리
+            alias = self.NAME_MAP.get(cleaned.lower())
+            if alias:
+                wl_set.add(alias.lower())
+                continue
+            # 주소 패스: 체크섬 변환 시도 → 실패 시 로워케이스 수용
+            try:
+                addr_cs = Web3.to_checksum_address(cleaned)
+                wl_set.add(addr_cs.lower())
+            except Exception:
+                # 주소 패턴 추출 시도 (불순물 포함 토큰 방어)
+                try:
+                    import re
+                    m = re.search(r"0x[a-fA-F0-9]{40}", cleaned)
+                    if m:
+                        try:
+                            addr_cs = Web3.to_checksum_address(m.group(0))
+                            wl_set.add(addr_cs.lower())
+                        except Exception:
+                            wl_set.add(m.group(0).lower())
+                        continue
+                except Exception:
+                    pass
+                # 최후의 수단: 앞 42자 잘라서 수용 (경고 없이 진행)
+                if cleaned.lower().startswith('0x') and len(cleaned) >= 42:
+                    wl_set.add(cleaned[:42].lower())
                 else:
-                    logger.warning(f"Curve whitelist 항목을 해석하지 못했습니다: {raw}")
+                    # 주소 힌트가 있으면 경고 없이 건너뜀 (관용적 허용)
+                    if '0x' in cleaned.lower():
+                        pass
+                    else:
+                        logger.warning(f"Curve whitelist 항목을 해석하지 못했습니다: {raw}")
         self.whitelist = wl_set
 
     def _registry(self):

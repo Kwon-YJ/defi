@@ -264,20 +264,44 @@ class ArbitrageDetector:
         provider = getattr(config, 'flash_provider', 'aave').lower()
         if getattr(config, 'flash_dry_run', True):
             logger.info(f"[Flash] Dry-run 시뮬레이션 실행 (provider={provider})")
-            if provider == 'dydx':
-                exec_ = DyDxFlashExecutor(Web3())
-                result = await exec_.simulate(opportunity)
-            else:
-                sim = SimulationExecutor(Web3())
-                result = await sim.simulate_arbitrage(opportunity)
-            logger.info(f"시뮬 결과: net={result.get('net_profit', 0):.6f} ETH, ratio={result.get('profit_ratio', 0):.4f}")
+            try:
+                from src.flash_fee import choose_best_provider_and_amount, estimate_fee_eth
+                w3 = Web3()
+                choice = choose_best_provider_and_amount(opportunity, w3)
+                logger.info(
+                    "[Flash] 선택: provider=%s amount=%.6f ETH net≈%.6f ETH (base=%.6f ETH)" % (
+                        choice.get('best_provider'),
+                        float(choice.get('best_amount_eth') or 0.0),
+                        float(choice.get('best_net_eth') or 0.0),
+                        float(choice.get('base_required_eth') or 0.0),
+                    )
+                )
+                # 상세 샘플 상위 3개 출력
+                samples = sorted(choice.get('samples', []), key=lambda d: d.get('net_eth', 0.0), reverse=True)[:3]
+                for s in samples:
+                    logger.info("[Flash] 후보: prov=%s amt=%.6f net=%.6f fee=%.6f path=%.6f" % (
+                        s['provider'], s['amount_eth'], s['net_eth'], s['fee_eth'], s['path_net_eth']
+                    ))
+            except Exception as e:
+                # fallback to simple simulate
+                logger.warning(f"[Flash] 최적 선택 경로 실패, 단순 시뮬로 폴백: {e}")
+                if provider == 'dydx':
+                    exec_ = DyDxFlashExecutor(Web3())
+                    result = await exec_.simulate(opportunity)
+                else:
+                    sim = SimulationExecutor(Web3())
+                    result = await sim.simulate_arbitrage(opportunity)
+                logger.info(f"시뮬 결과: net={result.get('net_profit', 0):.6f} ETH, ratio={result.get('profit_ratio', 0):.4f}")
             return
 
         # 실제 실행 경로
         logger.info(f"[Flash] 온체인 실행 준비 (provider={provider})")
         if not config.validate():
             raise RuntimeError("필수 환경변수 미설정(Alchemy/RPC/PRIVATE_KEY)")
-        w3 = Web3(Web3.HTTPProvider(config.ethereum_mainnet_rpc))
+        try:
+            w3 = Web3(Web3.HTTPProvider(config.ethereum_mainnet_rpc, request_kwargs={'timeout': 8}))
+        except Exception:
+            w3 = Web3(Web3.HTTPProvider(config.ethereum_mainnet_rpc))
         if provider == 'dydx':
             exec_ = DyDxFlashExecutor(w3)
             # 실제 on-chain 경로는 추후 확장

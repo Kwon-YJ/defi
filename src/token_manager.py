@@ -29,7 +29,10 @@ class TokenManager:
         
         # RPC URL 설정 - 파라미터가 없으면 config에서 가져옴
         rpc_url = web3_provider_url or config.ethereum_mainnet_rpc
-        self.w3 = Web3(Web3.HTTPProvider(rpc_url)) if rpc_url else None
+        try:
+            self.w3 = Web3(Web3.HTTPProvider(rpc_url, request_kwargs={'timeout': 8})) if rpc_url else None
+        except Exception:
+            self.w3 = Web3(Web3.HTTPProvider(rpc_url)) if rpc_url else None
         self.erc20_abi = [
             {
                 "constant": True,

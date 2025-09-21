@@ -1,6 +1,7 @@
 from typing import Dict, List, Optional
 import json
 import os
+from web3 import Web3
 from src.logger import setup_logger
 
 logger = setup_logger(__name__)
@@ -37,8 +38,23 @@ def load_paper_25_addresses(json_path: str = os.path.join('config', 'paper_asset
             if not isinstance(ent, dict):
                 continue
             addr = ent.get('address')
-            if isinstance(addr, str) and addr.startswith('0x') and len(addr) == 42:
-                mapping[sym] = addr
+            if isinstance(addr, str):
+                try:
+                    # 정규화: 체크섬 주소로 변환
+                    cs = Web3.to_checksum_address(addr)
+                    mapping[sym] = cs
+                except Exception:
+                    # 문자열 내부에서 0x + 40 hex 패턴을 추출해 복구 시도
+                    try:
+                        import re
+                        m = re.search(r"0x[a-fA-F0-9]{40}", addr)
+                        if m:
+                            cs = Web3.to_checksum_address(m.group(0))
+                            mapping[sym] = cs
+                        else:
+                            logger.warning(f"paper_25: 주소 누락/형식 오류(sym={sym}). JSON에서 보완 필요")
+                    except Exception:
+                        logger.warning(f"paper_25: 주소 누락/형식 오류(sym={sym}). JSON에서 보완 필요")
             else:
                 logger.warning(f"paper_25: 주소 누락/형식 오류(sym={sym}). JSON에서 보완 필요")
     except FileNotFoundError:
@@ -46,4 +62,3 @@ def load_paper_25_addresses(json_path: str = os.path.join('config', 'paper_asset
     except Exception as e:
         logger.error(f"paper_25 자산 로드 실패: {e}")
     return mapping
-

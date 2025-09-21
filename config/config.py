@@ -59,7 +59,11 @@ class Config:
     # 논문(2103.02228) 25자산 사용 모드
     use_paper_25_assets: bool = os.getenv('USE_PAPER_25_ASSETS', '0') in ('1', 'true', 'True')
     # Curve 풀 화이트리스트 (쉼표 구분 주소). 빈 값이면 전체 허용.
-    curve_pool_whitelist: str = os.getenv('CURVE_POOL_WHITELIST', '0xbEbc44782C7dB0a1A60Cb6fe97d0a2fEdcBcd44,0xA5407eAE9Ba41422680e2e00537571bcC53efBfD')
+    # Default includes: 3pool(DAI/USDC/USDT), sUSD pool(DAI/USDC/USDT/sUSD), FRAXBP(FRAX/USDC), LUSD3CRV(LUSD+3pool)
+    curve_pool_whitelist: str = os.getenv(
+        'CURVE_POOL_WHITELIST',
+        '0xbEbc44782C7dB0a1A60Cb6fe97d0a2fEdcBcd44,0xA5407eAE9Ba41422680e2e00537571bcC53efBfD,0xDcEF968d416a41Cdac0eD8702fAC8128A64241A2,0xED279fdd11ca84beef15af5d39bb4d4bee23f0ca'
+    )
     # 주요 토큰/디파이 토큰 자동 포함 플래그
     include_major_tokens: bool = os.getenv('INCLUDE_MAJOR_TOKENS', '1') in ('1','true','True')
     include_defi_tokens: bool = os.getenv('INCLUDE_DEFI_TOKENS', '1') in ('1','true','True')
